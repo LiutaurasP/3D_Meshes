@@ -1,4 +1,3 @@
-
 import numpy as np
 import plotly.graph_objects as go
 import open3d as o3d
