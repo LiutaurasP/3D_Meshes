@@ -1,0 +1,40 @@
+name: Viewer check
+
+# Installs the project on a clean Windows and macOS machine and runs the
+# viewer smoke test, so problems on the other OS show up without needing
+# that machine yourself.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The CI machines have no GPU, this provides a software OpenGL for VTK
+      - uses: pyvista/setup-headless-display-action@v3
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Check that the existing scripts still import
+        run: python -c "import generate_mesh, generate_blob, registration, visualize"
+
+      - name: Run the viewer smoke test
+        run: python tests/smoke_test.py

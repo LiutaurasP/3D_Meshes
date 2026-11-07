@@ -1,94 +1,130 @@
 import threading
 
-import open3d.visualization.gui as gui
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import QDockWidget, QLabel, QMainWindow, QScrollArea
 
 from viewer.pipeline import build_inspections
-from viewer.scene import SceneView
+from viewer.scene import CAMERA_PRESETS, SceneView
 from viewer.sidebar import Sidebar
 
 
-SIDEBAR_WIDTH_EM = 20
-
-
-class InspectionWindow:
-    """Main application window: 3D scene on the left, settings on the right."""
+class MainWindow(QMainWindow):
+    """Main application window: 3D scene in the middle, settings dock on the right."""
 
     def __init__(self, settings):
+        super().__init__()
         self.settings = settings
+        self.setWindowTitle("3D Inspection Viewer")
+        self.resize(1400, 900)
 
-        app = gui.Application.instance
-        self.window = app.create_window("3D Inspection Viewer", 1400, 900)
-        self.em = self.window.theme.font_size
-
-        self.scene = SceneView(self.window, settings.view)
-        self.scene.widget.set_on_key(self._on_key)
+        self.scene = SceneView(self, settings.view)
+        self.setCentralWidget(self.scene.widget)
 
         self.clouds = build_inspections(settings.data)
-        self.scene.set_clouds(self.clouds, self._cloud_colors())
+        self.colors = self._cloud_colors()
+        self.scene.set_clouds(self.clouds, self.colors)
 
         self.sidebar = Sidebar(
-            self.em,
             list(self.clouds),
+            self.colors,
             settings.view,
             callbacks={
-                "visibility": self.scene.set_visible,
-                "navigation": self.scene.set_navigation,
+                "visibility": self.set_visible,
+                "navigation": self.set_navigation,
                 "camera": self.scene.look_from,
                 "point_size": self.scene.set_point_size,
                 "axes": self.scene.set_axes_visible,
                 "plotly": self.open_in_plotly,
             },
         )
+        self._add_dock()
+        self._add_menus()
 
-        self.window.add_child(self.scene.widget)
-        self.window.add_child(self.sidebar.panel)
-        self.window.set_on_layout(self._on_layout)
+        self.status = QLabel()
+        self.statusBar().addWidget(self.status)
+        self._update_status()
 
         self.scene.look_from("Iso")
-        self._update_status()
 
     def _cloud_colors(self):
         palette = [self.settings.view.color_a, self.settings.view.color_b]
         return {name: palette[i % len(palette)] for i, name in enumerate(self.clouds)}
 
-    def _on_layout(self, context):
-        rect = self.window.content_rect
-        width = SIDEBAR_WIDTH_EM * self.em
+    def _add_dock(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.sidebar)
 
-        self.scene.widget.frame = gui.Rect(rect.x, rect.y, rect.width - width, rect.height)
-        self.sidebar.panel.frame = gui.Rect(rect.get_right() - width, rect.y, width, rect.height)
+        dock = QDockWidget("Settings", self)
+        dock.setObjectName("settings")
+        dock.setWidget(scroll)
+        dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
+        dock.setMinimumWidth(280)
+        self.addDockWidget(Qt.RightDockWidgetArea, dock)
 
-    def _on_key(self, event):
-        if event.type != gui.KeyEvent.Type.DOWN:
-            return gui.Widget.EventCallbackResult.IGNORED
+    def _add_menus(self):
+        file_menu = self.menuBar().addMenu("&File")
+        quit_action = QAction("Quit", self)
+        quit_action.setShortcut(QKeySequence.Quit)
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
 
-        names = list(self.clouds)
-        number_keys = [gui.KeyName.ONE, gui.KeyName.TWO]
+        view_menu = self.menuBar().addMenu("&View")
 
-        if event.key in number_keys and number_keys.index(event.key) < len(names):
-            name = names[number_keys.index(event.key)]
-            self.sidebar.set_checked(name, self.scene.toggle(name))
-            return gui.Widget.EventCallbackResult.HANDLED
+        # Single key shortcuts live on menu actions so they work anywhere in the window
+        for key, name in enumerate(self.clouds, start=1):
+            action = QAction(f"Toggle {name}", self)
+            action.setShortcut(QKeySequence(str(key)))
+            action.triggered.connect(lambda _=False, n=name: self.toggle(n))
+            view_menu.addAction(action)
 
-        if event.key == gui.KeyName.M:
-            self.sidebar.set_navigation(self.scene.next_navigation())
-            return gui.Widget.EventCallbackResult.HANDLED
+        view_menu.addSeparator()
+        navigation = QAction("Switch orbit / fly", self)
+        navigation.setShortcut(QKeySequence("M"))
+        navigation.triggered.connect(self.next_navigation)
+        view_menu.addAction(navigation)
 
-        if event.key == gui.KeyName.R:
-            self.scene.look_from("Iso")
-            return gui.Widget.EventCallbackResult.HANDLED
+        view_menu.addSeparator()
+        for preset in CAMERA_PRESETS:
+            action = QAction(f"{preset} view", self)
+            action.triggered.connect(lambda _=False, p=preset: self.scene.look_from(p))
+            view_menu.addAction(action)
 
-        # Everything else (WASD in fly mode etc.) goes to the camera controls
-        return gui.Widget.EventCallbackResult.IGNORED
+        reset = QAction("Reset view", self)
+        reset.setShortcut(QKeySequence("R"))
+        reset.triggered.connect(lambda: self.scene.look_from("Iso"))
+        view_menu.addAction(reset)
+
+    # Actions shared by the sidebar, menus and keyboard
+
+    def set_visible(self, name, visible):
+        self.scene.set_visible(name, visible)
+        self.sidebar.set_checked(name, visible)
+
+    def toggle(self, name):
+        self.set_visible(name, not self.scene.is_visible(name))
+
+    def set_navigation(self, mode):
+        self.scene.set_navigation(mode)
+        self.sidebar.set_navigation(mode)
+        self._update_status()
+
+    def next_navigation(self):
+        self.set_navigation(self.scene.next_navigation())
 
     def _update_status(self):
-        lines = [f"{name}: {len(cloud.points):,} points" for name, cloud in self.clouds.items()]
-        self.sidebar.set_status("\n".join(lines))
+        counts = "   ".join(f"{name}: {len(cloud.points):,} points" for name, cloud in self.clouds.items())
+        self.status.setText(f"{counts}   |   Navigation: {self.scene.navigation}")
 
     def open_in_plotly(self):
-        # Imported here so the Open3D app still starts if plotly is missing
+        # Imported here so the app still starts if plotly is missing
         from visualize import visualize_inspections
 
         a, b = list(self.clouds.values())[:2]
-        # figure.show() opens a browser tab, keep it off the GUI thread
+        # figure.show() waits for the browser to load the page, keep it off the GUI thread
         threading.Thread(target=visualize_inspections, args=(a, b), daemon=True).start()
+
+    def closeEvent(self, event):
+        self.scene.close()
+        super().closeEvent(event)

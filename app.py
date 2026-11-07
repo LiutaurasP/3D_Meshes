@@ -1,19 +1,25 @@
-"""Start the Open3D inspection viewer.
+"""Start the 3D inspection viewer (Qt + PyVista window, Open3D for the data).
 
 The original Plotly viewer is unchanged: run main.py for it, or use the
 "Open in Plotly" button inside this app.
 """
 
-import open3d.visualization.gui as gui
+import sys
+
+from PySide6.QtWidgets import QApplication
 
 from viewer.settings import Settings
-from viewer.window import InspectionWindow
+from viewer.window import MainWindow
 
 
 def main():
-    gui.Application.instance.initialize()
-    InspectionWindow(Settings())
-    gui.Application.instance.run()
+    app = QApplication(sys.argv)
+    app.setApplicationName("3D Inspection Viewer")
+
+    window = MainWindow(Settings())
+    window.show()
+
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -2,3 +2,6 @@ numpy
 open3d
 scipy
 plotly
+PySide6-Essentials
+pyvista
+pyvistaqt
