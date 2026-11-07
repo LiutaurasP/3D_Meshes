@@ -2,7 +2,13 @@ import math
 
 import numpy as np
 from PySide6.QtCore import QElapsedTimer, QEvent, QObject, Qt, QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
+    QLineEdit,
+    QPlainTextEdit,
+    QTextEdit,
+)
 
 
 # key -> (forward, right, up)
@@ -20,17 +26,19 @@ MAX_PITCH_DEG = 85.0
 
 
 class FlyController(QObject):
-    """First person camera for the 3D view.
+    """Keyboard movement and first person mouse look for the 3D view.
 
     W/S forward and back, A/D sideways, Q/E down and up, Shift to go
-    faster, drag with the left mouse button to look around and use the
-    scroll wheel to change the speed.
+    faster. These keys work in every navigation mode. In fly mode the
+    mouse also changes: drag with the left button to look around and use
+    the scroll wheel to change the speed. In orbit mode VTK handles the
+    mouse as usual.
 
-    It works as an event filter on the VTK widget. Keyboard events are
-    always taken away from VTK, because VTK has its own single letter
-    shortcuts (q quits, w switches to wireframe, 3 turns on stereo, ...)
-    that we don't want. Mouse events are only taken in fly mode, in orbit
-    mode VTK handles them as usual.
+    The movement keys are caught for the whole application, so they work
+    no matter which widget was clicked last (except while typing in a text
+    field). All other keys are kept away from the VTK widget, because VTK
+    has its own single letter shortcuts (q quits, w switches to wireframe,
+    3 turns on stereo, ...) that we don't want.
     """
 
     def __init__(self, plotter):
@@ -50,6 +58,11 @@ class FlyController(QObject):
 
         self.plotter.interactor.setFocusPolicy(Qt.StrongFocus)
         self.plotter.interactor.installEventFilter(self)
+        QApplication.instance().installEventFilter(self)
+
+    def shutdown(self):
+        self._timer.stop()
+        QApplication.instance().removeEventFilter(self)
 
     def set_enabled(self, enabled):
         self.enabled = enabled
@@ -69,8 +82,8 @@ class FlyController(QObject):
     def eventFilter(self, obj, event):
         kind = event.type()
 
-        if kind in (QEvent.KeyPress, QEvent.KeyRelease):
-            if self.enabled and event.key() in MOVE_KEYS and not event.isAutoRepeat():
+        if kind in (QEvent.KeyPress, QEvent.KeyRelease) and self._is_move_key(event):
+            if not event.isAutoRepeat():
                 if kind == QEvent.KeyPress:
                     self._pressed.add(event.key())
                     if not self._timer.isActive():
@@ -78,6 +91,17 @@ class FlyController(QObject):
                         self._timer.start()
                 else:
                     self._pressed.discard(event.key())
+            return True
+
+        # Releasing a key in another app would leave us moving forever
+        if kind == QEvent.ApplicationDeactivate:
+            self._pressed.clear()
+            return False
+
+        if obj is not self.plotter.interactor:
+            return False
+
+        if kind in (QEvent.KeyPress, QEvent.KeyRelease):
             return True
 
         if not self.enabled:
@@ -108,6 +132,16 @@ class FlyController(QObject):
             return True
 
         return False
+
+    def _is_move_key(self, event):
+        if event.key() not in MOVE_KEYS:
+            return False
+        # Leave Cmd/Ctrl/Alt combinations (Cmd+Q, Ctrl+A, ...) to the rest of the app
+        if event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier):
+            return False
+        focus = QApplication.focusWidget()
+        typing = isinstance(focus, (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit))
+        return not typing
 
     # Camera math
 

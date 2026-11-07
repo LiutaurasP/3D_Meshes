@@ -125,5 +125,11 @@ class SceneView:
         self.set_navigation(NAVIGATION_MODES[index])
         return self.navigation
 
+    def set_transform(self, name, matrix):
+        """Move a cloud on screen with a 4x4 matrix, without touching its data."""
+        self.actors[name].user_matrix = matrix
+        self.plotter.render()
+
     def close(self):
+        self.fly.shutdown()
         self.plotter.close()

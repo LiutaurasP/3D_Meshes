@@ -1,9 +1,11 @@
 import threading
 
+import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QDockWidget, QLabel, QMainWindow, QScrollArea
 
+from viewer.animation import AlignmentAnimation, AlignWorker
 from viewer.pipeline import build_inspections
 from viewer.scene import CAMERA_PRESETS, SceneView
 from viewer.sidebar import Sidebar
@@ -25,11 +27,21 @@ class MainWindow(QMainWindow):
         self.colors = self._cloud_colors()
         self.scene.set_clouds(self.clouds, self.colors)
 
+        # The second inspection is moved onto the first one
+        self.target_name, self.source_name = list(self.clouds)[:2]
+        self.align_steps = None
+        self._worker = None
+        self._animation = None
+
         self.sidebar = Sidebar(
             list(self.clouds),
             self.colors,
             settings.view,
+            settings.data,
             callbacks={
+                "align": self.align,
+                "reset_alignment": self.reset_alignment,
+                "animate": self.set_animate,
                 "visibility": self.set_visible,
                 "navigation": self.set_navigation,
                 "camera": self.scene.look_from,
@@ -113,9 +125,73 @@ class MainWindow(QMainWindow):
     def next_navigation(self):
         self.set_navigation(self.scene.next_navigation())
 
+    # Alignment
+
+    def align(self):
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self._stop_animation()
+        self.sidebar.set_aligning(True)
+        self.statusBar().showMessage("Running ICP...")
+
+        self._worker = AlignWorker(
+            self.clouds[self.source_name],
+            self.clouds[self.target_name],
+            self.settings.data.max_correspondence_distance,
+        )
+        self._worker.done.connect(self._on_aligned)
+        self._worker.start()
+
+    def _on_aligned(self, steps):
+        self.align_steps = steps
+        self.statusBar().clearMessage()
+        last = len(steps) - 1
+
+        if not self.settings.data.animate_alignment or last == 0:
+            self._show_step(steps[-1].transformation, last)
+            self._alignment_finished()
+            return
+
+        self.scene.set_transform(self.source_name, steps[0].transformation)
+        self._animation = AlignmentAnimation(steps)
+        self._animation.frame.connect(self._show_step)
+        self._animation.finished.connect(self._alignment_finished)
+        self._animation.start()
+
+    def _show_step(self, matrix, step):
+        self.scene.set_transform(self.source_name, matrix)
+        self.sidebar.show_align_step(step, len(self.align_steps) - 1, self.align_steps[step])
+
+    def _alignment_finished(self):
+        self.sidebar.set_aligning(False)
+        self._update_status()
+
+    def reset_alignment(self):
+        self._stop_animation()
+        self.scene.set_transform(self.source_name, np.eye(4))
+        start = self.align_steps[0] if self.align_steps else None
+        self.align_steps = None
+        self.sidebar.set_aligning(False)
+        self.sidebar.show_not_aligned(start)
+        self._update_status()
+
+    def set_animate(self, animate):
+        self.settings.data.animate_alignment = animate
+
+    def _stop_animation(self):
+        if self._animation is not None:
+            self._animation.stop()
+            self._animation = None
+
+    def is_aligned(self):
+        return self.align_steps is not None and (self._animation is None or not self._animation.is_running())
+
     def _update_status(self):
         counts = "   ".join(f"{name}: {len(cloud.points):,} points" for name, cloud in self.clouds.items())
-        self.status.setText(f"{counts}   |   Navigation: {self.scene.navigation}")
+        pose = "aligned" if self.align_steps else "original pose"
+        self.status.setText(
+            f"{counts}   |   {self.source_name}: {pose}   |   Navigation: {self.scene.navigation}"
+        )
 
     def open_in_plotly(self):
         # Imported here so the app still starts if plotly is missing
@@ -126,5 +202,8 @@ class MainWindow(QMainWindow):
         threading.Thread(target=visualize_inspections, args=(a, b), daemon=True).start()
 
     def closeEvent(self, event):
+        self._stop_animation()
+        if self._worker is not None:
+            self._worker.wait()
         self.scene.close()
         super().closeEvent(event)

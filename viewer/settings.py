@@ -22,6 +22,10 @@ class DataSettings:
     rotation_deg: tuple = (5.0, -6.0, 3.0)
     translation: tuple = (0.2, 0.1, -0.15)
 
+    # ICP (same value as registration.py)
+    max_correspondence_distance: float = 0.5
+    animate_alignment: bool = True
+
 
 @dataclass
 class Settings:
