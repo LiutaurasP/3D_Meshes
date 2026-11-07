@@ -1,6 +1,6 @@
 """Checks for change_detection.py against the known change of the example scenes.
 
-The surveys are compared in their true position here (no misalignment), so
+The scans are compared in their true position here (no misalignment), so
 these tests measure the change detection itself, not the alignment.
 Run with:  python -m pytest tests
 """

@@ -174,16 +174,16 @@ def start():
     state["shortcuts"] = window_is_active()
     if state["shortcuts"]:
         QTest.keyClick(window, Qt.Key_2)
-        check("key 2 hides inspection B", not window.scene.is_visible("Inspection B"))
-        check("sidebar follows the key", not window.sidebar.checkboxes["Inspection B"].isChecked())
+        check("key 2 hides scan B", not window.scene.is_visible("Scan B"))
+        check("sidebar follows the key", not window.sidebar.checkboxes["Scan B"].isChecked())
         QTest.keyClick(window, Qt.Key_2)
-        check("key 2 shows inspection B again", window.scene.is_visible("Inspection B"))
+        check("key 2 shows scan B again", window.scene.is_visible("Scan B"))
     else:
         skip("keys 1/2/M", "window can't become active on this machine")
-        window.toggle("Inspection B")
-        check("hiding inspection B updates the sidebar", not window.sidebar.checkboxes["Inspection B"].isChecked())
-        window.toggle("Inspection B")
-        check("inspection B shows again", window.scene.is_visible("Inspection B"))
+        window.toggle("Scan B")
+        check("hiding scan B updates the sidebar", not window.sidebar.checkboxes["Scan B"].isChecked())
+        window.toggle("Scan B")
+        check("scan B shows again", window.scene.is_visible("Scan B"))
 
     press(Qt.Key_Q, widget=view)
     press(Qt.Key_Q, widget=view, press=False)
@@ -257,7 +257,7 @@ def after_alignment():
     steps = window.align_steps
     check("alignment finished", window.is_aligned())
 
-    actor = window.scene.actors["Inspection B"]
+    actor = window.scene.actors["Scan B"]
     check("B ends at the final ICP pose", np.allclose(actor.user_matrix, steps[-1].transformation, atol=1e-6))
     check("RMSE went down", steps[-1].inlier_rmse < steps[0].inlier_rmse)
     check("sidebar shows the result", "done" in window.sidebar.align_info.text())
@@ -277,28 +277,28 @@ def after_detection():
     window.sidebar.area_list.setCurrentRow(0)
     window.sidebar.color_mode.setCurrentText("Change")
     check("change colours are used", "Change (m): - removed / + added" in window.scene.plotter.scalar_bars.keys())
-    window.sidebar.color_mode.setCurrentText("Per inspection")
+    window.sidebar.color_mode.setCurrentText("Per scan")
 
     steps = window.align_steps
     window.sidebar.reset_align_button.click()
-    actor = window.scene.actors["Inspection B"]  # look it up again, clearing the changes rebuilds the actors
+    actor = window.scene.actors["Scan B"]  # look it up again, clearing the changes rebuilds the actors
     check("reset puts B back", np.allclose(actor.user_matrix, np.eye(4)) and window.align_steps is None)
     check("moving B clears the detected changes", window.change_result is None and not window.scene.area_actors)
 
     # True change highlight follows B when it moves
     window.sidebar.truth.setChecked(True)
-    truth_b = window.scene.highlight_actors["truth"].get("Inspection B")
+    truth_b = window.scene.highlight_actors["truth"].get("Scan B")
     check("true change is shown", truth_b is not None and truth_b.GetVisibility())
-    window.scene.set_transform("Inspection B", steps[-1].transformation)
+    window.scene.set_transform("Scan B", steps[-1].transformation)
     check("true change moves with B", np.allclose(truth_b.user_matrix, steps[-1].transformation))
     screenshot("4_true_change")
 
     # Depth colours keep position and highlight
     window.scene.set_color_mode("Depth")
-    check("depth colours keep B's position", np.allclose(window.scene.actors["Inspection B"].user_matrix, steps[-1].transformation))
-    check("depth colours keep the highlight", window.scene.highlight_actors["truth"]["Inspection B"].GetVisibility())
+    check("depth colours keep B's position", np.allclose(window.scene.actors["Scan B"].user_matrix, steps[-1].transformation))
+    check("depth colours keep the highlight", window.scene.highlight_actors["truth"]["Scan B"].GetVisibility())
     screenshot("5_depth")
-    window.scene.set_color_mode("Per inspection")
+    window.scene.set_color_mode("Per scan")
 
     # Switch to another example from the dropdown
     picker = window.sidebar.scene_picker
@@ -315,17 +315,17 @@ def data_ready():
 
 def after_scene_switch():
     check("switching scene loads it", window.inspections.title.startswith("Sheet pile"))
-    check("new scene has 30,000 points per survey", all(len(c.points) == 30_000 for c in window.clouds.values()))
+    check("new scene has 30,000 points per scan", all(len(c.points) == 30_000 for c in window.clouds.values()))
     check("alignment is reset for new data", window.align_steps is None)
     screenshot("6_sheet_pile")
 
     # Changing a setting updates the scene by itself (there is no Generate button)
     window.sidebar.n_points.setValue(12_000)
-    wait_until(lambda: data_ready() and len(window.clouds["Inspection A"].points) == 12_000, after_resize)
+    wait_until(lambda: data_ready() and len(window.clouds["Scan A"].points) == 12_000, after_resize)
 
 
 def after_resize():
-    check("size change applies by itself", len(window.clouds["Inspection A"].points) == 12_000)
+    check("size change applies by itself", len(window.clouds["Scan A"].points) == 12_000)
     check("status line says the scene is ready", "12,000 + 12,000 points" in window.sidebar.data_status.text())
 
     # Several quick edits end up as the last values (nothing is lost while a build runs)
@@ -336,8 +336,8 @@ def after_resize():
 
 
 def after_same_as_a():
-    a = np.asarray(window.clouds["Inspection A"].points)
-    b = np.asarray(window.clouds["Inspection B"].points)
+    a = np.asarray(window.clouds["Scan A"].points)
+    b = np.asarray(window.clouds["Scan B"].points)
     check("'Same as A' removes the offset", window.settings.data.translation == (0.0, 0.0, 0.0))
     check("quick edits are all applied", window.settings.data.seed == 5)
     check("with no offset B lies on A", abs(a.mean(axis=0) - b.mean(axis=0)).max() < 0.2)
@@ -363,18 +363,18 @@ def after_files():
 
     # Picking a colour in the swatch (the dialog itself can't be clicked from a script)
     green = (0.1, 0.8, 0.3, 1.0)
-    window.sidebar.swatches["Inspection B"].on_picked(green)
-    actor_color = lambda: window.scene.actors["Inspection B"].prop.color.float_rgb
+    window.sidebar.swatches["Scan B"].on_picked(green)
+    actor_color = lambda: window.scene.actors["Scan B"].prop.color.float_rgb
     check("picked colour is used for the cloud", np.allclose(actor_color(), green[:3], atol=0.01))
     window.scene.set_color_mode("Depth")
-    window.scene.set_color_mode("Per inspection")
+    window.scene.set_color_mode("Per scan")
     check("colour survives switching colour modes", np.allclose(actor_color(), green[:3], atol=0.01))
     window.sidebar.scene_picker.setCurrentIndex(window.sidebar.scene_picker.findData("bridge_pier_scour"))
     wait_until(lambda: data_ready() and window.inspections.title.startswith("Bridge"), after_color)
 
 
 def after_color():
-    color = window.scene.actors["Inspection B"].prop.color.float_rgb
+    color = window.scene.actors["Scan B"].prop.color.float_rgb
     check("colour stays when switching scene", np.allclose(color, (0.1, 0.8, 0.3), atol=0.01))
 
     # Background colour from its swatch

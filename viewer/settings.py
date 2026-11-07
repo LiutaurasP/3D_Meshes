@@ -10,7 +10,7 @@ class ViewSettings:
     show_truth: bool = False  # highlight where the real change is (examples only)
     show_changes: bool = True  # highlight what change detection found
     show_areas: bool = True  # boxes and labels around the change areas
-    color_mode: str = "Per inspection"  # or "Depth" or "Change"
+    color_mode: str = "Per scan"  # or "Depth" or "Change"
     background: tuple = (0.016, 0.02, 0.035, 1.0)  # almost black, a hint of midnight blue
 
     # Same colors as the Plotly viewer so both views are easy to compare
@@ -31,7 +31,7 @@ class DataSettings:
     stripes: bool = True
     seed: int = 1
 
-    # Simulated pose difference of the second survey
+    # Simulated pose difference of the second scan
     rotation_deg: tuple = (3.0, -2.0, 2.0)
     translation: tuple = (0.3, -0.2, 0.1)
 

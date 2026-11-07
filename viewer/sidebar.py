@@ -132,7 +132,7 @@ class Sidebar(QWidget):
 
         form = Form()
         self.n_points = form.row("Size", spin(1_000, 200_000, data.n_points, 5_000, suffix=" points"),
-                                 "Number of points in each survey")
+                                 "Number of points in each scan")
         self.n_points.setGroupSeparatorShown(True)
         self.noise = form.row("Sensor noise", spin(0.0, 10.0, data.noise * 100, 0.5, decimals=1, suffix=" cm"),
                               "Measurement error close to the sonar, it grows with distance")
@@ -159,9 +159,9 @@ class Sidebar(QWidget):
         return card
 
     def _offset_card(self, data):
-        card = Card("Survey B position")
+        card = Card("Scan B position")
         card.add(hint(
-            "Survey B is made from a slightly different position than A, "
+            "Scan B is made from a slightly different position than A, "
             "so it starts turned and shifted. <b>Align B to A</b> has to undo this."))
 
         offset = QGridLayout()
@@ -190,10 +190,10 @@ class Sidebar(QWidget):
 
         actions = QHBoxLayout()
         actions.setSpacing(SPACING)
-        self.no_offset_button = button("Same as A", tooltip="Put survey B exactly where survey A is (nothing to align)")
+        self.no_offset_button = button("Same as A", tooltip="Put scan B exactly where scan A is (nothing to align)")
         self.no_offset_button.clicked.connect(lambda: self.set_offset((0, 0, 0), (0, 0, 0)))
         actions.addWidget(self.no_offset_button, 1)
-        self.random_offset_button = button("Random position", tooltip="Turn and shift survey B by a random amount")
+        self.random_offset_button = button("Random position", tooltip="Turn and shift scan B by a random amount")
         self.random_offset_button.clicked.connect(lambda: self.callbacks["random_offset"]())
         actions.addWidget(self.random_offset_button, 1)
         card.add(actions)
@@ -408,7 +408,7 @@ class Sidebar(QWidget):
         card.add(form)
 
         self.detect_button = button("Detect changes", primary=True,
-                                    tooltip="Compare the surveys in their current position (align first)")
+                                    tooltip="Compare the scans in their current position (align first)")
         self.detect_button.clicked.connect(lambda: self.callbacks["detect"]())
         card.add(self.detect_button)
         self.change_progress = card.add(thin_progress())
@@ -448,7 +448,7 @@ class Sidebar(QWidget):
         self.change_progress.setRange(0, 0 if busy else 1)
         self.change_progress.setVisible(busy)
         if busy:
-            self.change_info.setText("Comparing the surveys…")
+            self.change_info.setText("Comparing the scans…")
 
     def show_changes_result(self, summary, area_lines):
         self.change_info.setText(summary)

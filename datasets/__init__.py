@@ -1,4 +1,4 @@
-"""Example datasets: pairs of inspections (A = before, B = after) with known changes.
+"""Example datasets: pairs of scans (A = before, B = after) with known changes.
 
 Nothing in here depends on the GUI, so it can be used from any script:
 
@@ -39,7 +39,7 @@ class OriginalWall(Scene):
     description = (
         "The project's first test case from generate_mesh.py: a flat 4 x 3 m wall "
         "with 1,000 points where a 1 x 1 m patch is pushed out by 20 cm. Both "
-        "inspections use exactly the same points, unlike a real survey."
+        "scans use exactly the same points, unlike real scans."
     )
     change = "1 x 1 m patch pushed out by 20 cm"
     default_points = 1_000
@@ -75,7 +75,7 @@ def to_cloud(points):
 
 
 def generate(key, settings=None):
-    """Create both inspections of a scene. The same settings always give the same result."""
+    """Create both scans of a scene. The same settings always give the same result."""
     scene_class = SCENES[key]
     settings = settings or ScanSettings(n_points=scene_class.default_points)
 
@@ -86,17 +86,17 @@ def generate(key, settings=None):
     scene.build_world(np.random.default_rng(settings.seed))
     scanner = np.asarray(scene.scanner, dtype=float)
 
-    surveys = {}
+    scans = {}
     for number, state in enumerate(("a", "b"), start=1):
         rng = np.random.default_rng([settings.seed, number])
-        surveys[state] = scan(
+        scans[state] = scan(
             lambda r, n, s=state: scene.sample(r, n, s),
             scanner, settings, rng, track_axis=scene.track_axis,
         )
 
     # Centre the scene horizontally so rotations (misalignment) happen around
     # its middle. Heights stay as they are: z = 0 is the water surface.
-    (points_a, changed_a), (points_b, changed_b) = surveys["a"], surveys["b"]
+    (points_a, changed_a), (points_b, changed_b) = scans["a"], scans["b"]
     center = (points_a.min(axis=0) + points_a.max(axis=0)) / 2
     center[2] = 0.0
 

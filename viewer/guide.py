@@ -35,17 +35,17 @@ P = '<p style="margin:0 0 8px 0;">'
 
 CHAPTERS = [
     ("What this app does", P +
-     "It compares two underwater surveys of the same place, made at different times: "
-     "<b>Inspection A</b> (before) and <b>Inspection B</b> (after). It lines them up and "
+     "It compares two underwater scans of the same place, made at different times: "
+     "<b>Scan A</b> (before) and <b>Scan B</b> (after). It lines them up and "
      "then shows what changed between them, like scour holes, fallen objects or damaged walls."
      "</p>" + P + dim(
-         "Until real survey data is available, the app comes with simulated underwater "
+         "Until real scan data is available, the app comes with simulated underwater "
          "scenes in which the real change is known, so you can check how well everything works.") + "</p>",
      True),
 
     ("Quick start", steps([
         "Pick a scene under <b>Scene</b>, for example <i>Quay wall – dropped object</i>.",
-        "Press <b>Align B to A</b> and watch survey B slide onto survey A.",
+        "Press <b>Align B to A</b> and watch scan B slide onto scan A.",
         "Press <b>Detect changes</b>. Changed points light up and every changed area gets a box.",
         "Click an area in the list to fly the camera to it.",
         "Tick <b>Show true change</b> under Display to compare with the real change.",
@@ -65,16 +65,16 @@ CHAPTERS = [
         (key("Q") + " " + key("E"), "down / up"),
         (key("Shift"), "move faster"),
         (key("M"), "switch orbit / fly"),
-        (key("1") + " " + key("2"), "show or hide inspection A / B"),
+        (key("1") + " " + key("2"), "show or hide scan A / B"),
         (key("R"), "reset the view"),
         (key("Space"), "show or hide this panel"),
         (key("Ctrl") + " / " + key("Cmd") + " + " + key("O"), "open two scans"),
     ]), False),
 
     ("Example scenes", P +
-     "Every scene is two simulated sonar surveys of the same place, with a known change in between. "
+     "Every scene is two simulated sonar scans of the same place, with a known change in between. "
      "The list shows the size of each scene.</p>" + keys_table([
-         ("<b>Size</b>", "number of points per survey"),
+         ("<b>Size</b>", "number of points per scan"),
          ("<b>Sensor noise</b>", "measurement error close to the sonar (it grows with distance)"),
          ("<b>Stray points</b>", "share of false echoes in the water, like fish or bubbles"),
          ("<b>Ping stripes</b>", "the stripy density pattern of the sonar pings"),
@@ -82,9 +82,9 @@ CHAPTERS = [
      ]) + '<p style="margin:8px 0 0 0;">' + dim("Changes apply right away, there is nothing to confirm.") + "</p>",
      False),
 
-    ("Survey B position", P +
-     "A real survey is never made from exactly the same spot twice. The <b>Survey B position</b> "
-     "card simulates that: survey B is <b>turned</b> (degrees) and <b>shifted</b> (metres) "
+    ("Scan B position", P +
+     "A real scan is never made from exactly the same spot twice. The <b>Scan B position</b> "
+     "card simulates that: scan B is <b>turned</b> (degrees) and <b>shifted</b> (metres) "
      "compared to A.</p>" + keys_table([
          ("<b>Same as A</b>", "no difference at all, B lies exactly on A"),
          ("<b>Random position</b>", "a new random turn and shift"),
@@ -93,8 +93,8 @@ CHAPTERS = [
          "and see when the alignment stops working.") + "</p>",
      False),
 
-    ("Aligning the surveys", P +
-     "Two surveys are never made from exactly the same position, so B first has to be moved onto A. "
+    ("Aligning the scans", P +
+     "Two scans are never made from exactly the same position, so B first has to be moved onto A. "
      "<b>Align B to A</b> does this with ICP: it pairs every point of B with the closest point of A "
      "and moves B a little closer, round after round.</p>" + keys_table([
          ("<b>Match distance</b>", "points further apart than this are not paired up"),
@@ -107,7 +107,7 @@ CHAPTERS = [
      False),
 
     ("Finding changes", P +
-     "<b>Detect changes</b> measures how far every point is from the other survey's surface. "
+     "<b>Detect changes</b> measures how far every point is from the other scan's surface. "
      "Points further than the <b>threshold</b> count as changed and are grouped into areas.</p>" + keys_table([
          ("<b>Auto threshold</b>", "picked from the noise in the data (recommended)"),
          ("<b>Smallest area</b>", "smaller groups of changed points are ignored as noise"),
@@ -119,7 +119,7 @@ CHAPTERS = [
      False),
 
     ("Colours and highlights", keys_table([
-        ("<b>Per inspection</b>", "A and B in their own colour (click a swatch to change it)"),
+        ("<b>Per scan</b>", "A and B in their own colour (click a swatch to change it)"),
         ("<b>Depth</b>", "depth below the water surface, shallow red to deep blue"),
         ("<b>Change</b>", "after Detect changes: blue removed, white unchanged, red added"),
         ("<b>Changed points</b>", "highlight of what was detected, colour can be picked"),

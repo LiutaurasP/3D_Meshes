@@ -15,8 +15,8 @@ CAMERA_PRESETS = {
 }
 
 NAVIGATION_MODES = ("Orbit", "Fly (WASD)")
-COLOR_MODES = ("Per inspection", "Depth", "Change")
-DEPTH_COLORMAP = "turbo_r"  # shallow = red, deep = blue, like survey software
+COLOR_MODES = ("Per scan", "Depth", "Change")
+DEPTH_COLORMAP = "turbo_r"  # shallow = red, deep = blue, like sonar software
 DEPTH_LABEL = "Depth below surface (m)"
 CHANGE_COLORMAP = "coolwarm"  # blue = material removed, white = unchanged, red = added
 CHANGE_LABEL = "Change (m): - removed / + added"
@@ -91,7 +91,7 @@ class SceneView:
 
         mode = self.settings.color_mode
         if mode == "Change" and not self.change_values:
-            mode = "Per inspection"  # nothing detected yet
+            mode = "Per scan"  # nothing detected yet
         depth_range = self._depth_range() if mode == "Depth" else None
 
         for index, (name, cloud) in enumerate(self.geometries.items()):
@@ -237,7 +237,7 @@ class SceneView:
     # Style
 
     def set_color(self, name, rgba):
-        """Change the colour of one cloud (used when colouring per inspection)."""
+        """Change the colour of one cloud (used when colouring per scan)."""
         self.colors[name] = tuple(rgba)
         if self.settings.color_mode not in ("Depth", "Change") or (
                 self.settings.color_mode == "Change" and not self.change_values):

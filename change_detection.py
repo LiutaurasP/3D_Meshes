@@ -10,12 +10,12 @@ No GUI code in here, it works on plain Open3D point clouds:
     result.areas          # changed points grouped into areas (size, position, ...)
 
 How it works
-1. Distance to the other survey's *surface*: for every point we take the
-   nearest point of the other survey and measure along that point's
+1. Distance to the other scan's *surface*: for every point we take the
+   nearest point of the other scan and measure along that point's
    surface normal. Two scans never hit exactly the same spots, measuring
    along the normal removes most of that sampling effect, so unchanged
    surface comes out close to 0 (only the sensor noise is left).
-   Where the other survey has no surface nearby at all (e.g. a new
+   Where the other scan has no surface nearby at all (e.g. a new
    object), the plain distance to the nearest point is used.
 2. The distance has a sign: positive = B is in front of A (material
    added, e.g. a dropped object or sediment), negative = B is behind A

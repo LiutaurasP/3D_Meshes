@@ -1,9 +1,9 @@
-"""Synthetic underwater survey scenes.
+"""Synthetic underwater scan scenes.
 
 Coordinates are in metres with z pointing up and the water surface at
 z = 0. Every scene has a fixed "world" (built from the seed) that both
-inspections share, and two states of it: A (before) and B (after the
-change). Each inspection is a separate simulated sonar survey, so the
+scans share, and two states of it: A (before) and B (after the
+change). Each scan is a separate simulated sonar scan, so the
 points of A and B are different samples of the surface, like real scans.
 
 The masks returned by sample() mark the ground truth:
@@ -23,11 +23,11 @@ class Scene:
     change = ""  # one line: what changed between A and B
     default_points = 20_000
     fixed_points = False  # True if the point count can't be changed
-    scanner = (0.0, 0.0, 0.0)  # survey vessel / sonar head position
+    scanner = (0.0, 0.0, 0.0)  # position of the sonar (on the boat or underwater drone)
     track_axis = 0  # direction the vessel sails in (0 = x, 1 = y)
 
     def build_world(self, rng):
-        """Create everything that is the same in both inspections."""
+        """Create everything that is the same in both scans."""
 
     def sample(self, rng, n, state):
         """Return about n points on the surface in state "a" or "b" plus the change mask."""
@@ -50,7 +50,7 @@ class HarbourWall(Scene):
     title = "Harbour wall – no change"
     description = (
         "A 20 m long concrete block quay wall, 8 m deep, with a sandy seabed in "
-        "front. Both surveys show the same wall, only the survey differs. Good "
+        "front. Both scans show the same wall, only the scan differs. Good "
         "for checking that nothing is reported as changed."
     )
     change = "nothing changed"
@@ -171,7 +171,7 @@ class HarbourWallScour(HarbourWall):
     key = "harbour_wall_scour"
     title = "Harbour wall – scour at the toe"
     description = (
-        "The same kind of quay wall. In the second survey the current has washed "
+        "The same kind of quay wall. In the second scan the current has washed "
         "the seabed away at the foot of the wall over a few metres, up to about "
         "70 cm deep, which also exposes more of the wall."
     )
@@ -192,7 +192,7 @@ class QuayWallDroppedObject(HarbourWall):
     title = "Quay wall – dropped object"
     description = (
         "A quay wall where a 20 ft shipping container has fallen into the water "
-        "between the surveys and now lies on the seabed in front of the wall."
+        "between the scans and now lies on the seabed in front of the wall."
     )
     change = "new object lying on the seabed"
     default_points = 25_000
@@ -264,7 +264,7 @@ class SheetPileCorrosion(Scene):
     title = "Sheet pile wall – corrosion hole"
     description = (
         "A corrugated steel sheet pile wall, 15 m long and 7 m deep. In the second "
-        "survey corrosion has eaten one small hole (about 40 cm wide) through the "
+        "scan corrosion has eaten one small hole (about 40 cm wide) through the "
         "steel, so the soil behind it shows. Everything else is unchanged: a "
         "needle in a haystack."
     )
@@ -333,7 +333,7 @@ class BridgePierScour(Scene):
     title = "Bridge pier – scour pit"
     description = (
         "A round bridge pier standing on the river bed, 6 m deep. In the second "
-        "survey the current has dug a scour pit around the pier, deepest on the "
+        "scan the current has dug a scour pit around the pier, deepest on the "
         "side the water comes from, up to about 1 m."
     )
     change = "scour pit around the pier"
@@ -398,7 +398,7 @@ class HarbourBasinSiltation(Scene):
     title = "Harbour basin – siltation"
     description = (
         "A 40 x 30 m patch of harbour basin floor with a dredged channel through "
-        "it. In the second survey mud has settled over a wide area, up to about "
+        "it. In the second scan mud has settled over a wide area, up to about "
         "35 cm: a gentle change spread over a large area instead of one spot."
     )
     change = "mud built up over a wide area"

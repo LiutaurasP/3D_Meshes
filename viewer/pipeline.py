@@ -42,7 +42,7 @@ def misalign(cloud, rotation_deg, translation):
 
 
 def build_inspections(data_settings):
-    """Create the example scene chosen in the settings, with the second survey misaligned."""
+    """Create the example scene chosen in the settings, with the second scan misaligned."""
     scan = ScanSettings(
         n_points=data_settings.n_points,
         noise=data_settings.noise,
@@ -56,15 +56,15 @@ def build_inspections(data_settings):
     return Inspections(
         title=pair.title,
         change=pair.change,
-        clouds={"Inspection A": pair.a, "Inspection B": moved_b},
-        truth={"Inspection A": pair.changed_a, "Inspection B": pair.changed_b},
+        clouds={"Scan A": pair.a, "Scan B": moved_b},
+        truth={"Scan A": pair.changed_a, "Scan B": pair.changed_b},
     )
 
 
 def load_inspections(path_a, path_b):
     """Read two scans from files (.ply, .pcd, .xyz, .pts). There is no ground truth for these."""
     clouds = {}
-    for name, path in (("Inspection A", path_a), ("Inspection B", path_b)):
+    for name, path in (("Scan A", path_a), ("Scan B", path_b)):
         cloud = o3d.io.read_point_cloud(str(path))
         if len(cloud.points) == 0:
             raise ValueError(f"No points could be read from {Path(path).name}")

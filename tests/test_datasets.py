@@ -59,7 +59,7 @@ def test_same_seed_same_data(key):
 
 
 @pytest.mark.parametrize("key", SYNTHETIC)
-def test_surveys_are_independent_samples(key):
+def test_scans_are_independent_samples(key):
     # Like real scans, A and B must not contain the same points
     pair = make(key)
     assert nearest_distance(pair.b, pair.a).min() > 0
@@ -78,7 +78,7 @@ def test_unchanged_scene_has_no_change():
 
 @pytest.mark.parametrize("key", NEAREST_POINT_VISIBLE)
 def test_change_is_where_the_mask_says(key):
-    """Marked points must differ more from the other survey than unmarked ones."""
+    """Marked points must differ more from the other scan than unmarked ones."""
     pair = make(key, n=60_000)
     dist_b = nearest_distance(pair.b, pair.a)
     dist_a = nearest_distance(pair.a, pair.b)

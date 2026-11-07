@@ -44,7 +44,7 @@ class PipelineFreeSpan(Scene):
     title = "Seabed pipeline – free span"
     description = (
         "A 30 m stretch of an 80 cm pipeline lying partly buried on the seabed, "
-        "12 m deep. In the second survey the current has washed the seabed away "
+        "12 m deep. In the second scan the current has washed the seabed away "
         "under the pipe over several metres: the pipe now hangs free (a 'free "
         "span'), which can make it vibrate and break."
     )
@@ -101,7 +101,7 @@ class BreakwaterRocks(Scene):
     title = "Breakwater – displaced rocks"
     description = (
         "The underwater slope of a rubble mound breakwater, built from about a "
-        "hundred armour rocks of roughly 1.5 m. In the second survey a storm has "
+        "hundred armour rocks of roughly 1.5 m. In the second scan a storm has "
         "moved three rocks down the slope and one rock is gone."
     )
     change = "three rocks moved, one missing"
@@ -117,7 +117,7 @@ class BreakwaterRocks(Scene):
 
     def build_world(self, rng):
         self.seabed = Seabed(rng, (-self.half_x, self.half_x), (self.foot_y - 1, 13.0), self.seabed_depth)
-        # Rough layer of small stones between the armour rocks (part of the world, same in both surveys)
+        # Rough layer of small stones between the armour rocks (part of the world, same in both scans)
         self.gravel = HeightField(rng, (-self.half_x - 1, self.half_x + 1), (self.top_y - 1, self.foot_y + 1),
                                   0.12, scales=(4, 2, 1))
         self.rocks = []
@@ -181,7 +181,7 @@ class FloodedTunnelSettlement(Scene):
     description = (
         "The inside of a flooded concrete tunnel (6 m wide, 30 m long, made of "
         "6 m segments) with some sediment on the floor, scanned from inside. In "
-        "the second survey one segment has sunk 12 cm, so its joints are offset. "
+        "the second scan one segment has sunk 12 cm, so its joints are offset. "
         "Use fly mode (M) to go inside."
     )
     change = "one segment sank 12 cm"
@@ -239,7 +239,7 @@ class JettyBrokenPile(Scene):
     title = "Jetty piles – broken pile"
     description = (
         "Fifteen round piles holding up a jetty, standing on the seabed 7 m "
-        "deep. In the second survey one pile has snapped: its upper part is "
+        "deep. In the second scan one pile has snapped: its upper part is "
         "gone and lies on the seabed next to it."
     )
     change = "one pile snapped, the piece lies on the seabed"
@@ -315,7 +315,7 @@ class SeabedDebris(Scene):
     key = "seabed_debris_field"
     title = "Seabed – debris field"
     description = (
-        "A 30 x 20 m patch of open seabed, 10 m deep. In the second survey "
+        "A 30 x 20 m patch of open seabed, 10 m deep. In the second scan "
         "several objects have appeared: three car tyres, two oil drums and a "
         "pallet. Each one is a separate change area."
     )
@@ -388,7 +388,7 @@ class QuayWallBulge(HarbourWall):
     key = "quay_wall_bulge"
     title = "Quay wall – bulging section"
     description = (
-        "A concrete block quay wall where, in the second survey, a section of "
+        "A concrete block quay wall where, in the second scan, a section of "
         "the wall has been pushed out towards the water by up to 30 cm (for "
         "example by soil pressure behind it). The wall itself deforms."
     )

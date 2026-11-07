@@ -43,7 +43,7 @@ class MainWindow(QMainWindow):
         self.clouds = self.inspections.clouds
         self.colors = self._cloud_colors()
 
-        # The second inspection is moved onto the first one
+        # The second scan is moved onto the first one
         self.target_name, self.source_name = list(self.clouds)[:2]
         self.align_steps = None
         self._worker = None
@@ -186,10 +186,10 @@ class MainWindow(QMainWindow):
 
     def load_files(self):
         """Ask for two scan files and load them. Returns False if the user cancelled."""
-        path_a, _ = QFileDialog.getOpenFileName(self, "Inspection A (the earlier, reference scan)", "", SCAN_FILES)
+        path_a, _ = QFileDialog.getOpenFileName(self, "Scan A (the earlier, reference scan)", "", SCAN_FILES)
         if not path_a:
             return False
-        path_b, _ = QFileDialog.getOpenFileName(self, "Inspection B (the later scan)", "", SCAN_FILES)
+        path_b, _ = QFileDialog.getOpenFileName(self, "Scan B (the later scan)", "", SCAN_FILES)
         if not path_b:
             return False
         self._start_data_worker(DataWorker(files=(path_a, path_b)), "Loading scans...")
@@ -404,7 +404,7 @@ class MainWindow(QMainWindow):
             else:
                 summary += "<br>(nothing really changed in this scene)"
         if self.align_steps is None:
-            summary += "<br><b>Survey B is not aligned:</b> most of this is the misalignment. Align first."
+            summary += "<br><b>Scan B is not aligned:</b> most of this is the misalignment. Align first."
 
         area_lines = [f"{i}. {self._area_text(area)}" for i, area in enumerate(result.areas, start=1)]
         self.sidebar.show_changes_result(summary, area_lines)

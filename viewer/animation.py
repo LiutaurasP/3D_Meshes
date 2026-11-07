@@ -59,7 +59,7 @@ class ChangeWorker(QThread):
 
 
 class DataWorker(QThread):
-    """Builds or loads the inspections off the GUI thread."""
+    """Builds or loads the scans off the GUI thread."""
 
     done = Signal(object)  # Inspections
     failed = Signal(str)

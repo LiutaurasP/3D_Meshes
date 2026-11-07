@@ -1,4 +1,4 @@
-"""Turns a perfect surface into something that looks like a sonar survey."""
+"""Turns a perfect surface into something that looks like a sonar scan."""
 
 from dataclasses import dataclass
 
@@ -16,7 +16,7 @@ class ScanSettings:
 
 
 def scan(sample_surface, scanner, settings, rng, track_axis=0, ping_spacing=0.35):
-    """Simulate one survey of a scene.
+    """Simulate one scan of a scene.
 
     sample_surface(rng, n) must return n points on the (perfect) surface
     and a bool mask per point (True = part of a changed area).
