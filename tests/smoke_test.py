@@ -23,6 +23,8 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
 
+from viewer.style import apply_theme
+
 from viewer.scene import cloud_to_polydata
 from viewer.settings import Settings
 from viewer.window import MainWindow
@@ -36,6 +38,7 @@ parser.add_argument("--screenshots", type=Path, default=None)
 args = parser.parse_args()
 
 app = QApplication(sys.argv[:1])
+apply_theme(app)
 
 # The default scene is the dropped container; the checks below use the scour scene
 default_settings = Settings()
@@ -377,6 +380,17 @@ def after_color():
     window.sidebar.seed.setFocus()
     space(window.sidebar.seed.findChild(QLineEdit) or window.sidebar.seed)
     check("space while typing in a number field doesn't toggle", window.dock.isVisible())
+
+    # Settings / Guide switch at the top of the panel
+    from viewer.guide import CHAPTERS
+    from viewer.widgets import Card
+
+    window.sidebar.switch.buttons[1].click()
+    check("the switch opens the guide", window.sidebar.pages.currentIndex() == 1)
+    guide_cards = window.sidebar.pages.widget(1).widget().findChildren(Card)
+    check(f"the guide has all {len(CHAPTERS)} chapters", len(guide_cards) == len(CHAPTERS) >= 10)
+    window.sidebar.switch.buttons[0].click()
+    check("the switch goes back to the settings", window.sidebar.pages.currentIndex() == 0)
 
     window.close()
     app.quit()

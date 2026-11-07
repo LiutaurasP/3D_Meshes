@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
-    QScrollArea,
     QTextEdit,
     QWidget,
 )
@@ -97,15 +96,12 @@ class MainWindow(QMainWindow):
         return {name: palette[i % len(palette)] for i, name in enumerate(self.clouds)}
 
     def _add_dock(self):
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.sidebar)
-
         dock = QDockWidget("Settings", self)
         dock.setObjectName("settings")
-        dock.setWidget(scroll)
-        dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
-        dock.setMinimumWidth(320)
+        dock.setWidget(self.sidebar)  # the sidebar scrolls its own pages
+        dock.setTitleBarWidget(QWidget())  # no title bar, the Settings / Guide switch replaces it
+        dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
+        dock.setMinimumWidth(360)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
         self.dock = dock
 

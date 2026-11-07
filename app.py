@@ -9,12 +9,14 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from viewer.settings import Settings
+from viewer.style import apply_theme
 from viewer.window import MainWindow
 
 
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("3D Inspection Viewer")
+    apply_theme(app)
 
     window = MainWindow(Settings())
     window.show()
