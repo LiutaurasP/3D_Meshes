@@ -43,6 +43,22 @@ def check(name, ok):
     print(("PASS  " if ok else "FAIL  ") + name, flush=True)
 
 
+def skip(name, reason):
+    print(f"SKIP  {name} ({reason})", flush=True)
+
+
+def window_is_active():
+    """Single key shortcuts (1, 2, M, R) only fire in the active window.
+
+    On a normal desktop that is always the case. Some CI machines have a
+    virtual screen without a window manager where no window can become
+    active, there those checks are skipped instead of failed.
+    """
+    window.raise_()
+    window.activateWindow()
+    return QTest.qWaitForWindowActive(window, 3000)
+
+
 def screenshot(name):
     if args.screenshots:
         args.screenshots.mkdir(parents=True, exist_ok=True)
@@ -72,6 +88,14 @@ def moved_forward(before, after, minimum=0.05):
     return np.dot(p1 - p0, forward) > minimum
 
 
+def switch_navigation():
+    """Press M if shortcuts work here, otherwise do what M does."""
+    if state["shortcuts"]:
+        QTest.keyClick(window, Qt.Key_M)
+    else:
+        window.next_navigation()
+
+
 def then(delay_ms, func):
     QTimer.singleShot(delay_ms, func)
 
@@ -83,11 +107,19 @@ def start():
     check("scene renders something", image is not None and image.std() > 0)
     screenshot("1_start")
 
-    QTest.keyClick(window, Qt.Key_2)
-    check("key 2 hides inspection B", not window.scene.is_visible("Inspection B"))
-    check("sidebar follows the key", not window.sidebar.checkboxes["Inspection B"].isChecked())
-    QTest.keyClick(window, Qt.Key_2)
-    check("key 2 shows inspection B again", window.scene.is_visible("Inspection B"))
+    state["shortcuts"] = window_is_active()
+    if state["shortcuts"]:
+        QTest.keyClick(window, Qt.Key_2)
+        check("key 2 hides inspection B", not window.scene.is_visible("Inspection B"))
+        check("sidebar follows the key", not window.sidebar.checkboxes["Inspection B"].isChecked())
+        QTest.keyClick(window, Qt.Key_2)
+        check("key 2 shows inspection B again", window.scene.is_visible("Inspection B"))
+    else:
+        skip("keys 1/2/M", "window can't become active on this machine")
+        window.toggle("Inspection B")
+        check("hiding inspection B updates the sidebar", not window.sidebar.checkboxes["Inspection B"].isChecked())
+        window.toggle("Inspection B")
+        check("inspection B shows again", window.scene.is_visible("Inspection B"))
 
     press(Qt.Key_Q, widget=view)
     press(Qt.Key_Q, widget=view, press=False)
@@ -106,8 +138,8 @@ def wasd_after_sidebar_click():
     press(Qt.Key_W, press=False)
     check("W moves in orbit mode, even after clicking the sidebar", moved_forward(state["before"], camera()))
 
-    QTest.keyClick(window, Qt.Key_M)
-    check("M switches to fly mode", window.scene.fly.enabled)
+    switch_navigation()
+    check("switching to fly mode", window.scene.fly.enabled)
 
     state["before"] = camera()
     press(Qt.Key_W)
@@ -128,8 +160,8 @@ def fly_mouse_look():
     check("mouse drag turns the view", turned > 0.1)
     check("looking around does not move the camera", np.allclose(p1, p2))
 
-    QTest.keyClick(window, Qt.Key_M)
-    check("M switches back to orbit", not window.scene.fly.enabled)
+    switch_navigation()
+    check("switching back to orbit", not window.scene.fly.enabled)
 
     window.scene.look_from("Iso")
     window.sidebar.align_button.click()
