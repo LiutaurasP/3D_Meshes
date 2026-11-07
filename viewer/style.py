@@ -90,15 +90,14 @@ QLabel {{
 #cardHeader {{
     background: transparent;
     border: none;
-    color: {TEXT_DIM};
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1px;
+    color: {TEXT};
+    font-size: 14px;
+    font-weight: 600;
     padding: 0;
     text-align: left;
 }}
 #cardHeader:hover {{
-    color: {TEXT};
+    color: #ffffff;
 }}
 #formLabel {{
     color: {TEXT_DIM};

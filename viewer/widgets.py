@@ -35,7 +35,7 @@ class Card(QFrame):
 
         self.header = QToolButton()
         self.header.setObjectName("cardHeader")
-        self.header.setText(title.upper())
+        self.header.setText(title)
         self.header.setCheckable(True)
         self.header.setChecked(expanded)
         self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
