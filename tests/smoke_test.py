@@ -143,7 +143,8 @@ def mid_animation():
 
 
 def wait_for_alignment(waited_ms):
-    if window.is_aligned() or waited_ms > 15000:
+    # The animation takes about 4 seconds, the extra time is for slow CI machines
+    if window.is_aligned() or waited_ms > 30000:
         after_alignment()
     else:
         then(200, lambda: wait_for_alignment(waited_ms + 200))

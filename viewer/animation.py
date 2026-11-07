@@ -1,5 +1,5 @@
 import numpy as np
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QObject, QThread, QTimer, Signal
 from scipy.spatial.transform import Rotation, Slerp
 
 from viewer.pipeline import icp_steps
@@ -33,7 +33,10 @@ class AlignmentAnimation(QObject):
     """Plays the ICP iterations back as a smooth movement.
 
     Every ICP iteration becomes a short tween, so you can see the cloud
-    being pulled into place step by step.
+    being pulled into place step by step. The animation follows the clock,
+    not a frame count: on a slow machine (or a very big scan) frames are
+    skipped, so it still takes the same time and always ends on the final
+    pose.
     """
 
     frame = Signal(object, int)  # 4x4 matrix, index of the ICP step it belongs to
@@ -49,13 +52,16 @@ class AlignmentAnimation(QObject):
             for k in range(1, tween_frames + 1):
                 self._frames.append((interpolate(start, end, k / tween_frames), i))
 
-        self._index = 0
+        self._frame_ms = 1000.0 / fps
+        self._shown = -1
+        self._clock = QElapsedTimer()
         self._timer = QTimer(self)
-        self._timer.setInterval(round(1000 / fps))
+        self._timer.setInterval(round(self._frame_ms))
         self._timer.timeout.connect(self._tick)
 
     def start(self):
-        self._index = 0
+        self._shown = -1
+        self._clock.start()
         self._timer.start()
 
     def stop(self):
@@ -65,11 +71,18 @@ class AlignmentAnimation(QObject):
         return self._timer.isActive()
 
     def _tick(self):
-        if self._index >= len(self._frames):
+        if not self._frames:
             self._timer.stop()
             self.finished.emit()
             return
 
-        matrix, step = self._frames[self._index]
-        self._index += 1
-        self.frame.emit(matrix, step)
+        last = len(self._frames) - 1
+        index = min(last, int(self._clock.elapsed() / self._frame_ms))
+        if index != self._shown:
+            self._shown = index
+            matrix, step = self._frames[index]
+            self.frame.emit(matrix, step)
+
+        if index == last:
+            self._timer.stop()
+            self.finished.emit()
