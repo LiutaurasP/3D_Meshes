@@ -32,7 +32,17 @@ EXPECTED = {
     "harbour_wall_scour": 0.6,
     "harbour_basin_siltation": 0.3,
     "sheet_pile_corrosion": 0.3,
+    "seabed_debris_field": 0.45,
+    "breakwater_displaced_rocks": 0.6,
+    "pipeline_free_span": 0.55,
+    "jetty_broken_pile": 0.8,
+    "flooded_tunnel_settlement": 0.6,
+    "quay_wall_bulge": 0.5,
 }
+
+# Scenes with one connected change (the others have several separate ones)
+ONE_AREA = ["quay_wall_dropped_object", "bridge_pier_scour", "harbour_wall_scour", "harbour_basin_siltation",
+            "sheet_pile_corrosion", "pipeline_free_span", "quay_wall_bulge"]
 
 
 @pytest.mark.parametrize("key", EXPECTED)
@@ -42,7 +52,7 @@ def test_finds_the_change_without_false_alarms(key):
     assert result_score.false_alarms < 0.05
 
 
-@pytest.mark.parametrize("key", EXPECTED)
+@pytest.mark.parametrize("key", ONE_AREA)
 def test_one_area_per_change(key):
     _, result, _ = detect(key)
     assert len(result.areas) == 1
@@ -93,3 +103,21 @@ def test_fixed_threshold_is_used():
     result = detect_changes(pair.a, pair.b, threshold=0.3)
     assert result.threshold == 0.3
     assert np.all(np.abs(result.distance_b[result.changed_b]) > 0.3)
+
+
+def test_every_debris_object_is_its_own_area():
+    pair, result, _ = detect("seabed_debris_field")
+    assert len(result.areas) == 6
+    assert all(area.kind == "added" for area in result.areas)
+
+
+def test_snapped_pile_shows_removed_top_and_added_piece():
+    _, result, _ = detect("jetty_broken_pile")
+    kinds = {area.kind for area in result.areas}
+    assert kinds == {"added", "removed"}
+
+
+def test_breakwater_finds_the_moved_rocks():
+    _, result, result_score = detect("breakwater_displaced_rocks")
+    assert len(result.areas) >= 4  # three moved rocks (old + new place) and the missing one
+    assert result_score.false_alarms < 0.05

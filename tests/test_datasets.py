@@ -16,6 +16,11 @@ from viewer.pipeline import icp_steps, misalign
 SYNTHETIC = [key for key, scene in SCENES.items() if not scene.fixed_points]
 WITH_CHANGE = [key for key in SYNTHETIC if key != "harbour_wall_unchanged"]
 
+# In the tunnel the whole segment sinks: its side walls slide along themselves,
+# so the plain nearest point distance used below hardly changes there. The
+# change detection tests (which measure along the surface) cover this scene.
+NEAREST_POINT_VISIBLE = [key for key in WITH_CHANGE if key != "flooded_tunnel_settlement"]
+
 
 def points(cloud):
     return np.asarray(cloud.points)
@@ -71,7 +76,7 @@ def test_unchanged_scene_has_no_change():
     assert not pair.changed_a.any() and not pair.changed_b.any()
 
 
-@pytest.mark.parametrize("key", WITH_CHANGE)
+@pytest.mark.parametrize("key", NEAREST_POINT_VISIBLE)
 def test_change_is_where_the_mask_says(key):
     """Marked points must differ more from the other survey than unmarked ones."""
     pair = make(key, n=60_000)

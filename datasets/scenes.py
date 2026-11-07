@@ -134,11 +134,12 @@ class HarbourWall(Scene):
         bed_now = self.seabed_z(x, 0.0, changed)
         visible = z > bed_now
         x, z = x[visible], z[visible]
-        wall = np.column_stack([x, self.wall_y(x, z), z])
+        wall = np.column_stack([x, self.wall_y(x, z) + self.wall_offset(x, z, changed), z])
         if changed:
             wall_mask = z < self.seabed_z(x, 0.0, False)  # newly exposed wall
         else:
             wall_mask = np.zeros(len(x), dtype=bool)
+        wall_mask |= self.wall_changed(x, z)
 
         # Seabed
         x = rng.uniform(x0, x1, counts[1])
@@ -156,6 +157,13 @@ class HarbourWall(Scene):
         return np.vstack(parts), np.concatenate(masks)
 
     def seabed_changed(self, x, y, state):
+        return np.zeros(len(x), dtype=bool)
+
+    def wall_offset(self, x, z, changed):
+        """How far the wall face moves towards the water in B (used by subclasses)."""
+        return 0.0
+
+    def wall_changed(self, x, z):
         return np.zeros(len(x), dtype=bool)
 
 

@@ -38,8 +38,13 @@ def scan(sample_surface, scanner, settings, rng, track_axis=0, ping_spacing=0.35
         mask_parts.append(mask)
         collected += len(points)
 
-    points = np.vstack(points_parts)[:n]
-    mask = np.concatenate(mask_parts)[:n]
+    # Shuffle before cutting to n: the surface parts come in a fixed order
+    # (e.g. seabed first, objects last), cutting the end off would remove
+    # whole parts instead of thinning everything evenly
+    points = np.vstack(points_parts)
+    mask = np.concatenate(mask_parts)
+    keep = rng.permutation(len(points))[:n]
+    points, mask = points[keep], mask[keep]
 
     # Range noise: sonar measures distance along the beam, so the error is along the beam
     beams = points - scanner

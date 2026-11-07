@@ -15,7 +15,8 @@ from dataclasses import dataclass
 import numpy as np
 import open3d as o3d
 
-from datasets.scenes import SIMPLE_SCENES, Scene
+from datasets.more_scenes import MORE_SCENES
+from datasets.scenes import SIMPLE_SCENES, QuayWallDroppedObject, Scene
 from datasets.sonar import ScanSettings, scan
 
 
@@ -45,7 +46,10 @@ class OriginalWall(Scene):
     fixed_points = True
 
 
-SCENES = {scene.key: scene for scene in SIMPLE_SCENES + [OriginalWall]}
+# Order in the app's dropdown: the dropped container first (the default scene)
+_ORDER = [QuayWallDroppedObject] + [s for s in SIMPLE_SCENES if s is not QuayWallDroppedObject] + MORE_SCENES
+SCENES = {scene.key: scene for scene in _ORDER + [OriginalWall]}
+DEFAULT_SCENE = QuayWallDroppedObject.key
 
 
 def size_label(n_points):
