@@ -244,12 +244,32 @@ def after_alignment():
     check("RMSE went down", steps[-1].inlier_rmse < steps[0].inlier_rmse)
     check("sidebar shows the result", "done" in window.sidebar.align_info.text())
 
+    window.sidebar.detect_button.click()
+    wait_until(lambda: window.change_result is not None, after_detection)
+
+
+def after_detection():
+    screenshot("3b_changes")
+    result = window.change_result
+    check("change detection finds the scour", len(result.areas) >= 1 and result.areas[0].kind == "removed")
+    check("changed points are highlighted", bool(window.scene.highlight_actors["changes"]))
+    check("area boxes are drawn", len(window.scene.area_actors) == 2 * len(result.areas))
+    check("areas are listed", window.sidebar.area_list.count() == len(result.areas))
+    check("score against the true change is shown", "found" in window.sidebar.change_info.text())
+    window.sidebar.area_list.setCurrentRow(0)
+    window.sidebar.color_mode.setCurrentText("Change")
+    check("change colours are used", "Change (m): - removed / + added" in window.scene.plotter.scalar_bars.keys())
+    window.sidebar.color_mode.setCurrentText("Per inspection")
+
+    steps = window.align_steps
     window.sidebar.reset_align_button.click()
+    actor = window.scene.actors["Inspection B"]  # look it up again, clearing the changes rebuilds the actors
     check("reset puts B back", np.allclose(actor.user_matrix, np.eye(4)) and window.align_steps is None)
+    check("moving B clears the detected changes", window.change_result is None and not window.scene.area_actors)
 
     # True change highlight follows B when it moves
     window.sidebar.truth.setChecked(True)
-    truth_b = window.scene.truth_actors.get("Inspection B")
+    truth_b = window.scene.highlight_actors["truth"].get("Inspection B")
     check("true change is shown", truth_b is not None and truth_b.GetVisibility())
     window.scene.set_transform("Inspection B", steps[-1].transformation)
     check("true change moves with B", np.allclose(truth_b.user_matrix, steps[-1].transformation))
@@ -258,7 +278,7 @@ def after_alignment():
     # Depth colours keep position and highlight
     window.scene.set_color_mode("Depth")
     check("depth colours keep B's position", np.allclose(window.scene.actors["Inspection B"].user_matrix, steps[-1].transformation))
-    check("depth colours keep the highlight", window.scene.truth_actors["Inspection B"].GetVisibility())
+    check("depth colours keep the highlight", window.scene.highlight_actors["truth"]["Inspection B"].GetVisibility())
     screenshot("5_depth")
     window.scene.set_color_mode("Per inspection")
 

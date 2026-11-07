@@ -8,13 +8,16 @@ class ViewSettings:
     point_size: float = 3.0
     show_axes: bool = True
     show_truth: bool = False  # highlight where the real change is (examples only)
-    color_mode: str = "Per inspection"  # or "Depth"
+    show_changes: bool = True  # highlight what change detection found
+    show_areas: bool = True  # boxes and labels around the change areas
+    color_mode: str = "Per inspection"  # or "Depth" or "Change"
     background: tuple = (0.11, 0.12, 0.14, 1.0)
 
     # Same colors as the Plotly viewer so both views are easy to compare
     color_a: tuple = (0.25, 0.41, 0.88, 1.0)  # royal blue
     color_b: tuple = (1.0, 0.55, 0.0, 1.0)  # dark orange
     color_truth: tuple = (1.0, 0.0, 0.85, 1.0)  # magenta
+    color_changes: tuple = (1.0, 0.85, 0.1, 1.0)  # yellow
 
 
 @dataclass
@@ -37,6 +40,11 @@ class DataSettings:
     max_iterations: int = 300
     max_icp_points: int = 50_000  # bigger scans are thinned out for ICP
     animate_alignment: bool = True
+
+    # Change detection
+    change_threshold: float = 0.10  # metres, used when auto_threshold is off
+    auto_threshold: bool = True
+    min_area_points: int = 15
 
 
 @dataclass

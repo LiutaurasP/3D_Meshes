@@ -1,6 +1,7 @@
 import threading
 
 import numpy as np
+import open3d as o3d
 from PySide6.QtCore import QElapsedTimer, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
@@ -13,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from datasets import short_count
-from viewer.animation import AlignmentAnimation, AlignWorker, DataWorker
+from viewer.animation import AlignmentAnimation, AlignWorker, ChangeWorker, DataWorker
 from viewer.pipeline import build_inspections
 from viewer.scene import CAMERA_PRESETS, SceneView
 from viewer.sidebar import Sidebar
@@ -42,6 +43,8 @@ class MainWindow(QMainWindow):
         self.align_steps = None
         self._worker = None
         self._data_worker = None
+        self._change_worker = None
+        self.change_result = None
         self._animation = None
         self._clock = QElapsedTimer()
 
@@ -58,6 +61,11 @@ class MainWindow(QMainWindow):
                 "align": self.align,
                 "reset_alignment": self.reset_alignment,
                 "animate": self.set_animate,
+                "detect": self.detect_changes,
+                "changes_visible": self.scene.set_changes_visible,
+                "changes_color": self.set_changes_color,
+                "areas_visible": self.scene.set_areas_visible,
+                "focus_area": self.focus_area,
                 "visibility": self.set_visible,
                 "color": self.set_cloud_color,
                 "navigation": self.set_navigation,
@@ -178,6 +186,8 @@ class MainWindow(QMainWindow):
         self.inspections = inspections
         self.clouds = inspections.clouds
         self.align_steps = None
+        self.change_result = None
+        self.sidebar.clear_changes_result()
         self.scene.set_clouds(self.clouds, self.colors, inspections.truth)
         self.sidebar.set_truth_available(self.scene.has_truth())
         self.sidebar.show_not_aligned()
@@ -224,6 +234,7 @@ class MainWindow(QMainWindow):
         if self._worker is not None and self._worker.isRunning():
             return
         self._stop_animation()
+        self._clear_changes()
         self.sidebar.read_data_settings(self.settings.data)
         self.sidebar.set_aligning(True)
         self.statusBar().showMessage("Running ICP...")
@@ -270,6 +281,7 @@ class MainWindow(QMainWindow):
 
     def reset_alignment(self):
         self._stop_animation()
+        self._clear_changes()
         self.scene.set_transform(self.source_name, np.eye(4))
         start = self.align_steps[0] if self.align_steps else None
         self.align_steps = None
@@ -287,6 +299,98 @@ class MainWindow(QMainWindow):
 
     def is_aligned(self):
         return self.align_steps is not None and (self._animation is None or not self._animation.is_running())
+
+    # Change detection
+
+    def detect_changes(self):
+        busy = self._change_worker is not None and self._change_worker.isRunning()
+        animating = self._animation is not None and self._animation.is_running()
+        if busy or animating:
+            return
+        self.sidebar.read_data_settings(self.settings.data)
+        data = self.settings.data
+
+        # Compare B in the position it is shown in (after alignment, if done)
+        aligned_b = o3d.geometry.PointCloud(self.clouds[self.source_name])
+        aligned_b.transform(self.scene.matrices[self.source_name])
+
+        self.sidebar.set_detecting(True)
+        self.statusBar().showMessage("Detecting changes...")
+        self._clock.start()
+        self._change_worker = ChangeWorker(
+            self.clouds[self.target_name], aligned_b,
+            None if data.auto_threshold else data.change_threshold,
+            data.min_area_points,
+        )
+        self._change_worker.done.connect(self._on_changes)
+        self._change_worker.start()
+
+    def _on_changes(self, result):
+        from change_detection import score
+
+        self.change_result = result
+        seconds = self._clock.elapsed() / 1000
+        self.sidebar.set_detecting(False)
+        self.statusBar().showMessage(f"Change detection took {seconds:.1f} s", 4000)
+
+        names = (self.target_name, self.source_name)
+        peaks = [abs(area.peak) for area in result.areas]
+        limit = max(peaks) if peaks else 3 * result.threshold
+        self.scene.set_changes(
+            dict(zip(names, (result.changed_a, result.changed_b))),
+            dict(zip(names, (result.distance_a, result.distance_b))),
+            limit,
+        )
+        labels = [self._area_label(i, area) for i, area in enumerate(result.areas, start=1)]
+        self.scene.set_areas(result.areas, labels)
+
+        if result.areas:
+            summary = (f"<b>{len(result.areas)} changed area{'s' if len(result.areas) > 1 else ''}</b>, "
+                       f"{result.n_changed:,} points ({result.share_changed:.1%})")
+        else:
+            summary = "<b>No changes found</b>"
+        summary += f"<br>Threshold {result.threshold * 100:.1f} cm"
+        summary += " (auto)" if self.settings.data.auto_threshold else ""
+
+        truth = self.inspections.truth
+        if truth:
+            if truth[self.target_name].any() or truth[self.source_name].any():
+                found = score(result, truth[self.target_name], truth[self.source_name])
+                summary += (f"<br>Compared to the true change: found <b>{found.found:.0%}</b>, "
+                            f"false alarms <b>{found.false_alarms:.0%}</b>")
+            else:
+                summary += "<br>(nothing really changed in this scene)"
+        if self.align_steps is None:
+            summary += "<br><b>Survey B is not aligned:</b> most of this is the misalignment. Align first."
+
+        area_lines = [f"{i}. {self._area_text(area)}" for i, area in enumerate(result.areas, start=1)]
+        self.sidebar.show_changes_result(summary, area_lines)
+
+    @staticmethod
+    def _area_text(area):
+        length, width, height = area.size
+        return f"{area.kind}, {length:.1f} × {width:.1f} × {height:.1f} m, up to {area.peak:+.2f} m, {area.n_points:,} points"
+
+    @staticmethod
+    def _area_label(number, area):
+        return f"{number}: {area.kind} {area.peak:+.2f} m"
+
+    def focus_area(self, row):
+        if self.change_result and 0 <= row < len(self.change_result.areas):
+            area = self.change_result.areas[row]
+            self.scene.focus_on(area.low, area.high)
+
+    def set_changes_color(self, rgba):
+        self.scene.set_changes_color(rgba)
+        if self.change_result:
+            labels = [self._area_label(i, a) for i, a in enumerate(self.change_result.areas, start=1)]
+            self.scene.set_areas(self.change_result.areas, labels)
+
+    def _clear_changes(self):
+        if self.change_result is not None:
+            self.change_result = None
+            self.scene.clear_changes()
+            self.sidebar.clear_changes_result("No changes detected yet (cleared because B moved)")
 
     def _update_status(self):
         counts = "   ".join(f"{name[-1]}: {len(cloud.points):,} points" for name, cloud in self.clouds.items())
@@ -306,7 +410,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._stop_animation()
-        for worker in (self._worker, self._data_worker):
+        for worker in (self._worker, self._data_worker, self._change_worker):
             if worker is not None:
                 worker.wait()
         self.scene.close()

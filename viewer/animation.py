@@ -37,6 +37,27 @@ class AlignWorker(QThread):
         self.done.emit(steps)
 
 
+class ChangeWorker(QThread):
+    """Runs change detection off the GUI thread."""
+
+    done = Signal(object)  # ChangeResult
+
+    def __init__(self, cloud_a, aligned_b, threshold, min_area_points):
+        super().__init__()
+        self.cloud_a = cloud_a
+        self.aligned_b = aligned_b
+        self.threshold = threshold
+        self.min_area_points = min_area_points
+
+    def run(self):
+        from change_detection import detect_changes
+
+        self.done.emit(detect_changes(
+            self.cloud_a, self.aligned_b,
+            threshold=self.threshold, min_area_points=self.min_area_points,
+        ))
+
+
 class DataWorker(QThread):
     """Builds or loads the inspections off the GUI thread."""
 

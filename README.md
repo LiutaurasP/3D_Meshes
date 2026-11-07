@@ -17,4 +17,12 @@ harbour basin, quay wall) with a known change between survey A and B. Pick them
 in the Data panel of the app, or use them from Python:
     from datasets import generate
     pair = generate("harbour_wall_scour")
-Tests for them: python -m pytest tests (needs: pip install pytest)
+
+Change detection (change_detection.py):
+Compares two aligned surveys, marks changed points (with a threshold set
+automatically from the noise) and groups them into areas:
+    from change_detection import detect_changes
+    result = detect_changes(cloud_a, aligned_cloud_b)
+In the app: align first, then "Detect changes" in the Change detection panel.
+
+Tests: python -m pytest tests (needs: pip install pytest)

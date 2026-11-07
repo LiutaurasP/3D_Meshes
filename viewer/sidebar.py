@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QProgressBar,
     QPushButton,
     QSlider,
@@ -104,6 +105,7 @@ class Sidebar(QWidget):
         layout.addWidget(self._data_section(data_settings))
         layout.addWidget(self._clouds_section(cloud_names, colors))
         layout.addWidget(self._align_section(cloud_names, data_settings))
+        layout.addWidget(self._changes_section(view_settings, data_settings))
         layout.addWidget(self._camera_section())
         layout.addWidget(self._display_section(view_settings))
         layout.addWidget(self._compare_section())
@@ -224,6 +226,9 @@ class Sidebar(QWidget):
         data.translation = tuple(box.value() for box in self.translation)
         data.max_correspondence_distance = self.max_distance.value()
         data.max_iterations = self.max_iterations.value()
+        data.auto_threshold = self.auto_threshold.isChecked()
+        data.change_threshold = self.threshold.value() / 100
+        data.min_area_points = self.min_area_points.value()
         return data
 
     def set_offset(self, rotation, translation):
@@ -299,6 +304,84 @@ class Sidebar(QWidget):
 
         return box
 
+    # Change detection
+
+    def _changes_section(self, view_settings, data):
+        box = QGroupBox("Change detection")
+        layout = QVBoxLayout(box)
+
+        form = QFormLayout()
+        threshold_row = QHBoxLayout()
+        self.auto_threshold = QCheckBox("Auto")
+        self.auto_threshold.setChecked(data.auto_threshold)
+        self.auto_threshold.setToolTip("Set the threshold from the noise level of the data")
+        self.threshold = spin(0.5, 500.0, data.change_threshold * 100, 0.5, decimals=1, suffix=" cm")
+        self.threshold.setEnabled(not data.auto_threshold)
+        self.auto_threshold.toggled.connect(lambda checked: self.threshold.setEnabled(not checked))
+        threshold_row.addWidget(self.auto_threshold)
+        threshold_row.addWidget(self.threshold, 1)
+        form.addRow("Threshold", threshold_row)
+        self.min_area_points = spin(1, 10_000, data.min_area_points, 5, suffix=" points")
+        self.min_area_points.setToolTip("Smaller groups of changed points are treated as noise")
+        form.addRow("Smallest area", self.min_area_points)
+        layout.addLayout(form)
+
+        self.detect_button = QPushButton("Detect changes")
+        self.detect_button.setToolTip("Compare the surveys in their current position (align first)")
+        self.detect_button.clicked.connect(lambda: self.callbacks["detect"]())
+        layout.addWidget(self.detect_button)
+
+        self.change_progress = QProgressBar()
+        self.change_progress.setTextVisible(False)
+        self.change_progress.setMaximumHeight(6)
+        self.change_progress.setRange(0, 1)
+        layout.addWidget(self.change_progress)
+
+        row = QHBoxLayout()
+        self.changes_swatch = ColorSwatch(
+            view_settings.color_changes, lambda rgba: self.callbacks["changes_color"](rgba), "Colour of changed points")
+        row.addWidget(self.changes_swatch)
+        self.show_changes = QCheckBox("Show changed points")
+        self.show_changes.setChecked(view_settings.show_changes)
+        self.show_changes.toggled.connect(lambda checked: self.callbacks["changes_visible"](checked))
+        row.addWidget(self.show_changes)
+        row.addStretch()
+        layout.addLayout(row)
+
+        self.show_areas = QCheckBox("Show area boxes")
+        self.show_areas.setChecked(view_settings.show_areas)
+        self.show_areas.toggled.connect(lambda checked: self.callbacks["areas_visible"](checked))
+        layout.addWidget(self.show_areas)
+
+        self.change_info = QLabel("No changes detected yet")
+        self.change_info.setWordWrap(True)
+        self.change_info.setTextFormat(Qt.RichText)
+        layout.addWidget(self.change_info)
+
+        self.area_list = QListWidget()
+        self.area_list.setMaximumHeight(120)
+        self.area_list.setToolTip("Click an area to fly the camera there")
+        self.area_list.currentRowChanged.connect(lambda row: row >= 0 and self.callbacks["focus_area"](row))
+        layout.addWidget(self.area_list)
+
+        return box
+
+    def set_detecting(self, busy):
+        self.detect_button.setEnabled(not busy)
+        self.change_progress.setRange(0, 0 if busy else 1)
+        if busy:
+            self.change_info.setText("Comparing the surveys...")
+
+    def show_changes_result(self, summary, area_lines):
+        self.change_info.setText(summary)
+        self.area_list.blockSignals(True)
+        self.area_list.clear()
+        self.area_list.addItems(area_lines)
+        self.area_list.blockSignals(False)
+
+    def clear_changes_result(self, text="No changes detected yet"):
+        self.show_changes_result(text, [])
+
     # Camera
 
     def _camera_section(self):
@@ -336,6 +419,8 @@ class Sidebar(QWidget):
         row.addWidget(QLabel("Colours"))
         colors = QComboBox()
         colors.addItems(COLOR_MODES)
+        colors.setItemData(COLOR_MODES.index("Change"), "Blue = removed, red = added (after Detect changes)", Qt.ToolTipRole)
+        self.color_mode = colors
         colors.setCurrentText(view_settings.color_mode)
         colors.currentTextChanged.connect(lambda text: self.callbacks["color_mode"](text))
         row.addWidget(colors, 1)
