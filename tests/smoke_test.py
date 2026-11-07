@@ -307,7 +307,10 @@ def after_detection():
 
 
 def data_ready():
-    return window._data_worker is not None and window._data_worker.isFinished() and window.sidebar.generate_button.isEnabled()
+    """The scene is up to date: no build running, queued or waiting for the last edit."""
+    worker = window._data_worker
+    return (worker is not None and worker.isFinished() and not window._generate_again
+            and not window.sidebar._apply_timer.isActive() and not window.sidebar.data_progress.isVisible())
 
 
 def after_scene_switch():
@@ -316,13 +319,28 @@ def after_scene_switch():
     check("alignment is reset for new data", window.align_steps is None)
     screenshot("6_sheet_pile")
 
+    # Changing a setting updates the scene by itself (there is no Generate button)
     window.sidebar.n_points.setValue(12_000)
-    window.sidebar.generate_button.click()
     wait_until(lambda: data_ready() and len(window.clouds["Inspection A"].points) == 12_000, after_resize)
 
 
 def after_resize():
-    check("size setting changes the point count", len(window.clouds["Inspection A"].points) == 12_000)
+    check("size change applies by itself", len(window.clouds["Inspection A"].points) == 12_000)
+    check("status line says the scene is ready", "12,000 + 12,000 points" in window.sidebar.data_status.text())
+
+    # Several quick edits end up as the last values (nothing is lost while a build runs)
+    window.sidebar.seed.setValue(5)
+    window.sidebar.no_offset_button.click()
+    wait_until(lambda: data_ready() and window.settings.data.seed == 5
+               and window.settings.data.rotation_deg == (0.0, 0.0, 0.0), after_same_as_a)
+
+
+def after_same_as_a():
+    a = np.asarray(window.clouds["Inspection A"].points)
+    b = np.asarray(window.clouds["Inspection B"].points)
+    check("'Same as A' removes the offset", window.settings.data.translation == (0.0, 0.0, 0.0))
+    check("quick edits are all applied", window.settings.data.seed == 5)
+    check("with no offset B lies on A", abs(a.mean(axis=0) - b.mean(axis=0)).max() < 0.2)
 
     # Loading files (the file dialog is skipped, the loading itself is the same)
     import tempfile
@@ -369,12 +387,12 @@ def after_color():
         app.sendEvent(widget, QKeyEvent(QEvent.KeyPress, Qt.Key_Space, Qt.NoModifier, " "))
         app.sendEvent(widget, QKeyEvent(QEvent.KeyRelease, Qt.Key_Space, Qt.NoModifier, " "))
 
-    button = window.sidebar.generate_button
+    button = window.sidebar.detect_button
     button.setFocus()
-    worker_before = window._data_worker
+    worker_before = window._change_worker
     space(button)
     check("space hides the settings panel", not window.dock.isVisible())
-    check("space does not press the focused button", window._data_worker is worker_before)
+    check("space does not press the focused button", window._change_worker is worker_before)
     space(view)
     check("space shows the settings panel again", window.dock.isVisible())
     window.sidebar.seed.setFocus()

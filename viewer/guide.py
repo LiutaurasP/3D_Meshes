@@ -44,7 +44,7 @@ CHAPTERS = [
      True),
 
     ("Quick start", steps([
-        "Pick a scene in <b>Data</b>, for example <i>Quay wall – dropped object</i>.",
+        "Pick a scene under <b>Scene</b>, for example <i>Quay wall – dropped object</i>.",
         "Press <b>Align B to A</b> and watch survey B slide onto survey A.",
         "Press <b>Detect changes</b>. Changed points light up and every changed area gets a box.",
         "Click an area in the list to fly the camera to it.",
@@ -78,9 +78,19 @@ CHAPTERS = [
          ("<b>Sensor noise</b>", "measurement error close to the sonar (it grows with distance)"),
          ("<b>Stray points</b>", "share of false echoes in the water, like fish or bubbles"),
          ("<b>Ping stripes</b>", "the stripy density pattern of the sonar pings"),
-         ("<b>Variation</b>", "another random version of the same scene (" + dim("New") + " picks one)"),
-         ("<b>Survey B offset</b>", "how far survey B is turned and shifted, like a vessel in another position"),
-     ]) + '<p style="margin:8px 0 0 0;">' + dim("Press <b>Generate</b> after changing settings.") + "</p>",
+         ("<b>Variation</b>", "another random version of the same scene (" + dim("Random") + " picks one)"),
+     ]) + '<p style="margin:8px 0 0 0;">' + dim("Changes apply right away, there is nothing to confirm.") + "</p>",
+     False),
+
+    ("Survey B position", P +
+     "A real survey is never made from exactly the same spot twice. The <b>Survey B position</b> "
+     "card simulates that: survey B is <b>turned</b> (degrees) and <b>shifted</b> (metres) "
+     "compared to A.</p>" + keys_table([
+         ("<b>Same as A</b>", "no difference at all, B lies exactly on A"),
+         ("<b>Random position</b>", "a new random turn and shift"),
+     ]) + '<p style="margin:8px 0 0 0;">' + dim(
+         "<b>Align B to A</b> has to undo this. A bigger difference is harder: try a large turn "
+         "and see when the alignment stops working.") + "</p>",
      False),
 
     ("Aligning the surveys", P +

@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -84,7 +84,8 @@ class Sidebar(QWidget):
 
         settings, settings_layout = page_layout()
         for card in (
-            self._data_card(data_settings),
+            self._scene_card(data_settings),
+            self._offset_card(data_settings),
             self._clouds_card(cloud_names, colors, view_settings),
             self._align_card(cloud_names, data_settings),
             self._changes_card(view_settings, data_settings),
@@ -94,6 +95,8 @@ class Sidebar(QWidget):
         ):
             settings_layout.addWidget(card)
         settings_layout.addStretch()
+
+        self._watch_scene_settings()
 
         self.pages = QStackedWidget()
         self.pages.addWidget(scrolling(settings))
@@ -107,8 +110,8 @@ class Sidebar(QWidget):
 
     # Data
 
-    def _data_card(self, data):
-        card = Card("Data")
+    def _scene_card(self, data):
+        card = Card("Scene")
 
         self.scene_picker = QComboBox()
         for key, scene in SCENES.items():
@@ -128,7 +131,8 @@ class Sidebar(QWidget):
         card.add(divider())
 
         form = Form()
-        self.n_points = form.row("Size", spin(1_000, 200_000, data.n_points, 5_000, suffix=" points"))
+        self.n_points = form.row("Size", spin(1_000, 200_000, data.n_points, 5_000, suffix=" points"),
+                                 "Number of points in each survey")
         self.n_points.setGroupSeparatorShown(True)
         self.noise = form.row("Sensor noise", spin(0.0, 10.0, data.noise * 100, 0.5, decimals=1, suffix=" cm"),
                               "Measurement error close to the sonar, it grows with distance")
@@ -136,28 +140,35 @@ class Sidebar(QWidget):
                                  "False echoes in the water, like fish or bubbles")
         self.stripes = QCheckBox("Ping stripes")
         self.stripes.setChecked(data.stripes)
-        form.row("Pattern", self.stripes)
+        form.row("Pattern", self.stripes, "The stripy density pattern of the sonar pings")
 
         seed_row = QHBoxLayout()
         seed_row.setSpacing(SPACING)
         self.seed = spin(0, 99_999, data.seed, 1)
+        self.seed.setToolTip("Each number gives a different random version of the same scene")
         seed_row.addWidget(self.seed, 1)
-        new_seed = button("New", tooltip="Another random version of the same scene")
-        new_seed.clicked.connect(lambda: self.callbacks["new_seed"]())
-        seed_row.addWidget(new_seed)
-        form.row("Variation", seed_row)
+        self.new_seed_button = button("Random", tooltip="Pick another random version of this scene")
+        self.new_seed_button.clicked.connect(lambda: self.callbacks["new_seed"]())
+        seed_row.addWidget(self.new_seed_button)
+        form.row("Variation", seed_row, "Each number gives a different random version of the same scene")
         card.add(form)
-        card.add(divider())
 
-        # Survey B offset: one row for rotation, one for shift, a column per axis
+        self.data_progress = card.add(thin_progress())
+        self.data_status = card.add(hint("Changes apply right away"))
+        self._show_scene_info(data.scene)
+        return card
+
+    def _offset_card(self, data):
+        card = Card("Survey B position")
+        card.add(hint(
+            "Survey B is made from a slightly different position than A, "
+            "so it starts turned and shifted. <b>Align B to A</b> has to undo this."))
+
         offset = QGridLayout()
         offset.setContentsMargins(0, 0, 0, 0)
         offset.setHorizontalSpacing(SPACING)
         offset.setVerticalSpacing(SPACING)
-        offset.setColumnMinimumWidth(0, 96)
-        title = QLabel("Survey B offset")
-        title.setObjectName("formLabel")
-        offset.addWidget(title, 0, 0)
+        offset.setColumnMinimumWidth(0, 72)
         for column, axis in enumerate("XYZ", start=1):
             label = QLabel(axis)
             label.setObjectName("axisLabel")
@@ -165,27 +176,47 @@ class Sidebar(QWidget):
             offset.setColumnStretch(column, 1)
         self.rotation = [spin(-30.0, 30.0, v, 0.5, decimals=1, suffix="°") for v in data.rotation_deg]
         self.translation = [spin(-5.0, 5.0, v, 0.05, decimals=2, suffix=" m") for v in data.translation]
-        for row, (label, boxes) in enumerate((("Rotation", self.rotation), ("Shift", self.translation)), start=1):
+        rows = (("Turned", self.rotation, "Rotation around each axis, in degrees"),
+                ("Shifted", self.translation, "Shift along each axis, in metres"))
+        for row, (label, boxes, tooltip) in enumerate(rows, start=1):
             text = QLabel(label)
             text.setObjectName("formLabel")
+            text.setToolTip(tooltip)
             offset.addWidget(text, row, 0)
             for column, box in enumerate(boxes, start=1):
+                box.setToolTip(tooltip)
                 offset.addWidget(box, row, column)
         card.add(offset)
 
         actions = QHBoxLayout()
         actions.setSpacing(SPACING)
-        random_offset = button("Random offset", tooltip="Turn and shift survey B by a random amount")
-        random_offset.clicked.connect(lambda: self.callbacks["random_offset"]())
-        actions.addWidget(random_offset, 1)
-        self.generate_button = button("Generate", primary=True)
-        self.generate_button.clicked.connect(lambda: self.callbacks["generate"]())
-        actions.addWidget(self.generate_button, 1)
+        self.no_offset_button = button("Same as A", tooltip="Put survey B exactly where survey A is (nothing to align)")
+        self.no_offset_button.clicked.connect(lambda: self.set_offset((0, 0, 0), (0, 0, 0)))
+        actions.addWidget(self.no_offset_button, 1)
+        self.random_offset_button = button("Random position", tooltip="Turn and shift survey B by a random amount")
+        self.random_offset_button.clicked.connect(lambda: self.callbacks["random_offset"]())
+        actions.addWidget(self.random_offset_button, 1)
         card.add(actions)
-
-        self.data_progress = card.add(thin_progress())
-        self._show_scene_info(data.scene)
         return card
+
+    # Changes in the scene settings are applied automatically, shortly after
+    # the last edit (so scrolling through values doesn't rebuild every step)
+
+    def _watch_scene_settings(self):
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setSingleShot(True)
+        self._apply_timer.setInterval(350)
+        self._apply_timer.timeout.connect(lambda: self.callbacks["generate"]())
+        for box in [self.n_points, self.noise, self.outliers, self.seed] + self.rotation + self.translation:
+            box.valueChanged.connect(self._schedule_apply)
+        self.stripes.toggled.connect(self._schedule_apply)
+
+    def _schedule_apply(self, *_):
+        if self.selected_scene() != FROM_FILES:
+            self._apply_timer.start()
+
+    def cancel_pending_apply(self):
+        self._apply_timer.stop()
 
     def _on_scene_picked(self, index):
         key = self.scene_picker.itemData(index)
@@ -201,7 +232,9 @@ class Sidebar(QWidget):
 
         self._previous_scene = index
         scene = SCENES[key]
+        self.n_points.blockSignals(True)
         self.n_points.setValue(scene.default_points)
+        self.n_points.blockSignals(False)
         self._show_scene_info(key)
         self.callbacks["generate"]()
 
@@ -244,9 +277,13 @@ class Sidebar(QWidget):
             box.setValue(value)
 
     def set_generating(self, busy):
-        self.generate_button.setEnabled(not busy)
         self.data_progress.setRange(0, 0 if busy else 1)
         self.data_progress.setVisible(busy)
+        if busy:
+            self.data_status.setText("Updating…")
+
+    def show_data_status(self, text):
+        self.data_status.setText(text)
 
     # Clouds
 

@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._data_worker = None
         self._change_worker = None
+        self._generate_again = False
         self.change_result = None
         self._animation = None
         self._clock = QElapsedTimer()
@@ -170,9 +171,18 @@ class MainWindow(QMainWindow):
     # Data
 
     def generate(self):
-        """Build the selected example with the settings from the Data panel."""
+        """Build the selected example with the settings from the Scene panel.
+
+        Called automatically when a scene setting changes. If a build is
+        still running, one more build is queued so the last change is not lost.
+        """
+        self.sidebar.cancel_pending_apply()
+        if self._data_worker is not None and self._data_worker.isRunning():
+            self._generate_again = True
+            return
+        self._generate_again = False
         self.sidebar.read_data_settings(self.settings.data)
-        self._start_data_worker(DataWorker(data_settings=self.settings.data), "Generating the scene...")
+        self._start_data_worker(DataWorker(data_settings=self.settings.data), "Updating the scene...")
 
     def load_files(self):
         """Ask for two scan files and load them. Returns False if the user cancelled."""
@@ -202,9 +212,13 @@ class MainWindow(QMainWindow):
         self.sidebar.set_generating(False)
         self.statusBar().showMessage(f"Ready in {seconds:.1f} s", 4000)
         self._show_inspections(inspections)
+        counts = " + ".join(f"{len(c.points):,}" for c in inspections.clouds.values())
+        self.sidebar.show_data_status(f"{counts} points · ready in {seconds:.1f} s")
         if not inspections.truth:
             total = sum(len(c.points) for c in inspections.clouds.values())
             self.sidebar.show_loaded_files(inspections.title, total)
+        if getattr(self, "_generate_again", False):
+            self.generate()
 
     def _on_data_failed(self, message):
         self.sidebar.set_generating(False)
@@ -225,14 +239,14 @@ class MainWindow(QMainWindow):
         self.scene.look_from("Iso")
         self._update_status()
 
+    # Both only change values in the panel, the panel then updates the scene by itself
+
     def new_seed(self):
         self.sidebar.seed.setValue(int(np.random.default_rng().integers(0, 99_999)))
-        self.generate()
 
     def random_offset(self):
         rng = np.random.default_rng()
         self.sidebar.set_offset(rng.uniform(-4, 4, 3).round(1), rng.uniform(-0.4, 0.4, 3).round(2))
-        self.generate()
 
     # Actions shared by the sidebar, menus and keyboard
 
