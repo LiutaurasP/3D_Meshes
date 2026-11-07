@@ -36,7 +36,13 @@ parser.add_argument("--screenshots", type=Path, default=None)
 args = parser.parse_args()
 
 app = QApplication(sys.argv[:1])
-window = MainWindow(Settings())
+
+# The default scene is the dropped container; the checks below use the scour scene
+default_settings = Settings()
+settings = Settings()
+settings.data.scene = "harbour_wall_scour"
+settings.data.n_points = 30_000
+window = MainWindow(settings)
 window.show()
 
 view = window.scene.widget
@@ -150,6 +156,7 @@ def offscreen_render():
 
 
 def start():
+    check("default scene is the dropped container", default_settings.data.scene == "quay_wall_dropped_object")
     image = window.scene.plotter.screenshot(return_img=True)
     if renders(image) or not ON_CI:
         check("scene renders something", renders(image))

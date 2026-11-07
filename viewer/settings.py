@@ -11,7 +11,7 @@ class ViewSettings:
     show_changes: bool = True  # highlight what change detection found
     show_areas: bool = True  # boxes and labels around the change areas
     color_mode: str = "Per inspection"  # or "Depth" or "Change"
-    background: tuple = (0.11, 0.12, 0.14, 1.0)
+    background: tuple = (0.016, 0.02, 0.035, 1.0)  # almost black, a hint of midnight blue
 
     # Same colors as the Plotly viewer so both views are easy to compare
     color_a: tuple = (0.25, 0.41, 0.88, 1.0)  # royal blue
@@ -24,8 +24,8 @@ class ViewSettings:
 class DataSettings:
     """Which data is shown and how it is made."""
 
-    scene: str = "harbour_wall_scour"
-    n_points: int = 30_000
+    scene: str = "quay_wall_dropped_object"
+    n_points: int = 25_000
     noise: float = 0.01  # metres
     outliers: float = 0.002  # share of stray points
     stripes: bool = True
