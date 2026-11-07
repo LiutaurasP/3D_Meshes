@@ -67,6 +67,10 @@ def window_is_active():
 
 def screenshot(name):
     if args.screenshots:
+        # The Qt plotter draws on the next pass of the event loop, let it catch up first
+        window.scene.plotter.render()
+        for _ in range(5):
+            app.processEvents()
         args.screenshots.mkdir(parents=True, exist_ok=True)
         window.scene.plotter.screenshot(str(args.screenshots / f"{name}.png"))
 
@@ -192,11 +196,19 @@ def fly_mouse_look():
 
     window.scene.look_from("Iso")
     window.sidebar.align_button.click()
-    then(1000, mid_animation)
+    wait_until(lambda: window._animation is not None and window._animation.is_running(), mid_animation)
+
+
+def wait_until(condition, next_step, waited_ms=0, limit_ms=60000):
+    """Poll every 100 ms, then continue (the next step checks what happened)."""
+    if condition() or waited_ms > limit_ms:
+        next_step()
+    else:
+        then(100, lambda: wait_until(condition, next_step, waited_ms + 100, limit_ms))
 
 
 def mid_animation():
-    screenshot("2_aligning")
+    then(800, lambda: screenshot("2_aligning"))
     check("animation is playing", window._animation is not None and window._animation.is_running())
     wait_for_alignment(0)
 
@@ -221,6 +233,64 @@ def after_alignment():
 
     window.sidebar.reset_align_button.click()
     check("reset puts B back", np.allclose(actor.user_matrix, np.eye(4)) and window.align_steps is None)
+
+    # True change highlight follows B when it moves
+    window.sidebar.truth.setChecked(True)
+    truth_b = window.scene.truth_actors.get("Inspection B")
+    check("true change is shown", truth_b is not None and truth_b.GetVisibility())
+    window.scene.set_transform("Inspection B", steps[-1].transformation)
+    check("true change moves with B", np.allclose(truth_b.user_matrix, steps[-1].transformation))
+    screenshot("4_true_change")
+
+    # Depth colours keep position and highlight
+    window.scene.set_color_mode("Depth")
+    check("depth colours keep B's position", np.allclose(window.scene.actors["Inspection B"].user_matrix, steps[-1].transformation))
+    check("depth colours keep the highlight", window.scene.truth_actors["Inspection B"].GetVisibility())
+    screenshot("5_depth")
+    window.scene.set_color_mode("Per inspection")
+
+    # Switch to another example from the dropdown
+    picker = window.sidebar.scene_picker
+    picker.setCurrentIndex(picker.findData("sheet_pile_corrosion"))
+    wait_until(data_ready, after_scene_switch)
+
+
+def data_ready():
+    return window._data_worker is not None and window._data_worker.isFinished() and window.sidebar.generate_button.isEnabled()
+
+
+def after_scene_switch():
+    check("switching scene loads it", window.inspections.title.startswith("Sheet pile"))
+    check("new scene has 30,000 points per survey", all(len(c.points) == 30_000 for c in window.clouds.values()))
+    check("alignment is reset for new data", window.align_steps is None)
+    screenshot("6_sheet_pile")
+
+    window.sidebar.n_points.setValue(12_000)
+    window.sidebar.generate_button.click()
+    wait_until(lambda: data_ready() and len(window.clouds["Inspection A"].points) == 12_000, after_resize)
+
+
+def after_resize():
+    check("size setting changes the point count", len(window.clouds["Inspection A"].points) == 12_000)
+
+    # Loading files (the file dialog is skipped, the loading itself is the same)
+    import tempfile
+    import open3d as o3d
+    from viewer.animation import DataWorker
+
+    folder = Path(tempfile.mkdtemp())
+    paths = []
+    for name, cloud in window.clouds.items():
+        path = folder / f"{name[-1].lower()}.ply"
+        o3d.io.write_point_cloud(str(path), cloud)
+        paths.append(str(path))
+    window._start_data_worker(DataWorker(files=tuple(paths)), "Loading scans...")
+    wait_until(lambda: data_ready() and "a.ply" in window.inspections.title, after_files)
+
+
+def after_files():
+    check("two files load as inspections", "a.ply" in window.inspections.title)
+    check("no true change for files", not window.scene.has_truth() and not window.sidebar.truth.isEnabled())
 
     window.close()
     app.quit()

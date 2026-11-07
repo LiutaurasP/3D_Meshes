@@ -10,3 +10,11 @@ Desktop viewer:
 run app.py (after the setup above). It uses Qt + PyVista for the window and Open3D for the data.
 The Plotly viewer from main.py still works as before.
 Quick check that the viewer works on your machine: python tests/smoke_test.py
+
+Example data (datasets/):
+Synthetic underwater survey scenes (harbour wall, sheet pile wall, bridge pier,
+harbour basin, quay wall) with a known change between survey A and B. Pick them
+in the Data panel of the app, or use them from Python:
+    from datasets import generate
+    pair = generate("harbour_wall_scour")
+Tests for them: python -m pytest tests (needs: pip install pytest)

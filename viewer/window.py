@@ -1,14 +1,24 @@
 import threading
 
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QElapsedTimer, Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QDockWidget, QLabel, QMainWindow, QScrollArea
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QFileDialog,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QScrollArea,
+)
 
-from viewer.animation import AlignmentAnimation, AlignWorker
+from datasets import short_count
+from viewer.animation import AlignmentAnimation, AlignWorker, DataWorker
 from viewer.pipeline import build_inspections
 from viewer.scene import CAMERA_PRESETS, SceneView
 from viewer.sidebar import Sidebar
+
+SCAN_FILES = "Point clouds (*.ply *.pcd *.xyz *.xyzn *.xyzrgb *.pts);;All files (*)"
 
 
 class MainWindow(QMainWindow):
@@ -23,15 +33,17 @@ class MainWindow(QMainWindow):
         self.scene = SceneView(self, settings.view)
         self.setCentralWidget(self.scene.widget)
 
-        self.clouds = build_inspections(settings.data)
+        self.inspections = build_inspections(settings.data)
+        self.clouds = self.inspections.clouds
         self.colors = self._cloud_colors()
-        self.scene.set_clouds(self.clouds, self.colors)
 
         # The second inspection is moved onto the first one
         self.target_name, self.source_name = list(self.clouds)[:2]
         self.align_steps = None
         self._worker = None
+        self._data_worker = None
         self._animation = None
+        self._clock = QElapsedTimer()
 
         self.sidebar = Sidebar(
             list(self.clouds),
@@ -39,13 +51,19 @@ class MainWindow(QMainWindow):
             settings.view,
             settings.data,
             callbacks={
+                "generate": self.generate,
+                "load_files": self.load_files,
+                "new_seed": self.new_seed,
+                "random_offset": self.random_offset,
                 "align": self.align,
                 "reset_alignment": self.reset_alignment,
                 "animate": self.set_animate,
                 "visibility": self.set_visible,
                 "navigation": self.set_navigation,
                 "camera": self.scene.look_from,
+                "color_mode": self.scene.set_color_mode,
                 "point_size": self.scene.set_point_size,
+                "truth": self.scene.set_truth_visible,
                 "axes": self.scene.set_axes_visible,
                 "plotly": self.open_in_plotly,
             },
@@ -55,9 +73,7 @@ class MainWindow(QMainWindow):
 
         self.status = QLabel()
         self.statusBar().addWidget(self.status)
-        self._update_status()
-
-        self.scene.look_from("Iso")
+        self._show_inspections(self.inspections)
 
     def _cloud_colors(self):
         palette = [self.settings.view.color_a, self.settings.view.color_b]
@@ -72,11 +88,16 @@ class MainWindow(QMainWindow):
         dock.setObjectName("settings")
         dock.setWidget(scroll)
         dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
-        dock.setMinimumWidth(280)
+        dock.setMinimumWidth(320)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
 
     def _add_menus(self):
         file_menu = self.menuBar().addMenu("&File")
+        open_action = QAction("Open two scans…", self)
+        open_action.setShortcut(QKeySequence.Open)
+        open_action.triggered.connect(self.load_files)
+        file_menu.addAction(open_action)
+        file_menu.addSeparator()
         quit_action = QAction("Quit", self)
         quit_action.setShortcut(QKeySequence.Quit)
         quit_action.triggered.connect(self.close)
@@ -108,6 +129,71 @@ class MainWindow(QMainWindow):
         reset.triggered.connect(lambda: self.scene.look_from("Iso"))
         view_menu.addAction(reset)
 
+    # Data
+
+    def generate(self):
+        """Build the selected example with the settings from the Data panel."""
+        self.sidebar.read_data_settings(self.settings.data)
+        self._start_data_worker(DataWorker(data_settings=self.settings.data), "Generating the scene...")
+
+    def load_files(self):
+        """Ask for two scan files and load them. Returns False if the user cancelled."""
+        path_a, _ = QFileDialog.getOpenFileName(self, "Inspection A (the earlier, reference scan)", "", SCAN_FILES)
+        if not path_a:
+            return False
+        path_b, _ = QFileDialog.getOpenFileName(self, "Inspection B (the later scan)", "", SCAN_FILES)
+        if not path_b:
+            return False
+        self._start_data_worker(DataWorker(files=(path_a, path_b)), "Loading scans...")
+        return True
+
+    def _start_data_worker(self, worker, message):
+        if self._data_worker is not None and self._data_worker.isRunning():
+            return
+        self._stop_animation()
+        self.sidebar.set_generating(True)
+        self.statusBar().showMessage(message)
+        self._clock.start()
+        self._data_worker = worker
+        worker.done.connect(self._on_data_ready)
+        worker.failed.connect(self._on_data_failed)
+        worker.start()
+
+    def _on_data_ready(self, inspections):
+        seconds = self._clock.elapsed() / 1000
+        self.sidebar.set_generating(False)
+        self.statusBar().showMessage(f"Ready in {seconds:.1f} s", 4000)
+        self._show_inspections(inspections)
+        if not inspections.truth:
+            total = sum(len(c.points) for c in inspections.clouds.values())
+            self.sidebar.show_loaded_files(inspections.title, total)
+
+    def _on_data_failed(self, message):
+        self.sidebar.set_generating(False)
+        self.statusBar().clearMessage()
+        QMessageBox.warning(self, "Could not load the data", message)
+
+    def _show_inspections(self, inspections):
+        self.inspections = inspections
+        self.clouds = inspections.clouds
+        self.align_steps = None
+        self.scene.set_clouds(self.clouds, self.colors, inspections.truth)
+        self.sidebar.set_truth_available(self.scene.has_truth())
+        self.sidebar.show_not_aligned()
+        for name in self.clouds:
+            self.sidebar.set_checked(name, True)
+        self.scene.look_from("Iso")
+        self._update_status()
+
+    def new_seed(self):
+        self.sidebar.seed.setValue(int(np.random.default_rng().integers(0, 99_999)))
+        self.generate()
+
+    def random_offset(self):
+        rng = np.random.default_rng()
+        self.sidebar.set_offset(rng.uniform(-4, 4, 3).round(1), rng.uniform(-0.4, 0.4, 3).round(2))
+        self.generate()
+
     # Actions shared by the sidebar, menus and keyboard
 
     def set_visible(self, name, visible):
@@ -131,24 +217,31 @@ class MainWindow(QMainWindow):
         if self._worker is not None and self._worker.isRunning():
             return
         self._stop_animation()
+        self.sidebar.read_data_settings(self.settings.data)
         self.sidebar.set_aligning(True)
         self.statusBar().showMessage("Running ICP...")
+        self._clock.start()
 
-        self._worker = AlignWorker(
-            self.clouds[self.source_name],
-            self.clouds[self.target_name],
-            self.settings.data.max_correspondence_distance,
-        )
+        self._worker = AlignWorker(self.clouds[self.source_name], self.clouds[self.target_name], self.settings.data)
+        self._worker.progress.connect(self.sidebar.show_icp_progress)
         self._worker.done.connect(self._on_aligned)
         self._worker.start()
 
     def _on_aligned(self, steps):
         self.align_steps = steps
-        self.statusBar().clearMessage()
-        last = len(steps) - 1
+        rounds = len(steps) - 1
+        seconds = self._clock.elapsed() / 1000
+        self.statusBar().showMessage(f"ICP finished after {rounds} rounds in {seconds:.1f} s", 5000)
 
-        if not self.settings.data.animate_alignment or last == 0:
-            self._show_step(steps[-1].transformation, last)
+        n = len(self.clouds[self.source_name].points)
+        limit = self.settings.data.max_icp_points
+        self._align_note = f"Aligned on {short_count(limit)} of {short_count(n)} points" if limit and n > limit else ""
+        if rounds >= self.settings.data.max_iterations:
+            self._align_note = (self._align_note + "\n" if self._align_note else "") + \
+                "Stopped at the round limit, it may not be finished"
+
+        if not self.settings.data.animate_alignment or rounds == 0:
+            self._show_step(steps[-1].transformation, rounds)
             self._alignment_finished()
             return
 
@@ -160,7 +253,9 @@ class MainWindow(QMainWindow):
 
     def _show_step(self, matrix, step):
         self.scene.set_transform(self.source_name, matrix)
-        self.sidebar.show_align_step(step, len(self.align_steps) - 1, self.align_steps[step])
+        last = len(self.align_steps) - 1
+        note = self._align_note if step == last else ""
+        self.sidebar.show_align_step(step, last, self.align_steps[step], note)
 
     def _alignment_finished(self):
         self.sidebar.set_aligning(False)
@@ -187,10 +282,11 @@ class MainWindow(QMainWindow):
         return self.align_steps is not None and (self._animation is None or not self._animation.is_running())
 
     def _update_status(self):
-        counts = "   ".join(f"{name}: {len(cloud.points):,} points" for name, cloud in self.clouds.items())
+        counts = "   ".join(f"{name[-1]}: {len(cloud.points):,} points" for name, cloud in self.clouds.items())
         pose = "aligned" if self.align_steps else "original pose"
         self.status.setText(
-            f"{counts}   |   {self.source_name}: {pose}   |   Navigation: {self.scene.navigation}"
+            f"{self.inspections.title}   |   {counts}   |   {self.source_name}: {pose}"
+            f"   |   Navigation: {self.scene.navigation}"
         )
 
     def open_in_plotly(self):
@@ -203,7 +299,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._stop_animation()
-        if self._worker is not None:
-            self._worker.wait()
+        for worker in (self._worker, self._data_worker):
+            if worker is not None:
+                worker.wait()
         self.scene.close()
         super().closeEvent(event)
