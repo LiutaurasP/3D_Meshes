@@ -131,6 +131,13 @@ class SceneView:
             self._apply(name)
         self.plotter.render()
 
+    def set_color(self, name, rgba):
+        """Change the colour of one cloud (used when colouring per inspection)."""
+        self.colors[name] = tuple(rgba)
+        if self.settings.color_mode != "Depth":
+            self.actors[name].prop.color = tuple(rgba[:3])
+            self.plotter.render()
+
     def set_color_mode(self, mode):
         self.settings.color_mode = mode
         self._rebuild()

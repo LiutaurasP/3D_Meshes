@@ -107,7 +107,20 @@ def switch_navigation():
 
 
 def then(delay_ms, func):
-    QTimer.singleShot(delay_ms, func)
+    QTimer.singleShot(delay_ms, lambda: run_step(func))
+
+
+def run_step(func):
+    """A crash inside a step counts as a failure and ends the test (instead of passing silently)."""
+    try:
+        func()
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        check(f"step {getattr(func, '__name__', 'step')} ran without errors", False)
+        window.close()
+        app.quit()
 
 
 # Steps (each one schedules the next)
@@ -292,6 +305,21 @@ def after_files():
     check("two files load as inspections", "a.ply" in window.inspections.title)
     check("no true change for files", not window.scene.has_truth() and not window.sidebar.truth.isEnabled())
 
+    # Picking a colour in the swatch (the dialog itself can't be clicked from a script)
+    green = (0.1, 0.8, 0.3, 1.0)
+    window.sidebar.swatches["Inspection B"].on_picked(green)
+    actor_color = lambda: window.scene.actors["Inspection B"].prop.color.float_rgb
+    check("picked colour is used for the cloud", np.allclose(actor_color(), green[:3], atol=0.01))
+    window.scene.set_color_mode("Depth")
+    window.scene.set_color_mode("Per inspection")
+    check("colour survives switching colour modes", np.allclose(actor_color(), green[:3], atol=0.01))
+    window.sidebar.scene_picker.setCurrentIndex(window.sidebar.scene_picker.findData("bridge_pier_scour"))
+    wait_until(lambda: data_ready() and window.inspections.title.startswith("Bridge"), after_color)
+
+
+def after_color():
+    color = window.scene.actors["Inspection B"].prop.color.float_rgb
+    check("colour stays when switching scene", np.allclose(color, (0.1, 0.8, 0.3), atol=0.01))
     window.close()
     app.quit()
 

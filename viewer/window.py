@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
                 "reset_alignment": self.reset_alignment,
                 "animate": self.set_animate,
                 "visibility": self.set_visible,
+                "color": self.set_cloud_color,
                 "navigation": self.set_navigation,
                 "camera": self.scene.look_from,
                 "color_mode": self.scene.set_color_mode,
@@ -199,6 +200,12 @@ class MainWindow(QMainWindow):
     def set_visible(self, name, visible):
         self.scene.set_visible(name, visible)
         self.sidebar.set_checked(name, visible)
+
+    def set_cloud_color(self, name, rgba):
+        # Kept on the window too, so new data (another scene, loaded files) keeps the colour
+        self.colors[name] = tuple(rgba)
+        self.scene.set_color(name, rgba)
+        self.sidebar.swatches[name].set_color(rgba)
 
     def toggle(self, name):
         self.set_visible(name, not self.scene.is_visible(name))

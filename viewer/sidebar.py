@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -41,12 +42,33 @@ HELP_TEXT = (
 FROM_FILES = "files"
 
 
-def color_swatch(rgba):
-    swatch = QLabel()
-    swatch.setFixedSize(12, 12)
-    color = QColor.fromRgbF(*rgba[:3])
-    swatch.setStyleSheet(f"background-color: {color.name()}; border-radius: 2px;")
-    return swatch
+class ColorSwatch(QPushButton):
+    """Small coloured square. Clicking it opens a colour picker."""
+
+    def __init__(self, rgba, on_picked, title):
+        super().__init__()
+        self.on_picked = on_picked
+        self.title = title
+        self.setFixedSize(16, 16)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Click to change the colour")
+        self.set_color(rgba)
+        self.clicked.connect(self._pick)
+
+    def set_color(self, rgba):
+        self.rgba = tuple(rgba)
+        color = QColor.fromRgbF(*self.rgba[:3])
+        self.setStyleSheet(
+            f"QPushButton {{ background-color: {color.name()}; border: 1px solid #00000055; border-radius: 3px; }}"
+            f"QPushButton:hover {{ border: 1px solid white; }}"
+        )
+
+    def _pick(self):
+        color = QColorDialog.getColor(QColor.fromRgbF(*self.rgba[:3]), self, self.title)
+        if color.isValid():
+            rgba = (color.redF(), color.greenF(), color.blueF(), 1.0)
+            self.set_color(rgba)
+            self.on_picked(rgba)
 
 
 def spin(minimum, maximum, value, step, decimals=None, suffix=""):
@@ -218,9 +240,12 @@ class Sidebar(QWidget):
         box = QGroupBox("Clouds")
         layout = QVBoxLayout(box)
 
+        self.swatches = {}
         for key, name in enumerate(cloud_names, start=1):
             row = QHBoxLayout()
-            row.addWidget(color_swatch(colors[name]))
+            swatch = ColorSwatch(colors[name], lambda rgba, n=name: self.callbacks["color"](n, rgba), f"Colour of {name}")
+            self.swatches[name] = swatch
+            row.addWidget(swatch)
             checkbox = QCheckBox(f"{name}   [{key}]")
             checkbox.setChecked(True)
             checkbox.toggled.connect(lambda checked, n=name: self.callbacks["visibility"](n, checked))
