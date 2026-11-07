@@ -21,7 +21,7 @@ import pyvista as pv
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLineEdit
 
 from viewer.scene import cloud_to_polydata
 from viewer.settings import Settings
@@ -96,6 +96,16 @@ def moved_forward(before, after, minimum=0.05):
     (p0, f0), (p1, _) = before, after
     forward = (f0 - p0) / np.linalg.norm(f0 - p0)
     return np.dot(p1 - p0, forward) > minimum
+
+
+def hold_w_until_moved(next_step):
+    """Hold W until the camera has moved (at most 5 s), then release it.
+
+    Waiting a fixed time doesn't work everywhere: on machines without a
+    graphics card a single frame can take longer than that.
+    """
+    press(Qt.Key_W)
+    wait_until(lambda: moved_forward(state["before"], camera()), next_step, limit_ms=5000)
 
 
 def switch_navigation():
@@ -174,8 +184,7 @@ def start():
     app.processEvents()
     window.scene.look_from("Front")
     state["before"] = camera()
-    press(Qt.Key_W)
-    then(400, wasd_after_sidebar_click)
+    hold_w_until_moved(wasd_after_sidebar_click)
 
 
 def wasd_after_sidebar_click():
@@ -186,8 +195,7 @@ def wasd_after_sidebar_click():
     check("switching to fly mode", window.scene.fly.enabled)
 
     state["before"] = camera()
-    press(Qt.Key_W)
-    then(400, fly_mouse_look)
+    hold_w_until_moved(fly_mouse_look)
 
 
 def fly_mouse_look():
@@ -340,6 +348,29 @@ def after_files():
 def after_color():
     color = window.scene.actors["Inspection B"].prop.color.float_rgb
     check("colour stays when switching scene", np.allclose(color, (0.1, 0.8, 0.3), atol=0.01))
+
+    # Background colour from its swatch
+    window.sidebar.background_swatch.on_picked((0.9, 0.9, 0.95, 1.0))
+    background = window.scene.plotter.renderer.background_color.float_rgb
+    check("background colour can be changed", np.allclose(background, (0.9, 0.9, 0.95), atol=0.01))
+
+    # Space shows / hides the settings panel, even when a button in it has focus
+    def space(widget):
+        app.sendEvent(widget, QKeyEvent(QEvent.KeyPress, Qt.Key_Space, Qt.NoModifier, " "))
+        app.sendEvent(widget, QKeyEvent(QEvent.KeyRelease, Qt.Key_Space, Qt.NoModifier, " "))
+
+    button = window.sidebar.generate_button
+    button.setFocus()
+    worker_before = window._data_worker
+    space(button)
+    check("space hides the settings panel", not window.dock.isVisible())
+    check("space does not press the focused button", window._data_worker is worker_before)
+    space(view)
+    check("space shows the settings panel again", window.dock.isVisible())
+    window.sidebar.seed.setFocus()
+    space(window.sidebar.seed.findChild(QLineEdit) or window.sidebar.seed)
+    check("space while typing in a number field doesn't toggle", window.dock.isVisible())
+
     window.close()
     app.quit()
 

@@ -244,6 +244,11 @@ class SceneView:
             self.actors[name].prop.color = tuple(rgba[:3])
             self.plotter.render()
 
+    def set_background(self, rgba):
+        self.settings.background = tuple(rgba)
+        self.plotter.set_background(tuple(rgba[:3]))
+        self.plotter.render()
+
     def set_color_mode(self, mode):
         self.settings.color_mode = mode
         self._rebuild()

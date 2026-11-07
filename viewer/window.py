@@ -2,15 +2,21 @@ import threading
 
 import numpy as np
 import open3d as o3d
-from PySide6.QtCore import QElapsedTimer, Qt
+from PySide6.QtCore import QElapsedTimer, QEvent, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
     QDockWidget,
     QFileDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QScrollArea,
+    QTextEdit,
+    QWidget,
 )
 
 from datasets import short_count
@@ -68,6 +74,7 @@ class MainWindow(QMainWindow):
                 "focus_area": self.focus_area,
                 "visibility": self.set_visible,
                 "color": self.set_cloud_color,
+                "background": self.scene.set_background,
                 "navigation": self.set_navigation,
                 "camera": self.scene.look_from,
                 "color_mode": self.scene.set_color_mode,
@@ -79,6 +86,7 @@ class MainWindow(QMainWindow):
         )
         self._add_dock()
         self._add_menus()
+        QApplication.instance().installEventFilter(self)  # Space shows / hides the panel
 
         self.status = QLabel()
         self.statusBar().addWidget(self.status)
@@ -99,6 +107,7 @@ class MainWindow(QMainWindow):
         dock.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
         dock.setMinimumWidth(320)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
+        self.dock = dock
 
     def _add_menus(self):
         file_menu = self.menuBar().addMenu("&File")
@@ -113,6 +122,10 @@ class MainWindow(QMainWindow):
         file_menu.addAction(quit_action)
 
         view_menu = self.menuBar().addMenu("&View")
+        panel = self.dock.toggleViewAction()
+        panel.setText("Settings panel (Space)")
+        view_menu.addAction(panel)
+        view_menu.addSeparator()
 
         # Single key shortcuts live on menu actions so they work anywhere in the window
         for key, name in enumerate(self.clouds, start=1):
@@ -137,6 +150,26 @@ class MainWindow(QMainWindow):
         reset.setShortcut(QKeySequence("R"))
         reset.triggered.connect(lambda: self.scene.look_from("Iso"))
         view_menu.addAction(reset)
+
+    def toggle_settings_panel(self):
+        self.dock.setVisible(not self.dock.isVisible())
+
+    def eventFilter(self, obj, event):
+        """Space anywhere in the window toggles the settings panel.
+
+        Done here instead of with a normal shortcut, because otherwise a
+        focused button or checkbox in the panel would take the Space press.
+        """
+        if (event.type() == QEvent.KeyPress and event.key() == Qt.Key_Space
+                and not event.isAutoRepeat()
+                and not event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier)
+                and isinstance(obj, QWidget) and obj.window() in (self, self.dock)):
+            focus = QApplication.focusWidget()
+            typing = isinstance(focus, (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit))
+            if not typing:
+                self.toggle_settings_panel()
+                return True
+        return super().eventFilter(obj, event)
 
     # Data
 
@@ -409,6 +442,7 @@ class MainWindow(QMainWindow):
         threading.Thread(target=visualize_inspections, args=(a, b), daemon=True).start()
 
     def closeEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
         self._stop_animation()
         for worker in (self._worker, self._data_worker, self._change_worker):
             if worker is not None:

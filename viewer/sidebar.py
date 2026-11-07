@@ -30,7 +30,8 @@ HELP_TEXT = (
     "Shift &nbsp; move faster<br>"
     "1 / 2 &nbsp; show or hide a cloud<br>"
     "M &nbsp; switch orbit / fly<br>"
-    "R &nbsp; reset the view<br><br>"
+    "R &nbsp; reset the view<br>"
+    "Space &nbsp; show or hide this panel<br><br>"
     "<b>Orbit mode</b><br>"
     "drag &nbsp; rotate around<br>"
     "Shift + drag &nbsp; pan<br>"
@@ -103,7 +104,7 @@ class Sidebar(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._data_section(data_settings))
-        layout.addWidget(self._clouds_section(cloud_names, colors))
+        layout.addWidget(self._clouds_section(cloud_names, colors, view_settings))
         layout.addWidget(self._align_section(cloud_names, data_settings))
         layout.addWidget(self._changes_section(view_settings, data_settings))
         layout.addWidget(self._camera_section())
@@ -241,7 +242,7 @@ class Sidebar(QWidget):
 
     # Clouds
 
-    def _clouds_section(self, cloud_names, colors):
+    def _clouds_section(self, cloud_names, colors, view_settings):
         box = QGroupBox("Clouds")
         layout = QVBoxLayout(box)
 
@@ -258,6 +259,15 @@ class Sidebar(QWidget):
             row.addWidget(checkbox)
             row.addStretch()
             layout.addLayout(row)
+
+        # Background colour, picked the same way as the clouds
+        row = QHBoxLayout()
+        self.background_swatch = ColorSwatch(
+            view_settings.background, lambda rgba: self.callbacks["background"](rgba), "Background colour")
+        row.addWidget(self.background_swatch)
+        row.addWidget(QLabel("Background"))
+        row.addStretch()
+        layout.addLayout(row)
 
         return box
 
