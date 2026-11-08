@@ -12,6 +12,20 @@ Projects are saved as .subdron files (File > Save), with undo / redo for almost 
 The Plotly viewer from main.py still works as before.
 Quick check that the viewer works on your machine: python tests/smoke_test.py
 
+Tools in the app: before/after swipe (B), cross section (X), measure (T),
+notes pinned in 3D (N), saved camera views, command palette (Cmd/Ctrl+K),
+History tab. File > Export makes a PDF change report, a turntable GIF or a
+screenshot. The Guide tab in the side panel explains everything.
+
+Building the desktop app (packaging/):
+    pip install pyinstaller
+    python packaging/build.py
+macOS gives dist/Subdron Sonar Studio.app, Windows gives
+dist/Subdron Sonar Studio/Subdron Sonar Studio.exe. For a Windows installer
+that also opens .subdron files on double click, compile
+packaging/windows_installer.iss with Inno Setup afterwards.
+The app is not signed: on macOS right click > Open the first time.
+
 Example data (datasets/):
 Synthetic underwater scan scenes (harbour wall, sheet pile wall, bridge pier,
 harbour basin, quay wall) with a known change between scan A and B. Pick them

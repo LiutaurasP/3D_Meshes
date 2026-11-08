@@ -11,7 +11,7 @@ from viewer.branding import APP_NAME, LOGO_PATH, PROJECT_EXTENSION, VERSION, app
 
 set_process_name()  # before Qt starts, so the menu bar shows the app's name
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QEvent, QObject, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen  # noqa: E402
 
@@ -88,8 +88,63 @@ def show_start_screen(window):
         window.history.clear()
 
 
+class FileOpener(QObject):
+    """macOS sends a double-clicked .subdron file as an event, not on the command line."""
+
+    def __init__(self):
+        super().__init__()
+        self.window = None
+        self.pending = []  # files that arrive before the window exists
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.FileOpen and event.file().endswith(PROJECT_EXTENSION):
+            if self.window is None:
+                self.pending.append(event.file())
+            else:
+                self.window.open_project(event.file())
+            return True
+        return False
+
+
+def self_test(window):
+    """--self-test: build the example scene, align, detect, print the result and quit.
+
+    Used to check that a packaged app really works (python packaging/build.py runs it).
+    """
+    from PySide6.QtCore import QTimer
+
+    def wait(condition, then, waited=0):
+        if condition():
+            then()
+        elif waited > 120_000:
+            print("SELF-TEST FAILED: timed out", flush=True)
+            QApplication.exit(1)
+        else:
+            QTimer.singleShot(200, lambda: wait(condition, then, waited + 200))
+
+    def detect():
+        window.detect_changes()
+        wait(lambda: window.change_result is not None, done)
+
+    def done():
+        areas = len(window.change_result.areas)
+        print(f"SELF-TEST OK: aligned, {areas} changed area(s)", flush=True)
+        window.skip_save_prompt = True
+        QApplication.exit(0 if areas else 1)
+
+    def start():
+        window.sidebar.animate.setChecked(False)
+        window.align()
+        wait(window.is_aligned, detect)
+
+    worker = window._data_worker  # the first scene is built right away, later ones in the background
+    wait(lambda: worker is None or worker.isFinished(), start)
+
+
 def main():
     app = QApplication(sys.argv)
+    opener = FileOpener()
+    app.installEventFilter(opener)
     apply_identity(app)
     apply_theme(app)
 
@@ -102,10 +157,14 @@ def main():
     window = MainWindow(Settings())
     window.show()
     splash.finish(window)
+    app.processEvents()  # a file double clicked in the Finder arrives now
+    opener.window = window
 
-    # A project file given on the command line (or double clicked later) is opened directly
-    projects = [arg for arg in sys.argv[1:] if arg.endswith(PROJECT_EXTENSION)]
-    if projects:
+    # A project file given on the command line (or double clicked) is opened directly
+    projects = opener.pending + [arg for arg in sys.argv[1:] if arg.endswith(PROJECT_EXTENSION)]
+    if "--self-test" in sys.argv:
+        self_test(window)
+    elif projects:
         window.open_project(projects[0], ask=False)
     elif not offer_recovery(window) and prefs.get("show_start_screen"):
         show_start_screen(window)
