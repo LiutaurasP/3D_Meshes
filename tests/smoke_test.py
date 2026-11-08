@@ -38,6 +38,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--screenshots", type=Path, default=None)
 args = parser.parse_args()
 
+from tests.no_dialogs import block_dialogs  # noqa: E402
+
+block_dialogs()  # a Save / Open window would wait for a click forever: never show one in the test
 app = QApplication(sys.argv[:1])
 app.setOrganizationName("SubdronTests")  # own settings store: never touch the user's recent files / preferences
 app.setApplicationName("Sonar Studio Tests")
@@ -437,9 +440,10 @@ def after_color():
     from viewer.guide import CHAPTERS
     from viewer.widgets import Card
 
-    window.sidebar.switch.buttons[1].click()
-    check("the switch opens the guide", window.sidebar.pages.currentIndex() == 1)
-    guide_cards = window.sidebar.pages.widget(1).widget().findChildren(Card)
+    from viewer.sidebar import GUIDE_PAGE
+    window.sidebar.switch.buttons[GUIDE_PAGE].click()
+    check("the switch opens the guide", window.sidebar.pages.currentIndex() == GUIDE_PAGE)
+    guide_cards = window.sidebar.pages.widget(GUIDE_PAGE).widget().findChildren(Card)
     check(f"the guide has all {len(CHAPTERS)} chapters", len(guide_cards) == len(CHAPTERS) >= 10)
     window.sidebar.switch.buttons[0].click()
     check("the switch goes back to the settings", window.sidebar.pages.currentIndex() == 0)
@@ -940,10 +944,69 @@ def after_series_step():
     check("a project keeps the whole survey series", window.series is not None and len(window.series.clouds) == 4
           and window.series_pair == (0, 3) and window.change_result is not None)
     check("…with each comparison's alignment", (0, 1) in window.series_cache)
+    workflow_checks()
+
+
+def workflow_checks():
+    """Areas tab, tags with undo, report details, CSV / GeoJSON / scan exports."""
+    import csv as csv_module
+    import json
+    import tempfile
+    from scan_formats import read_scan
+
+    panel = window.sidebar.areas_panel
+    result = window.change_result
+    check("the Areas tab lists every changed area", panel.table.rowCount() == len(result.areas) > 0)
+    panel.select(0)
+    check("selecting an area shows its details", not panel.detail_card.isHidden() and "Area 1" in panel.detail.text())
+    window.edit_area(0, "tag", "Scour")
+    window.edit_area(0, "status", "Checked")
+    window.edit_area(0, "comment", "Diver check in May")
+    area = result.areas[0]
+    check("an area can be tagged", (area.tag, area.status, area.comment) == ("Scour", "Checked", "Diver check in May"))
+    check("the tag shows in the 3D label", any("Scour" in label for label in window._area_labels(result.areas)))
+    window.actions["undo"].trigger()
+    check("editing an area can be undone", area.comment == "" and area.status == "Checked")
+    window.actions["redo"].trigger()
+
+    from viewer.window import carry_over_tags
+    from change_detection import ChangeArea
+    moved = ChangeArea(area.index_a, area.index_b, area.low + 0.2, area.high + 0.2, area.peak, area.n_points)
+    carry_over_tags(result.areas, [moved])
+    check("tags stay with an area when changes are detected again", moved.tag == "Scour")
+
+    from viewer.report import collect
+    counted = collect(window)["detection"]["removed"]
+    window.edit_area(0, "tag", "False alarm")
+    left = collect(window)["detection"]["removed"]
+    check("false alarms are left out of the volume totals", counted > 0 and left < counted)
+    window.actions["undo"].trigger()
+
+    window.set_report_details({"client": "Port Authority", "site": "Quay 4", "inspector": "N. D.", "remarks": "OK"})
+    folder = Path(tempfile.mkdtemp())
+    window.write_project(folder / "details.subdron")
+    window.report_details = {}
+    window.open_project(str(folder / "details.subdron"), ask=False)
+    check("report details are saved in the project", window.report_details.get("site") == "Quay 4")
+    check("area tags are saved in the project", window.change_result.areas[0].tag == "Scour")
+    check("the report includes the details", window.export_report(str(folder / "report.pdf")) >= 1)
+
+    window.export_areas("csv", str(folder / "areas.csv"))
+    rows = list(csv_module.DictReader(open(folder / "areas.csv", encoding="utf-8-sig")))
+    check("changed areas export as CSV", len(rows) == len(window.change_result.areas) and rows[0]["tag"] == "Scour")
+    window.export_areas("geojson", str(folder / "areas.geojson"))
+    shapes = json.loads((folder / "areas.geojson").read_text())
+    check("changed areas export as GeoJSON", len(shapes["features"]) == len(rows))
+    window.export_aligned_scan(str(folder / "b.laz"))
+    exported = read_scan(folder / "b.laz")
+    check("aligned scan B exports as LAZ", len(exported.points) == len(window.clouds[window.source_name].points))
     finish()
 
 
 def finish():
+    from tests.no_dialogs import blocked
+
+    check("no window waited for a click during the test", not blocked)
 
     window.close()
     app.quit()

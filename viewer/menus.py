@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QKeySequence
 
 from datasets import SCENES
 from viewer.scene import CAMERA_PRESETS, COLOR_MODES, NAVIGATION_MODES
+from viewer.sidebar import AREAS_PAGE, GUIDE_PAGE, HISTORY_PAGE
 
 
 def action(window, text, slot=None, shortcut=None, checkable=False, tip=""):
@@ -78,6 +79,12 @@ def build_menus(window):
     export = file_menu.addMenu("Export")
     export.addAction(action(window, "Screenshot…", window.export_screenshot, "Ctrl+Shift+E"))
     export.addAction(action(window, "Change Report (PDF)…", lambda: window.export_report(), "Ctrl+Shift+R"))
+    export.addAction(action(window, "Report Details…", lambda: window.edit_report_details()))
+    export.addSeparator()
+    export.addAction(action(window, "Changed Areas as Table (CSV)…", lambda: window.export_areas("csv")))
+    export.addAction(action(window, "Changed Areas for GIS (GeoJSON)…", lambda: window.export_areas("geojson")))
+    export.addAction(action(window, "Aligned Scan B (LAZ, PLY, XYZ)…", lambda: window.export_aligned_scan()))
+    export.addSeparator()
     export.addAction(action(window, "Turntable Animation (GIF)…", lambda: window.export_turntable()))
     window.export_menu = export
     file_menu.addSeparator()
@@ -114,7 +121,7 @@ def build_menus(window):
     panel.setText("Side Panel")
     panel.setShortcut(QKeySequence("Ctrl+Alt+S"))  # Space works too, see MainWindow.eventFilter
     view.addAction(panel)
-    view.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(1)), "F1"))
+    view.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(GUIDE_PAGE)), "F1"))
     view.addSeparator()
     for number, (name, checkbox) in enumerate(side.checkboxes.items(), start=1):
         item = action(window, f"Show {name}", shortcut=str(number))
@@ -182,7 +189,9 @@ def build_menus(window):
     # Window
     window_menu = bar.addMenu("&Window")
     window_menu.addAction(action(window, "Command Palette…", window.show_palette, "Ctrl+K"))
-    window_menu.addAction(action(window, "History", lambda: (window.dock.show(), side.show_page(2)), "Ctrl+Shift+H"))
+    window_menu.addAction(action(window, "Areas", lambda: (window.dock.show(), side.show_page(AREAS_PAGE)),
+                                 "Ctrl+Shift+A"))
+    window_menu.addAction(action(window, "History", lambda: (window.dock.show(), side.show_page(HISTORY_PAGE)), "Ctrl+Shift+H"))
     window_menu.addSeparator()
     window_menu.addAction(action(window, "Minimize", window.showMinimized, "Ctrl+M"))
     window_menu.addAction(action(window, "Zoom", window.toggle_maximized))
@@ -190,7 +199,7 @@ def build_menus(window):
 
     # Help
     help_menu = bar.addMenu("&Help")
-    help_menu.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(1))))
+    help_menu.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(GUIDE_PAGE))))
     help_menu.addAction(action(window, "Keyboard Shortcuts", window.show_shortcuts, "Ctrl+/"))
     about = action(window, "About Subdron Sonar Studio", window.show_about)
     about.setMenuRole(QAction.AboutRole)

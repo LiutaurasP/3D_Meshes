@@ -17,6 +17,14 @@ notes pinned in 3D (N), saved camera views, command palette (Cmd/Ctrl+K),
 History tab. File > Export makes a PDF change report, a turntable GIF or a
 screenshot. The Guide tab in the side panel explains everything.
 
+Command line (no window), for many surveys at once:
+    python sonar_cli.py compare before.laz after.laz --out results --report --csv --geojson
+    python sonar_cli.py series surveys_folder --out results
+Reads every format the app reads (LAS/LAZ, E57, PLY, PCD, XYZ/CSV, GeoTIFF, ...),
+aligns, detects changes, measures volumes and writes reports, tables and the
+aligned scan. series compares every survey with the first and with the one
+before and writes series_summary.csv. python sonar_cli.py -h lists all options.
+
 Building the desktop app (packaging/):
     pip install pyinstaller
     python packaging/build.py

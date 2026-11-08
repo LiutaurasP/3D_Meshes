@@ -34,7 +34,8 @@ from viewer.widgets import (
 
 FROM_FILES = "files"
 ICP_METHODS = (("Point to point", "point-to-point"), ("Point to plane", "point-to-plane"))
-PAGES = ("Settings", "Guide", "History")
+PAGES = ("Settings", "Areas", "Guide", "History")
+SETTINGS_PAGE, AREAS_PAGE, GUIDE_PAGE, HISTORY_PAGE = range(4)
 
 
 def scene_label(scene):
@@ -105,6 +106,13 @@ class Sidebar(QWidget):
 
         self.pages = QStackedWidget()
         self.pages.addWidget(scrolling(settings))
+        from viewer.areas_panel import AreasPanel
+
+        areas_page, areas_layout = page_layout()
+        self.areas_panel = AreasPanel(lambda index: self.callbacks["focus_area"](index),
+                                      lambda index, field, value: self.callbacks["area_edit"](index, field, value))
+        areas_layout.addWidget(self.areas_panel)
+        self.pages.addWidget(scrolling(areas_page))
         self.pages.addWidget(scrolling(self._guide_page()))
         self.history_page, self.history_layout = page_layout()  # filled by add_history_page
         self.pages.addWidget(self.history_page)

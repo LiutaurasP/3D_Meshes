@@ -239,3 +239,52 @@ class StartScreen(QDialog):
     def _done(self, kind, value=None):
         self.choice = (kind, value)
         self.accept()
+
+
+# Report details
+
+
+class ReportDetailsDialog(QDialog):
+    """Client, site, inspector and remarks shown in the change report (saved in the project)."""
+
+    FIELDS = (("client", "Client", "For example: Port of Hamburg"),
+              ("site", "Site", "For example: Quay 4, berth 2"),
+              ("inspector", "Inspector", "Your name"),
+              ("reference", "Reference", "Job or order number"))
+
+    def __init__(self, details, parent=None, export=False):
+        super().__init__(parent)
+        styled(self)
+        self.setWindowTitle("Change Report" if export else "Report Details")
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        card = Card("Shown on the first page")
+        form = Form()
+        self.inputs = {}
+        for key, label, placeholder in self.FIELDS:
+            field = QLineEdit(details.get(key, ""))
+            field.setPlaceholderText(placeholder)
+            self.inputs[key] = form.row(label, field)
+        card.add(form)
+        layout.addWidget(card)
+        remarks = Card("Remarks")
+        from PySide6.QtWidgets import QPlainTextEdit
+
+        self.remarks = QPlainTextEdit(details.get("remarks", ""))
+        self.remarks.setPlaceholderText("Conclusions, recommended actions, conditions during the survey…")
+        self.remarks.setMinimumHeight(110)
+        remarks.add(self.remarks)
+        layout.addWidget(remarks)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        if export:
+            buttons.button(QDialogButtonBox.Ok).setText("Export PDF…")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def details(self):
+        values = {key: field.text().strip() for key, field in self.inputs.items()}
+        values["remarks"] = self.remarks.toPlainText().strip()
+        return values

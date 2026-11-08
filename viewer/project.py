@@ -46,7 +46,8 @@ def steps_from_json(data):
     return [AlignStep(np.array(s["matrix"], dtype=float).reshape(4, 4), s["fitness"], s["rmse"]) for s in data]
 
 
-AREA_MEASUREMENTS = ("volume_added", "volume_removed", "volume_error", "footprint", "cell", "lod", "confidence")
+AREA_MEASUREMENTS = ("volume_added", "volume_removed", "volume_error", "footprint", "cell", "lod", "confidence",
+                     "tag", "status", "comment")
 
 
 def changes_to_files(result):
@@ -71,7 +72,9 @@ def changes_to_files(result):
 
 def changes_from_files(summary, arrays):
     areas = [ChangeArea(arrays[f"area{i}_a"], arrays[f"area{i}_b"], np.array(a["low"]), np.array(a["high"]),
-                        a["peak"], a["n_points"], **{key: a.get(key) for key in AREA_MEASUREMENTS})
+                        a["peak"], a["n_points"],
+                        **{key: a.get(key, "" if key in ("tag", "status", "comment") else None)
+                           for key in AREA_MEASUREMENTS})
              for i, a in enumerate(summary["areas"])]
     return ChangeResult(
         arrays["distance_a"].astype(float), arrays["distance_b"].astype(float),

@@ -207,12 +207,26 @@ CHAPTERS = [
                                   "detection and measuring still use every point (Settings → Draw at most)"),
     ]), False),
 
+    ("Areas tab: inspecting changes", keys_table([
+        ("<b>Table</b>", "every changed area with its volume, tag and status; click a column to sort, "
+                         "click a row to fly there"),
+        ("<b>Show</b>", "only open areas, only added or removed ones, or everything except false alarms"),
+        ("<b>Tag</b>", "debris, scour, sediment, damage, structure, marine growth or false alarm"),
+        ("<b>Status</b>", "open, checked or resolved, plus a comment, all saved and listed in the report"),
+        ("<b>Detect again</b>", "areas at the same place keep their tag, status and comment"),
+    ]), False),
+
     ("Sharing results", keys_table([
         ("<b>Change report</b>", "File → Export → Change Report (PDF): summary, a picture of the scene, "
                                  "a table and close-ups of the changed areas, and your notes"),
         ("<b>Turntable</b>", "File → Export → Turntable Animation: the camera circles once around the "
                              "scene, saved as a GIF that plays in any browser or presentation"),
         ("<b>Screenshot</b>", "File → Export → Screenshot saves exactly what the 3D view shows"),
+        ("<b>Report details</b>", "client, site, inspector, reference and remarks for the first page"),
+        ("<b>Tables and GIS</b>", "the changed areas as CSV (Excel) or GeoJSON (GIS), in survey coordinates"),
+        ("<b>Aligned scan</b>", "scan B in its aligned position as LAZ, PLY or XYZ for other software"),
+        ("<b>Command line</b>", "python sonar_cli.py compare a.laz b.laz --report --csv: no window needed, "
+                                "series of surveys too (see the README)"),
     ]) + '<p style="margin:8px 0 0 0;">' + dim("Run Detect Changes first, so the report can list the changed areas.")
      + "</p>", False),
 

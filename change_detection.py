@@ -48,6 +48,10 @@ class ChangeArea:
     cell: float = None
     lod: float = None
     confidence: str = None  # "clear", "likely" or "uncertain"
+    # Filled in by the inspector in the app
+    tag: str = ""  # debris, scour, damage, sediment, false alarm, ...
+    status: str = ""  # open, checked, resolved
+    comment: str = ""
 
     @property
     def volume(self):

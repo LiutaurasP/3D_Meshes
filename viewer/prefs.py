@@ -9,6 +9,7 @@ DEFAULTS = {
     "sphere_limit_millions": 1.5,  # above this many points, draw plain points (faster)
     "display_limit_millions": 8.0,  # above this many points, draw an evenly spread part of them
     "restore_last_layout": True,
+    "inspector_name": "",  # filled into new change reports
 }
 
 

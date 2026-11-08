@@ -1,0 +1,178 @@
+"""Areas tab: every changed area in a table, with a tag, a status and a comment for each."""
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from viewer.widgets import Card, Form, hint
+from volumes import area_volume_text
+
+TAGS = ("", "Debris", "Scour", "Sediment", "Damage", "Structure", "Marine growth", "False alarm")
+STATUSES = ("", "Open", "Checked", "Resolved")
+FILTERS = (("All areas", lambda a: True), ("Open (not checked yet)", lambda a: a.status in ("", "Open")),
+           ("Added", lambda a: a.kind == "added"), ("Removed", lambda a: a.kind == "removed"),
+           ("Without false alarms", lambda a: a.tag != "False alarm"))
+ADDED, REMOVED = QColor("#e8796b"), QColor("#6a9ff0")
+
+
+class NumberItem(QTableWidgetItem):
+    """Sorts by a number instead of by its text."""
+
+    def __init__(self, text, value):
+        super().__init__(text)
+        self.value = value
+
+    def __lt__(self, other):
+        return (self.value if self.value is not None else float("-inf")) < \
+               (other.value if getattr(other, "value", None) is not None else float("-inf"))
+
+
+class AreasPanel(QWidget):
+    def __init__(self, on_select, on_edit):
+        """on_select(area index), on_edit(area index, field, value)"""
+        super().__init__()
+        self.on_select, self.on_edit = on_select, on_edit
+        self.areas = []
+        self.current = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        card = Card("Changed areas")
+        self.summary = hint("Run Detect Changes to list the changed areas here.")
+        card.add(self.summary)
+        self.filter = QComboBox()
+        for label, _ in FILTERS:
+            self.filter.addItem(label)
+        self.filter.currentIndexChanged.connect(lambda _: self._fill())
+        form = Form()
+        form.row("Show", self.filter)
+        card.add(form)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["#", "Change", "Volume", "Tag", "Status"])
+        self.table.verticalHeader().hide()
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSortingEnabled(True)
+        self.table.sortItems(0, Qt.AscendingOrder)  # Qt starts with descending: show area 1 first
+        self.table.setShowGrid(False)
+        self.table.setMinimumHeight(260)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setStretchLastSection(True)
+        self.table.itemSelectionChanged.connect(self._selected)
+        card.add(self.table)
+        layout.addWidget(card)
+
+        self.detail_card = Card("Selected area")
+        self.detail = QLabel()
+        self.detail.setWordWrap(True)
+        self.detail.setTextFormat(Qt.RichText)
+        self.detail_card.add(self.detail)
+        form = Form()
+        self.tag = QComboBox()
+        self.tag.addItems([t or "–" for t in TAGS])
+        self.tag.activated.connect(lambda i: self._edit("tag", TAGS[i]))
+        form.row("Tag", self.tag)
+        self.status = QComboBox()
+        self.status.addItems([s or "–" for s in STATUSES])
+        self.status.activated.connect(lambda i: self._edit("status", STATUSES[i]))
+        form.row("Status", self.status)
+        self.comment = QLineEdit()
+        self.comment.setPlaceholderText("For example: diver check planned")
+        self.comment.editingFinished.connect(lambda: self._edit("comment", self.comment.text().strip()))
+        form.row("Comment", self.comment)
+        self.detail_card.add(form)
+        self.detail_card.add(hint("Tags, status and comments are saved in the project and listed in the report. "
+                                  "Areas tagged False alarm are left out of the volume totals."))
+        self.detail_card.setVisible(False)
+        layout.addWidget(self.detail_card)
+        layout.addStretch()
+
+    # Filling
+
+    def show_areas(self, areas, summary=""):
+        self.areas = list(areas or [])
+        if not self.areas:
+            self.summary.setText(summary or "Run Detect Changes to list the changed areas here.")
+        else:
+            counts = {}
+            for area in self.areas:
+                key = area.status or "Open"
+                counts[key] = counts.get(key, 0) + 1
+            parts = ", ".join(f"{n} {k.lower()}" for k, n in sorted(counts.items()))
+            self.summary.setText(f"{len(self.areas)} areas: {parts}. Click one to fly there.")
+        self._fill()
+
+    def _fill(self):
+        keep = FILTERS[self.filter.currentIndex()][1]
+        selected = self.current
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
+        for index, area in enumerate(self.areas):
+            if not keep(area):
+                continue
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            number = NumberItem(str(index + 1), index)
+            number.setData(Qt.UserRole, index)
+            kind = QTableWidgetItem(area.kind + ("?" if area.confidence not in (None, "clear") else ""))
+            kind.setForeground(ADDED if area.kind == "added" else REMOVED)
+            volume = NumberItem(area_volume_text(area).split(" ±")[0], area.volume)
+            items = [number, kind, volume, QTableWidgetItem(area.tag), QTableWidgetItem(area.status)]
+            if area.tag == "False alarm":
+                for item in items:
+                    item.setForeground(QColor("#6b7080"))
+            for column, item in enumerate(items):
+                self.table.setItem(row, column, item)
+        self.table.setSortingEnabled(True)
+        if selected is not None:
+            self.select(selected, notify=False)
+
+    def select(self, index, notify=True):
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, 0).data(Qt.UserRole) == index:
+                self.table.blockSignals(not notify)
+                self.table.selectRow(row)
+                self.table.blockSignals(False)
+                self._show_detail(index)
+                return
+
+    def _selected(self):
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        index = self.table.item(rows[0].row(), 0).data(Qt.UserRole)
+        self._show_detail(index)
+        self.on_select(index)
+
+    def _show_detail(self, index):
+        self.current = index
+        area = self.areas[index]
+        length, width, height = area.size
+        volume = area_volume_text(area) or "not measured"
+        sure = {"clear": "clearly real", "likely": "likely real", "uncertain": "close to the noise"}.get(area.confidence, "")
+        self.detail.setText(f"<b>Area {index + 1}: {area.kind}</b> {sure}<br>"
+                            f"<span style='color:#9a9da7'>Up to {area.peak:+.2f} m · {volume} · "
+                            f"{length:.1f} × {width:.1f} × {height:.1f} m · {area.n_points:,} points</span>")
+        self.tag.setCurrentIndex(TAGS.index(area.tag) if area.tag in TAGS else 0)
+        self.status.setCurrentIndex(STATUSES.index(area.status) if area.status in STATUSES else 0)
+        self.comment.setText(area.comment)
+        self.detail_card.setVisible(True)
+
+    def _edit(self, field, value):
+        if self.current is None or getattr(self.areas[self.current], field) == value:
+            return
+        self.on_edit(self.current, field, value)

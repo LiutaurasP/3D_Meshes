@@ -44,6 +44,7 @@ def collect(window):
         "areas": [],
         "notes": [{**n, "point": [float(v) for v in np.asarray(n["point"]) + offset]} for n in window.notes],
         "kinds": dict(getattr(window.inspections, "kinds", {}) or {}),
+        "details": dict(getattr(window, "report_details", {}) or {}),
         "offset": [float(v) for v in offset],
     }
     steps = window.align_steps
@@ -59,8 +60,8 @@ def collect(window):
             "changed": int(result.n_changed),
             "share": float(result.share_changed),
             "lod": result.lod,
-            "added": sum(a.volume_added or 0 for a in result.areas),
-            "removed": sum(a.volume_removed or 0 for a in result.areas),
+            "added": sum(a.volume_added or 0 for a in result.areas if a.tag != "False alarm"),
+            "removed": sum(a.volume_removed or 0 for a in result.areas if a.tag != "False alarm"),
         }
         for number, area in enumerate(result.areas, start=1):
             info["areas"].append({
@@ -73,6 +74,7 @@ def collect(window):
                 "volume": area.volume,
                 "volume_error": area.volume_error,
                 "confidence": area.confidence,
+                "tag": area.tag, "status": area.status, "comment": area.comment,
             })
     return info
 
@@ -257,11 +259,16 @@ def write_pdf(path, info, overview, close_ups, height_map=None):
         painter.drawImage(QRectF(MARGIN, 34, logo.width() * height / logo.height(), height), logo)
     pages.y = 72
     pages.text("Change Report", 22, bold=True, color=QColor("white"), gap=2)
-    pages.text(f"{info['title']}  ·  {info['date']}", 10, color=QColor("#b8bccb"))
+    subtitle = " · ".join(v for v in (info.get("details", {}).get("site"), info["title"]) if v)
+    pages.text(f"{subtitle}  ·  {info['date']}", 10, color=QColor("#b8bccb"))
     pages.y = 128 + 22
 
     a, b = info["names"]
-    rows = [("Project", info["project"]), ("Data", info["source"])]
+    details = info.get("details", {})
+    rows = [(label, details[key]) for key, label in (("client", "Client"), ("site", "Site"),
+                                                     ("reference", "Reference"), ("inspector", "Inspector"))
+            if details.get(key)]
+    rows += [("Project", info["project"]), ("Data", info["source"])]
     if info["files"]:
         kinds = info.get("kinds", {})
         for name, file in zip((a, b), info["files"]):
@@ -289,13 +296,18 @@ def write_pdf(path, info, overview, close_ups, height_map=None):
         rows.append(("Result", "Changes were not detected yet"))
     facts_table(pages, rows)
 
+    if details.get("remarks"):
+        pages.y += 6
+        pages.text("Remarks", 10.5, bold=True, gap=2)
+        pages.text(details["remarks"], 10, gap=4)
+
     # Overview picture
     pages.y += 8
     height = (PAGE_W - 2 * MARGIN) * 0.56
     pages.need(height + 20)
     pages.image(overview, MARGIN, PAGE_W - 2 * MARGIN, height)
     pages.y += height + 4
-    pages.text("The scene as shown in the app when the report was made.", 8.5, color=DIM)
+    pages.text(info.get("overview_caption", "The scene as shown in the app when the report was made."), 8.5, color=DIM)
 
     if info["areas"]:
         pages.heading("Changed areas", keep=80)
@@ -306,6 +318,20 @@ def write_pdf(path, info, overview, close_ups, height_map=None):
         if any(a.get("confidence") not in (None, "clear") for a in info["areas"]):
             pages.y += 4
             pages.text("? = the change is close to the level of detection: worth checking again.", 8.5, color=DIM)
+        inspected = [a for a in info["areas"] if a.get("tag") or a.get("status") or a.get("comment")]
+        if inspected:
+            pages.heading("Inspection", keep=60)
+            for area in inspected:
+                pages.need(28)
+                label = " · ".join(v for v in (area.get("tag"), area.get("status")) if v)
+                top = pages.y
+                pages.text(f"Area {area['number']}", 9.5, bold=True, width=60, gap=0)
+                pages.y = top
+                pages.text(label or "–", 9.5, x=MARGIN + 64, width=150, gap=0)
+                pages.y = top
+                pages.text(area.get("comment") or "", 9.5, x=MARGIN + 220, gap=6)
+            if any(a.get("tag") == "False alarm" for a in inspected):
+                pages.text("Areas tagged False alarm are not counted in the volume totals.", 8.5, color=DIM)
 
     if height_map is not None:
         height = (PAGE_W - 2 * MARGIN) * height_map.height() / max(height_map.width(), 1)

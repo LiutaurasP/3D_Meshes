@@ -127,10 +127,12 @@ class MainWindow(QMainWindow):
                 "go_view": self.go_to_saved_view,
                 "plotly": self.open_in_plotly,
                 "series_pair": self.on_timeline,
+                "area_edit": self.edit_area,
             },
         )
         self.saved_views = []  # [{"name": ..., "view": camera view}]
         self.series = None  # several surveys of the same place (Timeline), see viewer/pipeline.py
+        self.report_details = {}  # client, site, inspector, reference, remarks (saved in the project)
         self.series_pair = None  # (older, newer) survey index shown as scan A / scan B
         self.series_cache = {}  # (older, newer) -> pose_state, so going back to a comparison is instant
         self._detect_after_align = False
@@ -665,6 +667,8 @@ class MainWindow(QMainWindow):
             self.series_cache[self.series_pair] = self.pose_state()
         self._stop_animation()
         self.series_pair = (older, newer)
+        if self.series.paths:  # the two files of this comparison (report, project details)
+            self.loaded_files = (self.series.paths[older], self.series.paths[newer])
         inspections = self.series.pair(older, newer)
         self._show_inspections(inspections, reset_camera=first)
         total = sum(len(c.points) for c in inspections.clouds.values())
@@ -720,7 +724,7 @@ class MainWindow(QMainWindow):
         older, newer = series_state.get("pair", [0, len(points) - 1])
         self.series_pair = (older, newer)
         self.series_cache.pop((older, newer), None)  # the open comparison comes from the project itself
-        self.loaded_files = tuple(self.series.names)
+        self.loaded_files = (self.series.names[older], self.series.names[newer])
         self.sidebar.show_series(self.series.names)
         self.sidebar.set_series_pair(older, newer, "first" if older == 0 else "previous")
         self.sidebar.timeline_auto.setChecked(series_state.get("auto", True))
@@ -1219,6 +1223,9 @@ class MainWindow(QMainWindow):
         self._change_worker.start()
 
     def _on_changes(self, result):
+        previous = (self._detect_before or {}).get("changes")
+        if previous is not None:
+            carry_over_tags(previous.areas, result.areas)
         seconds = self._clock.elapsed() / 1000
         self.sidebar.set_detecting(False)
         self.statusBar().showMessage(f"Change detection took {seconds:.1f} s", 4000)
@@ -1253,8 +1260,9 @@ class MainWindow(QMainWindow):
         if result.lod is not None:
             from volumes import format_volume
 
-            added = sum(a.volume_added or 0 for a in result.areas)
-            removed = sum(a.volume_removed or 0 for a in result.areas)
+            counted = [a for a in result.areas if a.tag != "False alarm"]
+            added = sum(a.volume_added or 0 for a in counted)
+            removed = sum(a.volume_removed or 0 for a in counted)
             summary += f" · level of detection {result.lod * 100:.1f} cm"
             if result.areas:
                 summary += f"<br>Volume: <b>+{format_volume(added)}</b> added, <b>−{format_volume(removed)}</b> removed"
@@ -1272,6 +1280,7 @@ class MainWindow(QMainWindow):
 
         area_lines = [f"{i}. {self._area_text(area)}" for i, area in enumerate(result.areas, start=1)]
         self.sidebar.show_changes_result(summary, area_lines)
+        self.sidebar.areas_panel.show_areas(result.areas)
 
     @staticmethod
     def _area_text(area):
@@ -1289,11 +1298,37 @@ class MainWindow(QMainWindow):
         from volumes import area_volume_text
 
         volume = area_volume_text(area).split(" ±")[0]
-        return f"{number}: {area.kind} {area.peak:+.2f} m" + (f" · {volume}" if volume else "")
+        label = f"{number}: {area.kind} {area.peak:+.2f} m" + (f" · {volume}" if volume else "")
+        return label + (f" · {area.tag}" if area.tag else "")
 
     def _area_labels(self, areas, limit=10):
         """Labels for the biggest areas only (the list is sorted by size), the rest get just a box."""
         return [self._area_label(i, area) if i <= limit else "" for i, area in enumerate(areas, start=1)]
+
+    def edit_area(self, index, field, value):
+        """Tag, status or comment of a changed area (Areas tab), undoable."""
+        result = self.change_result
+        if result is None or not 0 <= index < len(result.areas):
+            return
+        area = result.areas[index]
+        old = getattr(area, field)
+
+        def put(text):
+            if self.change_result is not result:
+                return
+            setattr(area, field, text)
+            self._refresh_area_info(index)
+
+        put(value)
+        label = {"tag": "Tag", "status": "Status", "comment": "Comment"}[field]
+        self.history.push(f"{label} of Area {index + 1}", lambda: put(value), lambda: put(old),
+                          merge_key=f"area-{index}-{field}" if field == "comment" else None)
+
+    def _refresh_area_info(self, index):
+        result = self.change_result
+        self.scene.set_areas(result.areas, self._area_labels(result.areas))
+        self.sidebar.areas_panel.show_areas(result.areas)
+        self.sidebar.areas_panel.select(index, notify=False)
 
     def focus_area(self, row):
         if self.change_result and 0 <= row < len(self.change_result.areas):
@@ -1383,6 +1418,7 @@ class MainWindow(QMainWindow):
             "saved_views": self.saved_views,
             "notes": self.notes,
             "series": self._series_state(),
+            "report": self.report_details,
             "panel": {**self.sidebar.panel_state(), "visible": self.dock.isVisible()},
         }
 
@@ -1525,6 +1561,7 @@ class MainWindow(QMainWindow):
 
             self._set_saved_views(state.get("saved_views", []))
             self._set_notes(state.get("notes", []))
+            self.report_details = dict(state.get("report") or {})
             self.clear_measurements()
             if side.swipe.isChecked():
                 side.swipe.setChecked(False)
@@ -1574,7 +1611,7 @@ class MainWindow(QMainWindow):
 
     def maybe_save(self):
         """Ask to save unsaved changes. Returns False if the user cancelled."""
-        if self.history.stack.isClean():
+        if self.history.stack.isClean() or getattr(self, "skip_save_prompt", False):
             return True
         name = Path(self.project_path).name if self.project_path else "this project"
         answer = QMessageBox.question(
@@ -1631,11 +1668,77 @@ class MainWindow(QMainWindow):
             path += suffix
         return path
 
+    def edit_report_details(self, export=False):
+        """Client, site, inspector, remarks for the report. Returns False when cancelled."""
+        from viewer.dialogs import ReportDetailsDialog
+
+        details = dict(self.report_details)
+        details.setdefault("inspector", prefs.get("inspector_name"))
+        dialog = ReportDetailsDialog(details, self, export=export)
+        if not dialog.exec():
+            return False
+        self.set_report_details(dialog.details())
+        if self.report_details.get("inspector"):
+            prefs.set("inspector_name", self.report_details["inspector"])
+        return True
+
+    def set_report_details(self, details):
+        old, new = dict(self.report_details), dict(details)
+        if old == new:
+            return
+
+        def put(values):
+            self.report_details = dict(values)
+
+        put(new)
+        self.history.push("Report Details", lambda: put(new), lambda: put(old))
+
+    def export_areas(self, kind="csv", path=None):
+        """The changed areas as a table (CSV, opens in Excel) or as outlines for GIS (GeoJSON)."""
+        from exports import area_rows, write_areas_csv, write_areas_geojson
+
+        if self.change_result is None or not self.change_result.areas:
+            self.notify("No changed areas yet", "Run Detect Changes first", "warning")
+            return False
+        if path is None:
+            suffix, text = (".csv", "CSV table (*.csv)") if kind == "csv" else (".geojson", "GeoJSON (*.geojson)")
+            path = self._export_path("Changed Areas", suffix, text)
+            if not path:
+                return False
+        rows = area_rows(self.change_result, self.inspections.offset)
+        if str(path).lower().endswith(".csv"):
+            write_areas_csv(path, rows)
+        else:
+            write_areas_geojson(path, rows, self.inspections.title)
+        self.notify("Changed areas exported", f"{Path(path).name} · {len(rows)} areas", "success")
+        return True
+
+    def export_aligned_scan(self, path=None):
+        """Scan B in its aligned position, in real coordinates (for other software)."""
+        from exports import SCAN_EXPORT_FILTER, write_scan
+
+        if path is None:
+            path = self._export_path("Aligned Scan B", ".laz", SCAN_EXPORT_FILTER)
+            if not path:
+                return False
+        matrix = np.asarray(self.scene.matrices[self.source_name])
+        points = np.asarray(self.clouds[self.source_name].points) @ matrix[:3, :3].T + matrix[:3, 3]
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            write_scan(path, points + self.inspections.offset, self.inspections.intensity.get(self.source_name))
+        finally:
+            QApplication.restoreOverrideCursor()
+        state = "aligned" if self.align_steps else "not aligned yet"
+        self.notify("Scan B exported", f"{Path(path).name} · {len(points):,} points, {state}", "success")
+        return True
+
     def export_report(self, path=None):
         """PDF with the summary, pictures, the table of changed areas and the notes."""
         from viewer.report import export_report
 
         if path is None:
+            if not self.edit_report_details(export=True):
+                return None
             path = self._export_path("Report", ".pdf", "PDF document (*.pdf)")
             if not path:
                 return None
@@ -1721,3 +1824,17 @@ class MainWindow(QMainWindow):
                 worker.wait()
         self.scene.close()
         super().closeEvent(event)
+
+
+def carry_over_tags(old_areas, new_areas, distance=1.0):
+    """After detecting again, areas at (nearly) the same place keep their tag, status and comment."""
+    for new in new_areas:
+        best, best_distance = None, distance
+        for old in old_areas:
+            if not (old.tag or old.status or old.comment) or old.kind != new.kind:
+                continue
+            gap = float(np.linalg.norm(np.asarray(old.center) - np.asarray(new.center)))
+            if gap < best_distance:
+                best, best_distance = old, gap
+        if best is not None:
+            new.tag, new.status, new.comment = best.tag, best.status, best.comment
