@@ -74,6 +74,8 @@ def build_menus(window):
         examples.addAction(action(window, scene.title, lambda _=False, k=key: window.pick_scene(k)))
     export = file_menu.addMenu("Export")
     export.addAction(action(window, "Screenshot…", window.export_screenshot, "Ctrl+Shift+E"))
+    export.addAction(action(window, "Change Report (PDF)…", lambda: window.export_report(), "Ctrl+Shift+R"))
+    export.addAction(action(window, "Turntable Animation (GIF)…", lambda: window.export_turntable()))
     window.export_menu = export
     file_menu.addSeparator()
     preferences = action(window, "Settings…", window.show_preferences, QKeySequence.Preferences)
@@ -163,6 +165,10 @@ def build_menus(window):
     analyze.addAction(action(window, "Cross Section", lambda: window.start_tool("section"), "X"))
     analyze.addAction(action(window, "Measure Distance", lambda: window.start_tool("measure"), "T"))
     analyze.addAction(action(window, "Clear Measurements", window.clear_measurements))
+    analyze.addSeparator()
+    analyze.addAction(action(window, "Add Note", lambda: window.start_tool("note"), "N"))
+    window.notes_menu = analyze.addMenu("Notes")
+    window.update_notes_menu()
     window.analyze_menu = analyze
 
     # Window

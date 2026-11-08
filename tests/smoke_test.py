@@ -722,6 +722,48 @@ def tool_checks():
     scene.look_from("Front", animate=True)
     check("view presets fly instead of jumping", scene.flight.is_flying())
     scene.flight.stop()
+    output_checks()
+
+
+def output_checks():
+    """Phase 4: notes in 3D, PDF report, turntable animation."""
+    import tempfile
+    from PIL import Image
+    from viewer.report import collect
+
+    scene = window.scene
+    folder = Path(tempfile.mkdtemp())
+    points = np.asarray(window.clouds[window.target_name].points)
+    place = points[len(points) // 2]
+
+    window.start_tool("note")
+    check("the note tool waits for a click", window._pick is not None and window._pick["kind"] == "note")
+    window.cancel_tool()  # the click would open a text box; the note is added directly instead
+    window.add_note(place, "Check this spot")
+    check("a note can be pinned in 3D", len(window.notes) == 1 and len(window._note_markers) == 1)
+    check("notes are listed in the menu", any("Check this spot" in a.text() for a in window.notes_menu.actions()))
+    window.actions["undo"].trigger()
+    check("adding a note can be undone", not window.notes and not window._note_markers)
+    window.actions["redo"].trigger()
+    check("…and redone", len(window.notes) == 1)
+    window.write_project(folder / "notes.subdron")
+    window.delete_notes()
+    window.open_project(str(folder / "notes.subdron"), ask=False)
+    check("notes are stored in the project", [n["text"] for n in window.notes] == ["Check this spot"])
+
+    info = collect(window)
+    check("report lists the notes", info["notes"][0]["text"] == "Check this spot")
+    before = scene.current_view()
+    pages = window.export_report(str(folder / "report.pdf"))
+    after = scene.current_view()
+    pdf = (folder / "report.pdf").read_bytes()
+    check("PDF report is written", pdf.startswith(b"%PDF") and pages >= 1)
+    check("making the report puts the camera back", np.allclose(before["position"], after["position"]))
+
+    ok = window.export_turntable(str(folder / "turntable.gif"), count=8)
+    gif = Image.open(folder / "turntable.gif")
+    check("turntable GIF has every frame", ok and gif.n_frames == 8)
+    check("turntable puts the camera back", np.allclose(after["position"], scene.current_view()["position"]))
     finish()
 
 

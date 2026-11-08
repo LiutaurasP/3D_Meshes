@@ -126,6 +126,8 @@ class MainWindow(QMainWindow):
             },
         )
         self.saved_views = []  # [{"name": ..., "view": camera view}]
+        self.notes = []  # [{"text": ..., "point": [x, y, z]}], pinned in 3D and listed in the report
+        self._note_markers = []
         self._pick = None  # active click tool: {"kind": "section" / "measure", "points": [...]}
         self._swipe_drag = False
         self.section_window = None
@@ -278,6 +280,7 @@ class MainWindow(QMainWindow):
     TOOL_HINTS = {
         "section": "Cross section: click the start point, then the end point (Esc cancels)",
         "measure": "Measure: click the first point, then the second (Esc cancels)",
+        "note": "Note: click the place the note is about (Esc cancels)",
     }
 
     def start_tool(self, kind):
@@ -307,6 +310,10 @@ class MainWindow(QMainWindow):
         """Add a picked point to the active tool (also used by tests)."""
         tool = self._pick
         tool["points"].append(np.asarray(point, dtype=float))
+        if tool["kind"] == "note":
+            self.cancel_tool()
+            self.add_note(point)
+            return
         tool["markers"].append(self.scene.add_marker_point(point))
         if len(tool["points"]) < 2:
             return
@@ -357,6 +364,67 @@ class MainWindow(QMainWindow):
             self.scene.remove_overlay(self._section_line)
             self._section_line = None
 
+    # Notes pinned in 3D
+
+    def add_note(self, point, text=None):
+        from PySide6.QtWidgets import QInputDialog
+
+        if text is None:
+            text, ok = QInputDialog.getMultiLineText(self, "Add Note", "Note about this place:")
+            if not ok:
+                return
+        text = text.strip()
+        if not text:
+            return
+        old = [dict(n) for n in self.notes]
+        new = old + [{"text": text, "point": [float(v) for v in point]}]
+        self._set_notes(new)
+        short = text if len(text) <= 24 else text[:23] + "…"
+        self.history.push(f"Add Note \"{short}\"", lambda: self._set_notes(new), lambda: self._set_notes(old))
+
+    def delete_notes(self):
+        if not self.notes:
+            return
+        old = [dict(n) for n in self.notes]
+        self._set_notes([])
+        self.history.push("Delete Notes", lambda: self._set_notes([]), lambda: self._set_notes(old))
+
+    def _set_notes(self, notes):
+        for markers in self._note_markers:
+            self.scene.remove_overlay(markers)
+        self.notes = [dict(n) for n in notes]
+        height = 0.08 * max(self.scene.size(), 1.0)
+        self._note_markers = []
+        for number, note in enumerate(self.notes, start=1):
+            point = np.asarray(note["point"], dtype=float)
+            label = note["text"].splitlines()[0]
+            label = label if len(label) <= 40 else label[:39] + "…"
+            self._note_markers.append(self.scene.add_marker_line(
+                point, point + np.array([0.0, 0.0, height]), color=(1.0, 0.62, 0.25),
+                label=f"{number}  {label}", label_at=1.0, label_color=(0.72, 0.36, 0.06)))
+        self.update_notes_menu()
+
+    def go_to_note(self, index):
+        if 0 <= index < len(self.notes):
+            point = np.asarray(self.notes[index]["point"], dtype=float)
+            reach = 0.06 * max(self.scene.size(), 1.0)
+            self.scene.focus_on(point - reach, point + reach)
+
+    def update_notes_menu(self):
+        menu = getattr(self, "notes_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        if not self.notes:
+            empty = menu.addAction("No notes yet")
+            empty.setEnabled(False)
+            return
+        for index, note in enumerate(self.notes):
+            label = note["text"].splitlines()[0][:40]
+            menu.addAction(f"{index + 1}  {label}", lambda i=index: self.go_to_note(i))
+        menu.addSeparator()
+        menu.addAction("Delete All Notes", self.delete_notes)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape and self._pick is not None:
             self.cancel_tool()
@@ -400,7 +468,7 @@ class MainWindow(QMainWindow):
         if menu is None:
             return
         menu.clear()
-        menu.addAction("Save Current View…", self.save_view)
+        menu.addAction("Save Current View…", lambda: self.save_view())
         if self.saved_views:
             menu.addSeparator()
             for index, view in enumerate(self.saved_views):
@@ -916,6 +984,7 @@ class MainWindow(QMainWindow):
             },
             "navigation": self.scene.navigation,
             "saved_views": self.saved_views,
+            "notes": self.notes,
             "panel": {**self.sidebar.panel_state(), "visible": self.dock.isVisible()},
         }
 
@@ -1046,6 +1115,7 @@ class MainWindow(QMainWindow):
                 self.scene.plotter.render()
 
             self._set_saved_views(state.get("saved_views", []))
+            self._set_notes(state.get("notes", []))
             self.clear_measurements()
             if side.swipe.isChecked():
                 side.swipe.setChecked(False)
@@ -1142,8 +1212,64 @@ class MainWindow(QMainWindow):
         if path:
             self.scene.plotter.screenshot(path)
             self.statusBar().showMessage(f"Saved {Path(path).name}", 4000)
-        self.notify("Project saved", Path(path).name, "success")
-        self.discard_recovery()
+            self.notify("Screenshot saved", Path(path).name, "success")
+
+    def _export_path(self, title, suffix, file_filter):
+        stem = Path(self.project_path).stem if self.project_path else "Subdron"
+        start = str(Path.home() / f"{stem} {title.lower()}{suffix}")
+        path, _ = QFileDialog.getSaveFileName(self, f"Export {title}", start, file_filter)
+        if path and not path.lower().endswith(suffix):
+            path += suffix
+        return path
+
+    def export_report(self, path=None):
+        """PDF with the summary, pictures, the table of changed areas and the notes."""
+        from viewer.report import export_report
+
+        if path is None:
+            path = self._export_path("Report", ".pdf", "PDF document (*.pdf)")
+            if not path:
+                return None
+        if self.change_result is None:
+            self.notify("Report without changes", "Run Detect Changes first to list the changed areas", "info")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            pages = export_report(self, path)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.notify("Report saved", f"{Path(path).name} · {pages} page{'s' if pages != 1 else ''}", "success")
+        return pages
+
+    def export_turntable(self, path=None, count=72):
+        """Animated GIF of the camera circling once around the scene."""
+        from PySide6.QtWidgets import QProgressDialog
+
+        from viewer.turntable import frames, save_gif
+
+        if path is None:
+            path = self._export_path("Turntable", ".gif", "Animated GIF (*.gif)")
+            if not path:
+                return False
+        dialog = QProgressDialog("Recording the turntable…", "Cancel", 0, count, self)
+        dialog.setWindowTitle("Export Turntable")
+        dialog.setMinimumDuration(300)
+
+        def progress(done, total):
+            dialog.setValue(done)
+            QApplication.processEvents()
+            return not dialog.wasCanceled()
+
+        images = frames(self.scene, count, progress=progress)
+        dialog.close()
+        if images is None:
+            return False
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            save_gif(path, images)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.notify("Turntable saved", Path(path).name, "success")
+        return True
 
     def show_about(self):
         dialog = QDialog(self)

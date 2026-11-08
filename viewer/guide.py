@@ -81,6 +81,8 @@ CHAPTERS = [
         (key("B"), "before / after swipe"),
         (key("X"), "cross section"),
         (key("T"), "measure a distance"),
+        (key("N"), "pin a note in 3D"),
+        (key("Cmd") + " " + key("Shift") + " " + key("R"), "export the change report (PDF)"),
         (key("Cmd") + " " + key("1") + " … " + key("9"), "fly to a saved view"),
         (key("Cmd") + " " + key("/"), "list of all shortcuts (searchable)"),
         (key("Cmd") + " " + key(","), "settings"),
@@ -166,6 +168,8 @@ CHAPTERS = [
                                              "line opens, red where material was added, blue where it was removed"),
         ("<b>Measure</b> " + key("T"), "click two points: the distance appears in 3D, the status shows the "
                                        "horizontal and vertical part"),
+        ("<b>Note</b> " + key("N"), "click a place and type a note; it is pinned there in 3D, saved in "
+                                    "the project and listed in the report (Analyze → Notes flies to it)"),
         ("<b>Esc</b>", "cancels a tool before the second click"),
         ("<b>Saved views</b>", "Camera → Save view… stores the camera; click it later to fly back "
                                "(also " + key("Cmd") + " " + key("1") + " … " + key("9") + ", saved in the project)"),
@@ -173,6 +177,15 @@ CHAPTERS = [
                                                                   "\"algn\", and press Enter"),
         ("<b>History</b>", "the History tab lists every step; click one to jump back to it"),
     ]), False),
+
+    ("Sharing results", keys_table([
+        ("<b>Change report</b>", "File → Export → Change Report (PDF): summary, a picture of the scene, "
+                                 "a table and close-ups of the changed areas, and your notes"),
+        ("<b>Turntable</b>", "File → Export → Turntable Animation: the camera circles once around the "
+                             "scene, saved as a GIF that plays in any browser or presentation"),
+        ("<b>Screenshot</b>", "File → Export → Screenshot saves exactly what the 3D view shows"),
+    ]) + '<p style="margin:8px 0 0 0;">' + dim("Run Detect Changes first, so the report can list the changed areas.")
+     + "</p>", False),
 
     ("Colours and highlights", keys_table([
         ("<b>Per scan</b>", "A and B in their own colour (click a swatch to change it)"),

@@ -262,14 +262,14 @@ class SceneView:
             actor.SetVisibility(visible)
         self.plotter.render()
 
-    def focus_on(self, low, high):
+    def focus_on(self, low, high, animate=True):
         """Point the camera at a box (used to jump to a change area)."""
         low, high = np.asarray(low), np.asarray(high)
         center = (low + high) / 2
         reach = max(float(np.linalg.norm(high - low)), 1.0) * 1.8
         direction = np.asarray(CAMERA_PRESETS["Iso"], dtype=float)
         direction /= np.linalg.norm(direction)
-        self.flight.fly_to({"position": center + direction * reach, "focal_point": center, "up": (0.0, 0.0, 1.0)})
+        self.go_to_view({"position": center + direction * reach, "focal_point": center, "up": (0.0, 0.0, 1.0)}, animate)
 
     # Style
 
@@ -500,7 +500,8 @@ class SceneView:
 
     # Lines and labels of the measuring tools
 
-    def add_marker_line(self, p0, p1, color=(1.0, 0.33, 0.33), label=None, label_at=0.5):
+    def add_marker_line(self, p0, p1, color=(1.0, 0.33, 0.33), label=None, label_at=0.5,
+                        label_color=(0.15, 0.15, 0.18)):
         line = pv.Line(p0, p1)
         actor = self.plotter.add_mesh(line, color=color, line_width=3 * self.widget.devicePixelRatioF(),
                                       reset_camera=False, render_lines_as_tubes=False)
@@ -511,7 +512,7 @@ class SceneView:
             # label_at: 0 = at the start, 0.5 = in the middle, 1 = at the end
             middle = (1 - label_at) * np.asarray(p0, dtype=float) + label_at * np.asarray(p1, dtype=float)
             items.append(self.plotter.add_point_labels(
-                [middle], [label], font_size=14, text_color="white", shape_color=(0.15, 0.15, 0.18),
+                [middle], [label], font_size=14, text_color="white", shape_color=label_color,
                 shape_opacity=0.85, show_points=False, always_visible=True, reset_camera=False))
         self.overlays.append(items)
         self.plotter.render()
