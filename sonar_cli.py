@@ -2,7 +2,7 @@
 
     python sonar_cli.py compare before.laz after.laz --out results
     python sonar_cli.py compare a.csv b.csv --depth down --unit ft --report --csv --geojson
-    python sonar_cli.py series surveys/ --out results          # every survey against the first and the one before
+    python sonar_cli.py series scans/ --out results          # every scan against the first and the one before
 
 Each comparison: read both scans, align B to A (ICP), detect changes, measure volumes.
 Writes a summary to the terminal and, as asked, a PDF report, a CSV / GeoJSON of the
@@ -144,7 +144,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="sonar_cli", description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (("compare", "compare two scans (A = earlier, B = later)"),
-                            ("series", "compare several surveys of the same place, oldest first")):
+                            ("series", "compare several scans of the same place, oldest first")):
         command = sub.add_parser(name, help=help_text)
         command.add_argument("files", nargs="+", help="scan files (series: files or one folder)")
         command.add_argument("--out", default="results", help="folder for the results (default: results)")

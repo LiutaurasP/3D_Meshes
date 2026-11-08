@@ -14,10 +14,10 @@ from scan_formats import (
     sniff_text,
 )
 
-UTM = np.array([512_345.0, 5_801_234.0, 0.0])  # real survey coordinates are this big
+UTM = np.array([512_345.0, 5_801_234.0, 0.0])  # real coordinates are this big
 
 
-def survey(n=500, seed=0):
+def sample_points(n=500, seed=0):
     rng = np.random.default_rng(seed)
     xy = rng.uniform(0, 20, size=(n, 2))
     z = -8 + 0.1 * xy[:, 0]
@@ -30,7 +30,7 @@ def close(a, b, tolerance=1e-3):
 
 def test_las_and_laz_keep_big_coordinates_and_intensity(tmp_path):
     laspy = pytest.importorskip("laspy")
-    points, intensity = survey()
+    points, intensity = sample_points()
     for suffix in (".las", ".laz"):
         header = laspy.LasHeader(point_format=1, version="1.2")
         header.scales = [0.001, 0.001, 0.001]
@@ -38,7 +38,7 @@ def test_las_and_laz_keep_big_coordinates_and_intensity(tmp_path):
         las = laspy.LasData(header)
         las.x, las.y, las.z = points.T
         las.intensity = intensity.astype(np.uint16)
-        path = tmp_path / f"survey{suffix}"
+        path = tmp_path / f"scan{suffix}"
         las.write(str(path))
         scan = read_scan(path)
         assert close(scan.points, points)
@@ -48,9 +48,9 @@ def test_las_and_laz_keep_big_coordinates_and_intensity(tmp_path):
 
 def test_e57(tmp_path):
     pye57 = pytest.importorskip("pye57")
-    points, intensity = survey()
+    points, intensity = sample_points()
     points = points - UTM  # pye57's writer stores 32-bit floats; real E57 files use doubles
-    path = tmp_path / "survey.e57"
+    path = tmp_path / "scan.e57"
     with pye57.E57(str(path), mode="w") as e57:
         e57.write_scan_raw({"cartesianX": points[:, 0], "cartesianY": points[:, 1], "cartesianZ": points[:, 2],
                             "intensity": intensity / 200})
@@ -73,8 +73,8 @@ def write_ply(path, points, intensity, binary=True):
 
 @pytest.mark.parametrize("binary", [True, False])
 def test_ply_keeps_intensity(tmp_path, binary):
-    points, intensity = survey()
-    path = tmp_path / "survey.ply"
+    points, intensity = sample_points()
+    path = tmp_path / "scan.ply"
     write_ply(path, points, intensity, binary)
     scan = read_scan(path)
     assert close(scan.points, points)
@@ -82,14 +82,14 @@ def test_ply_keeps_intensity(tmp_path, binary):
 
 
 def test_pcd(tmp_path):
-    points, _ = survey()
+    points, _ = sample_points()
     cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points - UTM))
     o3d.io.write_point_cloud(str(tmp_path / "s.pcd"), cloud)
     assert close(read_scan(tmp_path / "s.pcd").points, points - UTM)
 
 
 def test_csv_with_header_in_any_order(tmp_path):
-    points, intensity = survey()
+    points, intensity = sample_points()
     path = tmp_path / "export.csv"
     lines = ["Point,Northing,Easting,Depth,Backscatter"]
     lines += [f"{n},{p[1]:.3f},{p[0]:.3f},{-p[2]:.3f},{i:.1f}" for n, (p, i) in enumerate(zip(points, intensity), 1)]
@@ -103,8 +103,8 @@ def test_csv_with_header_in_any_order(tmp_path):
 
 
 def test_space_separated_xyz_without_header(tmp_path):
-    points, _ = survey()
-    path = tmp_path / "survey.xyz"
+    points, _ = sample_points()
+    path = tmp_path / "scan.xyz"
     np.savetxt(path, points, fmt="%.3f")
     scan = read_scan(path)
     assert close(scan.points, points)
@@ -112,10 +112,10 @@ def test_space_separated_xyz_without_header(tmp_path):
 
 
 def test_semicolon_text_with_point_numbers_and_comma_free_decimals(tmp_path):
-    points, _ = survey(50)
-    path = tmp_path / "survey.txt"
+    points, _ = sample_points(50)
+    path = tmp_path / "scan.txt"
     rows = [f"{n};{p[0]:.3f};{p[1]:.3f};{p[2]:.3f}" for n, p in enumerate(points, 1)]
-    path.write_text("Exported by survey software\n\n" + "\n".join(rows))
+    path.write_text("Exported by sonar software\n\n" + "\n".join(rows))
     layout = sniff_text(path)
     assert layout.delimiter == ";"
     assert layout.columns["x"] == 1  # the point number column is skipped
@@ -123,7 +123,7 @@ def test_semicolon_text_with_point_numbers_and_comma_free_decimals(tmp_path):
 
 
 def test_broken_rows_are_skipped(tmp_path):
-    points, _ = survey(20)
+    points, _ = sample_points(20)
     path = tmp_path / "broken.xyz"
     rows = [f"{p[0]} {p[1]} {p[2]}" for p in points]
     rows.insert(5, "error: sensor dropout")
@@ -132,7 +132,7 @@ def test_broken_rows_are_skipped(tmp_path):
 
 
 def test_pts_with_count_line(tmp_path):
-    points, intensity = survey(30)
+    points, intensity = sample_points(30)
     path = tmp_path / "scan.pts"
     path.write_text(f"{len(points)}\n" + "\n".join(f"{p[0]} {p[1]} {p[2]} {int(i)} 120 130 140"
                                                     for p, i in zip(points, intensity)))
@@ -185,7 +185,7 @@ def test_meshes_become_points_on_the_surface(tmp_path, suffix):
 def test_raw_sonar_files_get_a_clear_message(tmp_path):
     path = tmp_path / "line_001.xtf"
     path.write_bytes(b"\x00" * 100)
-    with pytest.raises(ScanReadError, match="Export the cleaned survey"):
+    with pytest.raises(ScanReadError, match="Export the cleaned scan"):
         read_scan(path)
 
 

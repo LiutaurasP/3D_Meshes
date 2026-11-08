@@ -66,7 +66,7 @@ def build_inspections(data_settings):
 
 
 def big_coordinate_offset(points, limit=10_000.0):
-    """Survey coordinates (UTM etc.) are millions of metres: far too big for smooth 3D drawing.
+    """Real coordinates (UTM etc.) are millions of metres: far too big for smooth 3D drawing.
 
     Returns a round offset near the middle of the data that is taken off for display and
     added back wherever real coordinates are shown or exported. Zero for normal sized data.
@@ -122,19 +122,19 @@ def load_inspections(path_a, path_b, options=None):
 
 @dataclass
 class Series:
-    """The same place surveyed several times (oldest first). Any two of them can be compared."""
+    """The same place scanned several times (oldest first). Any two of them can be compared."""
 
     title: str
-    names: list  # file or survey names
+    names: list  # file or scan names
     clouds: list  # Open3D point clouds, all shifted by the same offset
-    intensity: dict = field(default_factory=dict)  # survey index -> intensity per point
+    intensity: dict = field(default_factory=dict)  # scan index -> intensity per point
     offset: np.ndarray = field(default_factory=lambda: np.zeros(3))
     kinds: list = field(default_factory=list)
     notes: list = field(default_factory=list)
     paths: list = field(default_factory=list)  # files they came from ([] for the example)
 
     def pair(self, older, newer):
-        """Inspections comparing two surveys: older is scan A, newer is scan B."""
+        """Inspections comparing two scans: older is scan A, newer is scan B."""
         intensity = {name: self.intensity[index] for name, index in (("Scan A", older), ("Scan B", newer))
                      if index in self.intensity}
         kinds = {name: self.kinds[index] for name, index in (("Scan A", older), ("Scan B", newer))
@@ -145,7 +145,7 @@ class Series:
 
 
 def load_series(paths, options=None):
-    """Read several surveys of the same place. options: one ImportOptions for all, or a list."""
+    """Read several scans of the same place. options: one ImportOptions for all, or a list."""
     from scan_formats import ImportOptions, guess_depth_down, read_scan
 
     if not isinstance(options, (list, tuple)):
@@ -165,7 +165,7 @@ def load_series(paths, options=None):
     offset = big_coordinate_offset(scans[0].points)
     clouds = [o3d.geometry.PointCloud(o3d.utility.Vector3dVector(scan.points - offset)) for scan in scans]
     intensity = {i: scan.intensity for i, scan in enumerate(scans) if scan.intensity is not None}
-    title = f"{Path(paths[0]).stem} … {Path(paths[-1]).stem} ({len(paths)} surveys)"
+    title = f"{Path(paths[0]).stem} … {Path(paths[-1]).stem} ({len(paths)} scans)"
     return Series(title, [Path(p).name for p in paths], clouds, intensity, offset,
                   [scan.kind for scan in scans], notes, [str(p) for p in paths])
 
@@ -175,7 +175,7 @@ def example_series(n_points=30_000):
     from datasets.sonar import ScanSettings
 
     example = generate_series(settings=ScanSettings(n_points=n_points))
-    return Series(example.title, example.names, example.clouds, kinds=["Example survey"] * len(example.clouds))
+    return Series(example.title, example.names, example.clouds, kinds=["Example scan"] * len(example.clouds))
 
 
 def thin_out(cloud, max_points, seed=0):

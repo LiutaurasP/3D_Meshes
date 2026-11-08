@@ -131,9 +131,9 @@ class MainWindow(QMainWindow):
             },
         )
         self.saved_views = []  # [{"name": ..., "view": camera view}]
-        self.series = None  # several surveys of the same place (Timeline), see viewer/pipeline.py
+        self.series = None  # several scans of the same place (Timeline), see viewer/pipeline.py
         self.report_details = {}  # client, site, inspector, reference, remarks (saved in the project)
-        self.series_pair = None  # (older, newer) survey index shown as scan A / scan B
+        self.series_pair = None  # (older, newer) scan index shown as scan A / scan B
         self.series_cache = {}  # (older, newer) -> pose_state, so going back to a comparison is instant
         self._detect_after_align = False
         self.notes = []  # [{"text": ..., "point": [x, y, z]}], pinned in 3D and listed in the report
@@ -278,7 +278,7 @@ class MainWindow(QMainWindow):
         self.cursor_label.setText(f"x {x:,.2f} m    y {y:,.2f} m    depth {-z:6.2f} m")
 
     def real_coordinates(self, point):
-        """Survey coordinates of a point in the scene (big coordinates are shifted for drawing)."""
+        """Real coordinates of a point in the scene (big coordinates are shifted for drawing)."""
         return np.asarray(point, dtype=float) + getattr(self.inspections, "offset", np.zeros(3))
 
     def dragEnterEvent(self, event):
@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
 
     def _points_changed(self, clear_changes):
         if self.series is not None and self.series_pair is not None:
-            # These surveys are also part of other comparisons: their stored results no longer fit
+            # These scans are also part of other comparisons: their stored results no longer fit
             for pair, state in self.series_cache.items():
                 if set(pair) & set(self.series_pair):
                     state["changes"] = None
@@ -594,34 +594,34 @@ class MainWindow(QMainWindow):
             return
         super().keyPressEvent(event)
 
-    # Timeline: several surveys of the same place
+    # Timeline: several scans of the same place
 
     def open_series_dialog(self):
-        """Pick all surveys of one place (oldest first when the file names start with a date)."""
+        """Pick all scans of one place (oldest first when the file names start with a date)."""
         from viewer.import_dialog import ImportDialog, default_options
 
-        paths, _ = QFileDialog.getOpenFileNames(self, "Import Survey Series: select all surveys of the same place",
+        paths, _ = QFileDialog.getOpenFileNames(self, "Import Scan Series: select all scans of the same place",
                                                 "", SCAN_FILES)
         if not paths:
             return False
         if len(paths) < 2:
-            self.notify("Select at least two surveys", "Hold Cmd / Ctrl to select several files", "warning")
+            self.notify("Select at least two scans", "Hold Cmd / Ctrl to select several files", "warning")
             return False
         paths = sorted(paths)
-        named = {f"Survey {i + 1}": path for i, path in enumerate(paths)}
+        named = {f"Scan {i + 1}": path for i, path in enumerate(paths)}
         if self.show_import_dialog:
             dialog = ImportDialog(named, self)
-            dialog.setWindowTitle("Import Survey Series")
+            dialog.setWindowTitle("Import Scan Series")
             if not dialog.exec():
                 return False
             options = list(dialog.options().values())
         else:
             options = list(default_options(named).values())
-        self._start_series_worker(SeriesWorker(paths, options), f"Loading {len(paths)} surveys...")
+        self._start_series_worker(SeriesWorker(paths, options), f"Loading {len(paths)} scans...")
         return True
 
     def open_example_series(self):
-        self._start_series_worker(SeriesWorker(n_points=30_000), "Building the survey series...")
+        self._start_series_worker(SeriesWorker(n_points=30_000), "Building the scan series...")
 
     def _start_series_worker(self, worker, message):
         if not self.maybe_save():
@@ -649,7 +649,7 @@ class MainWindow(QMainWindow):
         self._show_series_pair(0, len(series.names) - 1, first=True)
         self.history.clear()
         self._update_title()
-        detail = f"{len(series.names)} surveys · drag the Timeline slider to compare them"
+        detail = f"{len(series.names)} scans · drag the Timeline slider to compare them"
         if series.notes:
             detail += " · " + " · ".join(series.notes)
         self.notify(series.title, detail, "success", seconds=6)
@@ -657,9 +657,9 @@ class MainWindow(QMainWindow):
     def on_timeline(self, newer, mode):
         """The Timeline slider or the "compare with" choice changed."""
         older = 0 if mode == "first" else newer - 1
-        self.compare_surveys(older, newer)
+        self.compare_scans(older, newer)
 
-    def compare_surveys(self, older, newer):
+    def compare_scans(self, older, newer):
         if self.series is None or (older, newer) == self.series_pair:
             return
         before = self.series_pair
@@ -678,7 +678,7 @@ class MainWindow(QMainWindow):
         inspections = self.series.pair(older, newer)
         self._show_inspections(inspections, reset_camera=first)
         total = sum(len(c.points) for c in inspections.clouds.values())
-        self.sidebar.show_loaded_files(inspections.title, total, "Survey series")
+        self.sidebar.show_loaded_files(inspections.title, total, "Scan series")
         counts = " + ".join(f"{len(c.points):,}" for c in inspections.clouds.values())
         self.sidebar.show_data_status(f"{counts} points")
         mode = "first" if older == 0 else "previous"
@@ -713,12 +713,12 @@ class MainWindow(QMainWindow):
         return points, {i: np.asarray(v).copy() for i, v in self.series.intensity.items()}
 
     def _restore_series(self, series_state, arrays):
-        """Rebuild a survey series from a project; returns the Inspections of the comparison that was open."""
+        """Rebuild a scan series from a project; returns the Inspections of the comparison that was open."""
         from datasets import to_cloud
         from viewer.pipeline import Series
 
         points, strengths = arrays
-        self.series = Series(series_state.get("title", "Survey series"), list(series_state["names"]),
+        self.series = Series(series_state.get("title", "Scan series"), list(series_state["names"]),
                              [to_cloud(p) for p in points], dict(strengths),
                              np.asarray(series_state.get("offset", [0, 0, 0]), dtype=float),
                              list(series_state.get("kinds", [])))
@@ -1530,7 +1530,7 @@ class MainWindow(QMainWindow):
             data = state["data"]
             self.sidebar.restore_data_snapshot(data)
 
-            # Data: a survey series, embedded scans as they were, or example scenes rebuilt from their settings
+            # Data: a scan series, embedded scans as they were, or example scenes rebuilt from their settings
             series_state = state.get("series")
             if series_state and series:
                 inspections = self._restore_series(series_state, series)

@@ -1,7 +1,7 @@
 """Reading scans from as many file types as possible.
 
     from scan_formats import read_scan, ImportOptions
-    scan = read_scan("survey.laz")                      # points (n x 3), intensity or None
+    scan = read_scan("scan.laz")                      # points (n x 3), intensity or None
     scan = read_scan("export.csv", ImportOptions(columns={"x": 1, "y": 2, "z": 3}, depth_down=True))
 
 Point clouds: .ply .pcd .pts .xyz .xyzn .xyzrgb .las .laz .e57
@@ -80,7 +80,7 @@ def read_scan(path, options=None):
         raise ScanReadError(
             f"{path.name} is a raw {RAW_SONAR_TYPES[suffix]} sonar recording. It still needs sound speed, "
             f"motion and tide corrections, which your sonar processing software does. Export the cleaned "
-            f"survey from there as a point cloud (LAS/LAZ, XYZ, CSV or PLY) and import that file.")
+            f"scan from there as a point cloud (LAS/LAZ, XYZ, CSV or PLY) and import that file.")
 
     if suffix in (".las", ".laz"):
         scan = read_las(path)

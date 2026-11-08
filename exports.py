@@ -1,7 +1,7 @@
 """Writing results for other software: changed areas as CSV / GeoJSON, scans as LAS / LAZ / PLY / XYZ.
 
 No GUI code, used by the app and by the command line tool (sonar_cli.py).
-All coordinates written here are real survey coordinates (the display offset is added back).
+All coordinates written here are real coordinates (the display offset is added back).
 """
 
 import csv
@@ -51,8 +51,8 @@ def write_areas_csv(path, rows):
 def write_areas_geojson(path, rows, title=""):
     """The outline (bounding box from above) of every area as a polygon, with all values as properties.
 
-    The coordinates are the survey's own (for example UTM), not longitude / latitude: in a GIS,
-    set the layer to the survey's coordinate system.
+    The coordinates are the scan's own (for example UTM), not longitude / latitude: in a GIS,
+    set the layer to the scan's coordinate system.
     """
     features = []
     for row in rows:
@@ -64,7 +64,7 @@ def write_areas_geojson(path, rows, title=""):
             "properties": {key: row[key] for key in AREA_COLUMNS},
         })
     data = {"type": "FeatureCollection", "name": title or "Changed areas", "features": features,
-            "note": "Coordinates are in the survey's coordinate system, not WGS84 longitude / latitude."}
+            "note": "Coordinates are in the scan's coordinate system, not WGS84 longitude / latitude."}
     Path(path).write_text(json.dumps(data, indent=1), encoding="utf-8")
 
 

@@ -1,7 +1,7 @@
 """Large and huge scenes, for testing with a whole lot of points.
 
 Over areas this big the sonar is not standing in one spot: the boat sails
-straight survey lines, and every point is measured from the nearest line
+straight sonar lines, and every point is measured from the nearest line
 (see sonar_positions), which keeps the noise realistic.
 """
 
@@ -14,7 +14,7 @@ from datasets.terrain import HeightField, bump
 
 
 def nearest_line(values, spacing):
-    """Position of the nearest survey line (lines every `spacing` metres, one through 0)."""
+    """Position of the nearest sonar line (lines every `spacing` metres, one through 0)."""
     return np.round(np.asarray(values) / spacing) * spacing
 
 
@@ -135,13 +135,13 @@ class HarbourQuaySection(HarbourWall):
         return fenders + parts, fender_masks + [np.ones(len(p), dtype=bool) for p in parts]
 
 
-# Huge: a big area survey of a port approach
+# Huge: a big area scan of a port approach
 
 
-class PortApproachSurvey(Scene):
+class PortApproachScan(Scene):
     icp_method = "point-to-plane"  # measured: much better than point-to-point here
-    key = "port_approach_survey"
-    title = "Port approach – large survey area"
+    key = "port_approach_scan"
+    title = "Port approach – large scan area"
     description = (
         "A 200 x 120 m stretch of seabed in a port approach, 14 m deep, with a "
         "dredged shipping channel and sand waves. Between the scans mud settled "
@@ -154,10 +154,10 @@ class PortApproachSurvey(Scene):
 
     half_x, half_y = 100.0, 60.0
     depth = 14.0
-    line_spacing = 40.0  # distance between the boat's survey lines
+    line_spacing = 40.0  # distance between the boat's sonar lines
 
     def sonar_positions(self, points):
-        # Survey lines along x, every 40 m; each point is measured from the nearest one
+        # Sonar lines along x, every 40 m; each point is measured from the nearest one
         positions = np.zeros_like(points)
         positions[:, 0] = points[:, 0]
         positions[:, 1] = nearest_line(points[:, 1], self.line_spacing)
@@ -268,4 +268,4 @@ class PortApproachSurvey(Scene):
         return np.vstack(parts), np.concatenate(masks)
 
 
-BIG_SCENES = [HarbourQuaySection, PortApproachSurvey]
+BIG_SCENES = [HarbourQuaySection, PortApproachScan]

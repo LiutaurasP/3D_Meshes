@@ -19,7 +19,7 @@ from datasets.sonar import ScanSettings
 
 
 # Big scenes are compared at a smaller size so the tests stay quick
-TEST_SIZE = {"harbour_quay_section": 150_000, "port_approach_survey": 600_000}
+TEST_SIZE = {"harbour_quay_section": 150_000, "port_approach_scan": 600_000}
 
 
 def detect(key, n=None, seed=1):
@@ -44,7 +44,7 @@ EXPECTED = {
     "flooded_tunnel_settlement": 0.6,
     "quay_wall_bulge": 0.5,
     "harbour_quay_section": 0.6,
-    "port_approach_survey": 0.4,
+    "port_approach_scan": 0.4,
 }
 
 # Scenes with one connected change (the others have several separate ones)
@@ -140,7 +140,7 @@ def test_quay_section_finds_each_change_separately():
 
 def test_port_approach_change_types():
     """Mud is added, the anchor scar is removed, the sunken boat sticks out."""
-    _, result, result_score = detect("port_approach_survey")
+    _, result, result_score = detect("port_approach_scan")
     assert result_score.false_alarms < 0.02
     biggest = result.areas[0]
     assert biggest.kind == "added" and 0.3 < biggest.peak < 0.6  # the mud, up to 45 cm

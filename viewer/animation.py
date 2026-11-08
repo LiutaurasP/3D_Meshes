@@ -83,7 +83,7 @@ class DataWorker(QThread):
 
 
 class SeriesWorker(QThread):
-    """Loads a survey series (several files, or the example) off the GUI thread."""
+    """Loads a scan series (several files, or the example) off the GUI thread."""
 
     done = Signal(object)  # Series
     failed = Signal(str)

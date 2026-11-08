@@ -2,7 +2,7 @@
 
 Points within a narrow corridor around the vertical plane through the line
 are shown from the side (distance along the line vs height), the way
-surveyors compare two surveys of a scour hole or a sand bank.
+inspectors compare two scans of a scour hole or a sand bank.
 """
 
 import numpy as np

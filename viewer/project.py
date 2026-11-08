@@ -19,6 +19,7 @@ from datetime import datetime
 import numpy as np
 
 from change_detection import ChangeArea, ChangeResult
+from datasets import RENAMED_SCENES
 from viewer.branding import APP_NAME, VERSION
 from viewer.pipeline import AlignStep
 
@@ -99,7 +100,7 @@ def save(path, state, scan_points=None, changes=None, intensity=None, series=Non
     scan_points:  {"Scan A": array, "Scan B": array} to embed, or None for example scenes
     changes:      ChangeResult or None
     intensity:    {"Scan A": array, ...} sonar return strength of embedded scans, if they have it
-    series:       (list of point arrays, {survey index: intensity}) for a survey series (Timeline)
+    series:       (list of point arrays, {scan index: intensity}) for a scan series (Timeline)
     """
     state = dict(state)
     state["format"] = FORMAT
@@ -118,8 +119,8 @@ def save(path, state, scan_points=None, changes=None, intensity=None, series=Non
             archive.writestr("scans.npz", _npz_bytes(arrays))
         if series is not None:
             points, strengths = series
-            arrays = {f"survey{i}": np.asarray(p, dtype=np.float32) for i, p in enumerate(points)}
-            arrays.update({f"survey_intensity{i}": np.asarray(v, dtype=np.float32) for i, v in strengths.items()})
+            arrays = {f"scan{i}": np.asarray(p, dtype=np.float32) for i, p in enumerate(points)}
+            arrays.update({f"scan_intensity{i}": np.asarray(v, dtype=np.float32) for i, v in strengths.items()})
             state["series"]["embedded"] = len(points)
             archive.writestr("series.npz", _npz_bytes(arrays))
         if changes is not None:
@@ -133,7 +134,7 @@ def load(path):
     """Read a project file.
 
     Returns (state, scan_points or None, ChangeResult or None, intensity dict, series or None),
-    series being (list of point arrays, {survey index: intensity}).
+    series being (list of point arrays, {scan index: intensity}).
     """
     try:
         with zipfile.ZipFile(path) as archive:
@@ -143,8 +144,11 @@ def load(path):
             if state.get("format_version", 0) > FORMAT_VERSION:
                 raise ProjectError("This project was saved by a newer version of the app. Please update.")
 
+            data = state.get("data", {})
+            data["scene"] = RENAMED_SCENES.get(data.get("scene"), data.get("scene"))
+
             scan_points, intensity = None, {}
-            names = state.get("data", {}).get("embedded_scans")
+            names = data.get("embedded_scans")
             if names:
                 with np.load(io.BytesIO(archive.read("scans.npz"))) as arrays:
                     scan_points = {name: arrays[f"scan{i}"].astype(float) for i, name in enumerate(names)}
@@ -155,9 +159,11 @@ def load(path):
             count = (state.get("series") or {}).get("embedded")
             if count:
                 with np.load(io.BytesIO(archive.read("series.npz"))) as arrays:
-                    series = ([arrays[f"survey{i}"].astype(float) for i in range(count)],
-                              {i: arrays[f"survey_intensity{i}"] for i in range(count)
-                               if f"survey_intensity{i}" in arrays.files})
+                    # projects saved before the rename call them survey0, survey_intensity0, ...
+                    prefix = "scan" if "scan0" in arrays.files else "survey"
+                    series = ([arrays[f"{prefix}{i}"].astype(float) for i in range(count)],
+                              {i: arrays[f"{prefix}_intensity{i}"] for i in range(count)
+                               if f"{prefix}_intensity{i}" in arrays.files})
 
             changes = None
             summary = state.get("detection", {}).get("result")

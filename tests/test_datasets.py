@@ -22,7 +22,7 @@ WITH_CHANGE = [key for key in SYNTHETIC if key != "harbour_wall_unchanged"]
 # The port approach is so big that at test size the points are ~60 cm apart,
 # more than the changes themselves, so this simple check can't see them.
 NEAREST_POINT_VISIBLE = [key for key in WITH_CHANGE
-                         if key not in ("flooded_tunnel_settlement", "port_approach_survey")]
+                         if key not in ("flooded_tunnel_settlement", "port_approach_scan")]
 
 
 def points(cloud):
@@ -35,7 +35,7 @@ def nearest_distance(source, target):
 
 
 # Big scenes are tested smaller so the tests stay quick (and one test below uses full size)
-TEST_SIZE_LIMIT = {"port_approach_survey": 300_000}
+TEST_SIZE_LIMIT = {"port_approach_scan": 300_000}
 
 
 def make(key, n=None, seed=3):
@@ -148,7 +148,7 @@ def test_huge_scene_at_full_size():
     import time
 
     start = time.time()
-    pair = generate("port_approach_survey")
+    pair = generate("port_approach_scan")
     seconds = time.time() - start
     assert len(points(pair.a)) == len(points(pair.b)) == 2_500_000
     assert pair.changed_a.any() and pair.changed_b.any()

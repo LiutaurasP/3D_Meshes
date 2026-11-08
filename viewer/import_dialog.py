@@ -181,7 +181,7 @@ class ImportDialog(QDialog):
                                         "Meshes are turned into points spread over the surface")
         common.add(form)
         common.add(hint("Very large coordinates (UTM and similar) are handled automatically: the status bar, "
-                        "notes and exports keep showing the real survey coordinates."))
+                        "notes and exports keep showing the real coordinates."))
         layout.insertWidget(0, common)  # matters for every file, so it comes first
         layout.addStretch()
         scroll.setWidget(body)

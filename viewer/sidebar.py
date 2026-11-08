@@ -689,7 +689,7 @@ class Sidebar(QWidget):
         if not available and combo.currentText() == "Intensity":
             combo.setCurrentText("Per scan")
 
-    # Timeline (several surveys of the same place)
+    # Timeline (several scans of the same place)
 
     def _timeline_card(self):
         card = Card("Timeline")
@@ -712,8 +712,8 @@ class Sidebar(QWidget):
         card.add(ends)
         form = Form()
         self.timeline_mode = guard_wheel(QComboBox())
-        self.timeline_mode.addItem("The first survey", "first")
-        self.timeline_mode.addItem("The survey before", "previous")
+        self.timeline_mode.addItem("The first scan", "first")
+        self.timeline_mode.addItem("The scan before", "previous")
         self.timeline_mode.currentIndexChanged.connect(lambda index: self._timeline_changed())
         form.row("Compare with", self.timeline_mode)
         card.add(form)
@@ -728,7 +728,7 @@ class Sidebar(QWidget):
         self.callbacks["series_pair"](self.timeline.value(), self.timeline_mode.currentData())
 
     def show_series(self, names):
-        """Show the Timeline card for a survey series (None hides it)."""
+        """Show the Timeline card for a scan series (None hides it)."""
         if not names:
             self.timeline_card.setVisible(False)
             return
@@ -747,7 +747,7 @@ class Sidebar(QWidget):
             widget.blockSignals(False)
         names = self.series_names
         self.timeline_title.setText(f"<b>{names[newer]}</b><br><span style='color:#9a9da7'>compared with "
-                                    f"{names[older]} · survey {newer + 1} of {len(names)}</span>")
+                                    f"{names[older]} · scan {newer + 1} of {len(names)}</span>")
 
     # Compare
 

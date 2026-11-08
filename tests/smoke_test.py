@@ -622,8 +622,8 @@ def pro_feel_checks():
     check("settings are stored", prefs.get("autosave_minutes") == 5)
 
     start = StartScreen(["/tmp/a.subdron"], window)
-    start._done(StartScreen.EXAMPLE, "port_approach_survey")
-    check("start screen returns the picked example", start.choice == (StartScreen.EXAMPLE, "port_approach_survey"))
+    start._done(StartScreen.EXAMPLE, "port_approach_scan")
+    check("start screen returns the picked example", start.choice == (StartScreen.EXAMPLE, "port_approach_scan"))
 
     window.sidebar.depth_shading.setChecked(True)
     check("depth shading can be switched on", window.scene.depth_shading)
@@ -802,7 +802,7 @@ def output_checks():
 
 
 def import_checks():
-    """Real survey files: LAZ with UTM coordinates and intensity, CSV with positive depths."""
+    """Real scan files: LAZ with UTM coordinates and intensity, CSV with positive depths."""
     import tempfile
     import laspy
     from viewer.import_dialog import ImportDialog
@@ -822,7 +822,7 @@ def import_checks():
         las = laspy.LasData(header)
         las.x, las.y, las.z = points.T
         las.intensity = (100 + 50 * np.sin(xy[:, 0])).astype(np.uint16)
-        path = folder / f"{index + 1}_survey.laz"
+        path = folder / f"{index + 1}_scan.laz"
         las.write(str(path))
         files.append(str(path))
 
@@ -832,14 +832,14 @@ def import_checks():
     state["import_files"] = files
     window.open_scan_files(files[0], files[1], {"Scan A": ImportOptions(depth_down=None),
                                                 "Scan B": ImportOptions(depth_down=None)})
-    wait_until(lambda: data_ready() and "1_survey.laz" in window.inspections.title, after_laz_import)
+    wait_until(lambda: data_ready() and "1_scan.laz" in window.inspections.title, after_laz_import)
 
 
 def after_laz_import():
     import tempfile
 
     inspections = window.inspections
-    check("big survey coordinates are shifted for drawing", inspections.offset[0] == 512_300 and
+    check("big real coordinates are shifted for drawing", inspections.offset[0] == 512_300 and
           np.abs(np.asarray(window.clouds["Scan A"].points)).max() < 1000)
     real = window.real_coordinates(np.asarray(window.clouds["Scan A"].points)[0])
     check("real coordinates are kept", 512_300 <= real[0] <= 512_330 and 5_801_200 <= real[1] <= 5_801_230)
@@ -851,9 +851,9 @@ def after_laz_import():
     colors.setCurrentText("Per scan")
 
     folder = Path(tempfile.mkdtemp())
-    window.write_project(folder / "survey.subdron")
+    window.write_project(folder / "scan.subdron")
     window.new_project()
-    window.open_project(str(folder / "survey.subdron"), ask=False)
+    window.open_project(str(folder / "scan.subdron"), ask=False)
     check("projects keep intensity and the coordinate offset",
           set(window.inspections.intensity) == {"Scan A", "Scan B"} and window.inspections.offset[1] == 5_801_200)
     window.new_project()
@@ -921,15 +921,15 @@ def cleaning_checks():
 
 
 def series_checks():
-    """Timeline: four surveys of a growing scour."""
+    """Timeline: four scans of a growing scour."""
     import tempfile
 
     series = window.series
-    check("a survey series loads with all surveys", len(series.names) == 4 and window.sidebar.timeline_card.isVisible())
+    check("a scan series loads with all scans", len(series.names) == 4 and window.sidebar.timeline_card.isVisible())
     check("the first comparison is aligned and detected automatically",
           window.series_pair == (0, 3) and window.is_aligned() and window.change_result.areas)
     full = window.change_result.areas[0].volume_removed
-    window.sidebar.timeline.setValue(1)  # survey 2 compared with the first one
+    window.sidebar.timeline.setValue(1)  # scan 2 compared with the first one
     state["series_full"] = full
     wait_until(lambda: window.series_pair == (0, 1) and window.change_result is not None
                and not window._detect_after_align and window.is_aligned(), after_series_step, limit_ms=120000)
@@ -940,7 +940,7 @@ def after_series_step():
 
     full = state["series_full"]
     early = window.change_result.areas[0].volume_removed if window.change_result.areas else 0.0
-    check("the scour grows over the surveys", early < full)
+    check("the scour grows over the scans", early < full)
     check("switching the comparison can be undone", "Compare" in window.history.stack.undoText()
           or window.history.stack.count() > 0)
     while window.history.stack.canUndo() and window.series_pair != (0, 3):
@@ -953,7 +953,7 @@ def after_series_step():
     window.new_project()
     check("leaving the series hides the timeline", window.series is None and not window.sidebar.timeline_card.isVisible())
     window.open_project(str(folder / "series.subdron"), ask=False)
-    check("a project keeps the whole survey series", window.series is not None and len(window.series.clouds) == 4
+    check("a project keeps the whole scan series", window.series is not None and len(window.series.clouds) == 4
           and window.series_pair == (0, 3) and window.change_result is not None)
     check("…with each comparison's alignment", (0, 1) in window.series_cache)
     workflow_checks()

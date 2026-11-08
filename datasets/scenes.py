@@ -181,7 +181,7 @@ class HarbourWallScour(HarbourWall):
         "70 cm deep, which also exposes more of the wall."
     )
     change = "scour hole at the foot of the wall"
-    growth = 1.0  # how far the scour has developed (survey series: 0 = not yet, 1 = full)
+    growth = 1.0  # how far the scour has developed (scan series: 0 = not yet, 1 = full)
 
     def build_world(self, rng):
         super().build_world(rng)

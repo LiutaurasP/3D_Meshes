@@ -189,15 +189,15 @@ CHAPTERS = [
                                                             "on it; click it to fly there"),
     ]), False),
 
-    ("Timeline: more than two surveys", keys_table([
-        ("<b>Load</b>", "File → Import Survey Series: select all surveys of one place at once (oldest first: "
-                        "start the file names with the date). Try File → Example Scenes → Survey Series"),
-        ("<b>Slider</b>", "picks the later survey; Compare with: the first survey (change so far) or the "
-                          "survey before (change since last time)"),
+    ("Timeline: more than two scans", keys_table([
+        ("<b>Load</b>", "File → Import Scan Series: select all scans of one place at once (oldest first: "
+                        "start the file names with the date). Try File → Example Scenes → Scan Series"),
+        ("<b>Slider</b>", "picks the later scan; Compare with: the first scan (change so far) or the "
+                          "scan before (change since last time)"),
         ("<b>Automatic</b>", "every new comparison is aligned and checked for changes by itself"),
         ("<b>Instant</b>", "each comparison keeps its alignment and results; " + key("Cmd") + " " + key("Z")
                            + " goes back to the previous one"),
-        ("<b>Saved</b>", "a project keeps all surveys and every comparison's alignment"),
+        ("<b>Saved</b>", "a project keeps all scans and every comparison's alignment"),
     ]), False),
 
     ("Cleaning scans", keys_table([
@@ -238,10 +238,10 @@ CHAPTERS = [
                              "scene, saved as a GIF that plays in any browser or presentation"),
         ("<b>Screenshot</b>", "File → Export → Screenshot saves exactly what the 3D view shows"),
         ("<b>Report details</b>", "client, site, inspector, reference and remarks for the first page"),
-        ("<b>Tables and GIS</b>", "the changed areas as CSV (Excel) or GeoJSON (GIS), in survey coordinates"),
+        ("<b>Tables and GIS</b>", "the changed areas as CSV (Excel) or GeoJSON (GIS), in real coordinates"),
         ("<b>Aligned scan</b>", "scan B in its aligned position as LAZ, PLY or XYZ for other software"),
         ("<b>Command line</b>", "python sonar_cli.py compare a.laz b.laz --report --csv: no window needed, "
-                                "series of surveys too (see the README)"),
+                                "series of scans too (see the README)"),
     ]) + '<p style="margin:8px 0 0 0;">' + dim("Run Detect Changes first, so the report can list the changed areas.")
      + "</p>", False),
 
@@ -266,12 +266,12 @@ CHAPTERS = [
          ("<b>Meshes</b>", "OBJ, STL, PLY meshes: points are spread over the surface"),
          ("<b>Units</b>", "metres, centimetres, millimetres, feet or US survey feet"),
          ("<b>Depth direction</b>", "found automatically; choose it yourself if the seabed comes out upside down"),
-         ("<b>Survey coordinates</b>", "big UTM numbers are shifted for smooth drawing, the status bar, notes "
+         ("<b>Real coordinates</b>", "big UTM numbers are shifted for smooth drawing, the status bar, notes "
                                        "and the report still show the real ones"),
          ("<b>Intensity</b>", "if the files have it: Colours → Intensity shows the sonar return strength"),
      ]) + '<p style="margin:8px 0 0 0;">' + dim(
          "Raw multibeam recordings (.xtf, .gsf, .s7k, .all) have to be processed in your sonar software "
-         "first: export the cleaned survey as LAS/LAZ, XYZ or CSV.") + "</p>",
+         "first: export the cleaned scan as LAS/LAZ, XYZ or CSV.") + "</p>",
      False),
 
     ("Tips and troubleshooting", keys_table([

@@ -21,7 +21,7 @@ def scan(sample_surface, scanner, settings, rng, track_axis=0, ping_spacing=0.35
     sample_surface(rng, n) must return n points on the (perfect) surface
     and a bool mask per point (True = part of a changed area).
     scanner is the sonar position, or a function that gives the sonar
-    position for every point (for a boat sailing survey lines over a big area).
+    position for every point (for a boat sailing sonar lines over a big area).
 
     Returns exactly settings.n_points points and their masks.
     """

@@ -51,6 +51,8 @@ class OriginalWall(Scene):
 _ORDER = [QuayWallDroppedObject] + [s for s in SIMPLE_SCENES if s is not QuayWallDroppedObject] + MORE_SCENES + BIG_SCENES
 SCENES = {scene.key: scene for scene in _ORDER + [OriginalWall]}
 DEFAULT_SCENE = QuayWallDroppedObject.key
+# Older names of scenes, so projects saved before a rename still open
+RENAMED_SCENES = {"port_approach_survey": "port_approach_scan"}
 
 
 def size_label(n_points):
@@ -108,30 +110,30 @@ def generate(key, settings=None):
 
 
 SERIES = {
-    "harbour_wall_scour": "Scour growing over a year (4 surveys)",
+    "harbour_wall_scour": "Scour growing over a year (4 scans)",
 }
 
 
 @dataclass
-class SurveySeries:
+class ScanSeries:
     key: str
     title: str
-    names: list  # one per survey, oldest first
+    names: list  # one per scan, oldest first
     clouds: list  # Open3D point clouds, oldest first
 
 
-def generate_series(key="harbour_wall_scour", surveys=4, settings=None):
-    """The same place surveyed several times while a change develops (the scour deepens).
+def generate_series(key="harbour_wall_scour", scans=4, settings=None):
+    """The same place scanned several times while a change develops (the scour deepens).
 
-    The first survey is the original state, the last one has the full change.
+    The first scan is the original state, the last one has the full change.
     """
     scene_class = SCENES[key]
     settings = settings or ScanSettings(n_points=scene_class.default_points)
     scene = scene_class()
     scene.build_world(np.random.default_rng(settings.seed))
     clouds, center = [], None
-    for number in range(surveys):
-        growth = number / max(surveys - 1, 1)
+    for number in range(scans):
+        growth = number / max(scans - 1, 1)
         scene.growth = growth
         rng = np.random.default_rng([settings.seed, 100 + number])
         state = "a" if number == 0 else "b"
@@ -141,9 +143,9 @@ def generate_series(key="harbour_wall_scour", surveys=4, settings=None):
             center = (points.min(axis=0) + points.max(axis=0)) / 2
             center[2] = 0.0
         clouds.append(to_cloud(points - center))
-    months = [round(12 * number / max(surveys - 1, 1)) for number in range(surveys)]
-    names = ["Survey 1 (start)"] + [f"Survey {i + 1} (+{m} months)" for i, m in enumerate(months) if i]
-    return SurveySeries(key, SERIES.get(key, scene.title), names, clouds)
+    months = [round(12 * number / max(scans - 1, 1)) for number in range(scans)]
+    names = ["Scan 1 (start)"] + [f"Scan {i + 1} (+{m} months)" for i, m in enumerate(months) if i]
+    return ScanSeries(key, SERIES.get(key, scene.title), names, clouds)
 
 
 def _original_wall():

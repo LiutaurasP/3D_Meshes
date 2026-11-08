@@ -226,7 +226,7 @@ class StartScreen(QDialog):
 
         right.addWidget(QLabel("<b style='font-size:14px'>Start from an example</b>"))
         examples = QListWidget()
-        for key in ("quay_wall_dropped_object", "seabed_debris_field", "harbour_quay_section", "port_approach_survey"):
+        for key in ("quay_wall_dropped_object", "seabed_debris_field", "harbour_quay_section", "port_approach_scan"):
             item = QListWidgetItem(SCENES[key].title)
             item.setData(Qt.UserRole, key)
             examples.addItem(item)
@@ -273,7 +273,7 @@ class ReportDetailsDialog(QDialog):
         from PySide6.QtWidgets import QPlainTextEdit
 
         self.remarks = QPlainTextEdit(details.get("remarks", ""))
-        self.remarks.setPlaceholderText("Conclusions, recommended actions, conditions during the survey…")
+        self.remarks.setPlaceholderText("Conclusions, recommended actions, conditions during the scan…")
         self.remarks.setMinimumHeight(110)
         remarks.add(self.remarks)
         layout.addWidget(remarks)
@@ -341,7 +341,7 @@ class DisplayModeDialog(QDialog):
         card.add(self.fullscreen)
         form = Form()
         self.caption = QLineEdit(prefs.get("display_caption"))
-        self.caption.setPlaceholderText("Optional, for example: Quay 4 · survey May 2026")
+        self.caption.setPlaceholderText("Optional, for example: Quay 4 · scan May 2026")
         form.row("Caption", self.caption)
         card.add(form)
         card.add(hint("Any key or click ends the display. The screen stays on while it runs."))
