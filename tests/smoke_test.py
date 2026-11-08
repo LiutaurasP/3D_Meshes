@@ -827,6 +827,62 @@ def after_laz_import():
     window.new_project()
     colors = window.sidebar.color_mode
     check("intensity is greyed out for example scenes", not colors.model().item(colors.findText("Intensity")).isEnabled())
+    wait_until(data_ready, cleaning_checks)
+
+
+def cleaning_checks():
+    """Lasso delete / keep, stray point filter, undo puts every point back in place."""
+    scene = window.scene
+    scene.look_from("Top", animate=False)
+    scene.plotter.render()
+    app.processEvents()
+    a, b = window.target_name, window.source_name
+    original = {name: np.asarray(window.clouds[name].points).copy() for name in (a, b)}
+    w, h = scene.widget.width(), scene.widget.height()
+    box = [(w * 0.4, h * 0.4), (w * 0.6, h * 0.4), (w * 0.6, h * 0.6), (w * 0.4, h * 0.6)]
+
+    window.sidebar.checkboxes[b].setChecked(False)  # hidden scans are not touched
+    removed = window.apply_lasso(box)
+    check("lasso deletes the points inside it", removed > 0 and
+          len(window.clouds[a].points) == len(original[a]) - removed)
+    check("hidden scans are not touched by the lasso", len(window.clouds[b].points) == len(original[b]))
+    window.actions["undo"].trigger()
+    check("undo puts every deleted point back in its place",
+          np.array_equal(np.asarray(window.clouds[a].points), original[a]))
+    window.actions["redo"].trigger()
+    check("…and redo removes them again", len(window.clouds[a].points) == len(original[a]) - removed)
+    window.actions["undo"].trigger()
+    window.sidebar.checkboxes[b].setChecked(True)
+
+    window.apply_lasso(box, keep_inside=True)
+    check("keep only removes everything outside the lasso",
+          0 < len(window.clouds[a].points) < len(original[a]) / 2 and len(window.clouds[b].points) < len(original[b]) / 2)
+    window.actions["undo"].trigger()
+    check("undo of keep only brings both scans back",
+          np.array_equal(np.asarray(window.clouds[b].points), original[b]))
+
+    removed = window.remove_stray_points()
+    check("stray points are found and removed", 0 < removed < 0.1 * (len(original[a]) + len(original[b])))
+    window.actions["undo"].trigger()
+
+    window.start_tool("lasso_delete")
+    view_widget = scene.widget
+    for kind, (x, y), buttons in ((QEvent.MouseButtonPress, box[0], Qt.LeftButton),
+                                  (QEvent.MouseMove, box[1], Qt.LeftButton), (QEvent.MouseMove, box[2], Qt.LeftButton),
+                                  (QEvent.MouseMove, box[3], Qt.LeftButton), (QEvent.MouseButtonRelease, box[3], Qt.NoButton)):
+        mouse(kind, x, y, Qt.LeftButton if kind != QEvent.MouseMove else Qt.NoButton, buttons)
+    check("drawing a lasso with the mouse deletes points", len(window.clouds[a].points) < len(original[a]))
+    window.actions["undo"].trigger()
+    check("the camera did not turn while drawing the lasso", window._pick is None)
+
+    from viewer import prefs
+    prefs.set("display_limit_millions", 0.01)  # 10k points: forces the thinned drawing
+    scene.refresh_points(window.inspections.intensity, window.inspections.truth)
+    drawn, total = scene.shown_count()
+    check("very large scans are drawn thinned out", drawn <= 10_001 and total > drawn)
+    prefs.set("display_limit_millions", 8.0)
+    scene.refresh_points(window.inspections.intensity, window.inspections.truth)
+    check("…and fully again under the limit", scene.shown_count()[0] == scene.shown_count()[1])
     finish()
 
 

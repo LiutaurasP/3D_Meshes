@@ -61,6 +61,7 @@ class SceneView:
 
         self.geometries = {}
         self.intensity = {}
+        self.shown = {}  # name -> indices of the drawn points, for scans over the display budget
         self.colors = {}
         self.actors = {}
         self.matrices = {}
@@ -77,6 +78,7 @@ class SceneView:
         """Replace everything in the scene. All arguments are dicts keyed by cloud name."""
         self.geometries = dict(clouds)
         self.intensity = dict(intensity or {})
+        self._choose_shown_points()
         self.colors = dict(colors)
         self.matrices = {name: np.eye(4) for name in self.geometries}
         self.visible = {name: True for name in self.geometries}
@@ -86,6 +88,34 @@ class SceneView:
         self.clear_areas()
         self._rebuild()
         self.fly.set_speed_from_size(self.size())
+
+    # Very large scans: draw an evenly spread part, compute with everything
+
+    def _choose_shown_points(self):
+        """Pick which points are drawn when the scans are bigger than the display budget."""
+        from viewer import prefs
+
+        budget = int(prefs.get("display_limit_millions") * 1_000_000)
+        total = sum(len(c.points) for c in self.geometries.values())
+        self.shown = {}
+        if total <= budget:
+            return
+        rng = np.random.default_rng(0)
+        for name, cloud in self.geometries.items():
+            n = len(cloud.points)
+            keep = max(1, int(n * budget / total))
+            self.shown[name] = np.sort(rng.choice(n, keep, replace=False))
+
+    def _shown(self, name, values):
+        """The part of a per-point array that is drawn."""
+        index = self.shown.get(name)
+        return values if index is None or values is None else np.asarray(values)[index]
+
+    def shown_count(self):
+        """(points drawn, points in the scans)"""
+        total = sum(len(c.points) for c in self.geometries.values())
+        drawn = sum(len(self.shown[n]) if n in self.shown else len(c.points) for n, c in self.geometries.items())
+        return drawn, total
 
     def _rebuild(self):
         """(Re)create all actors from the stored data, keeping position and visibility."""
@@ -110,11 +140,11 @@ class SceneView:
         # Round "sphere" points look nicer, plain points draw ~3x faster on huge scans
         from viewer import prefs
 
-        total = sum(len(cloud.points) for cloud in self.geometries.values())
+        total = self.shown_count()[0]
         spheres = total <= prefs.get("sphere_limit_millions") * 1_000_000
 
         for index, (name, cloud) in enumerate(self.geometries.items()):
-            data = cloud_to_polydata(cloud)
+            data = pv.PolyData(self._shown(name, np.asarray(cloud.points)))
             style = dict(point_size=self._screen_point_size(), render_points_as_spheres=spheres,
                          name=name, reset_camera=False)
             bar = {"color": "white"}
@@ -124,13 +154,13 @@ class SceneView:
                     data, scalars=DEPTH_LABEL, cmap=DEPTH_COLORMAP, clim=depth_range,
                     show_scalar_bar=index == 0, scalar_bar_args={"title": DEPTH_LABEL, **bar}, **style)
             elif mode == "Change":
-                data[CHANGE_LABEL] = self.change_values[name]
+                data[CHANGE_LABEL] = self._shown(name, self.change_values[name])
                 limit = self.change_limit
                 actor = self.plotter.add_points(
                     data, scalars=CHANGE_LABEL, cmap=CHANGE_COLORMAP, clim=[-limit, limit],
                     show_scalar_bar=index == 0, scalar_bar_args={"title": CHANGE_LABEL, **bar}, **style)
             elif mode == "Intensity" and name in self.intensity:
-                data[INTENSITY_LABEL] = self.intensity[name]
+                data[INTENSITY_LABEL] = self._shown(name, self.intensity[name])
                 first = name == next(n for n in self.geometries if n in self.intensity)
                 actor = self.plotter.add_points(
                     data, scalars=INTENSITY_LABEL, cmap=INTENSITY_COLORMAP, clim=intensity_range,
@@ -140,10 +170,10 @@ class SceneView:
             self.actors[name] = actor
 
             for kind in HIGHLIGHTS:
-                mask = self.masks[kind].get(name)
+                mask = self._shown(name, self.masks[kind].get(name))
                 if mask is not None and mask.any():
                     self.highlight_actors[kind][name] = self.plotter.add_points(
-                        pv.PolyData(np.asarray(cloud.points)[mask]),
+                        pv.PolyData(self._shown(name, np.asarray(cloud.points))[mask]),
                         color=self._highlight_color(kind)[:3],
                         point_size=self._highlight_point_size(),
                         render_points_as_spheres=True, name=f"{name} ({kind})", reset_camera=False)
@@ -229,10 +259,10 @@ class SceneView:
             self.plotter.remove_actor(actor, render=False)
         self.highlight_actors[kind] = {}
         for name, cloud in self.geometries.items():
-            mask = self.masks[kind].get(name)
+            mask = self._shown(name, self.masks[kind].get(name))
             if mask is not None and mask.any():
                 self.highlight_actors[kind][name] = self.plotter.add_points(
-                    pv.PolyData(np.asarray(cloud.points)[mask]),
+                    pv.PolyData(self._shown(name, np.asarray(cloud.points))[mask]),
                     color=self._highlight_color(kind)[:3],
                     point_size=self._highlight_point_size(),
                     render_points_as_spheres=True, name=f"{name} ({kind})", reset_camera=False)
@@ -515,6 +545,72 @@ class SceneView:
             plane.SetNormal(*(sign * normal))
         swipe["line"].SetPoint1(swipe["fraction"], 0.0, 0.0)
         swipe["line"].SetPoint2(swipe["fraction"], 1.0, 0.0)
+
+    # Cleaning: which points are under a lasso, and redrawing after points were removed
+
+    def project_to_widget(self, name):
+        """Widget pixel position (x, y from the top left) of every point of a cloud, and
+        whether it is in front of the camera."""
+        renderer = self.plotter.renderer
+        camera = renderer.GetActiveCamera()
+        matrix = camera.GetCompositeProjectionTransformMatrix(renderer.GetTiledAspectRatio(), -1, 1)
+        projection = np.array([[matrix.GetElement(r, c) for c in range(4)] for r in range(4)])
+        transform = np.asarray(self.matrices[name])
+        points = np.asarray(self.geometries[name].points)
+        world = points @ transform[:3, :3].T + transform[:3, 3]
+        clip = np.c_[world, np.ones(len(world))] @ projection.T
+        w = clip[:, 3]
+        front = w > 1e-9
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ndc = clip[:, :3] / w[:, None]
+        front &= np.abs(ndc[:, 2]) <= 1
+        width, height = self.widget.width(), self.widget.height()
+        xy = np.column_stack([(ndc[:, 0] + 1) / 2 * width, (1 - ndc[:, 1]) / 2 * height])
+        return xy, front
+
+    def set_lasso(self, path):
+        """Draw the lasso outline (widget pixels), or remove it with None."""
+        import vtk
+
+        renderer = self.plotter.renderer
+        old = getattr(self, "_lasso_actor", None)
+        if old is not None:
+            renderer.RemoveViewProp(old)
+            self._lasso_actor = None
+        if path is not None and len(path) >= 2:
+            ratio = self.widget.devicePixelRatioF()
+            height = self.widget.height()
+            points = vtk.vtkPoints()
+            for x, y in list(path) + [path[0]]:
+                points.InsertNextPoint(x * ratio, (height - y) * ratio, 0)
+            line = vtk.vtkPolyLine()
+            line.GetPointIds().SetNumberOfIds(points.GetNumberOfPoints())
+            for i in range(points.GetNumberOfPoints()):
+                line.GetPointIds().SetId(i, i)
+            cells = vtk.vtkCellArray()
+            cells.InsertNextCell(line)
+            data = vtk.vtkPolyData()
+            data.SetPoints(points)
+            data.SetLines(cells)
+            mapper = vtk.vtkPolyDataMapper2D()
+            mapper.SetInputData(data)
+            actor = vtk.vtkActor2D()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetColor(1.0, 0.85, 0.3)
+            actor.GetProperty().SetLineWidth(2 * ratio)
+            renderer.AddViewProp(actor)
+            self._lasso_actor = actor
+        self.plotter.render()
+
+    def refresh_points(self, intensity, truth):
+        """The points of the clouds changed (cleaning): redraw, keeping positions and visibility."""
+        self.intensity = dict(intensity or {})
+        self.masks = {kind: {} for kind in HIGHLIGHTS}
+        self.masks["truth"] = dict(truth or {})
+        self.change_values = {}
+        self.clear_areas()
+        self._choose_shown_points()
+        self._rebuild()
 
     # Lines and labels of the measuring tools
 

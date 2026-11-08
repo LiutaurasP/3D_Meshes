@@ -82,6 +82,7 @@ CHAPTERS = [
         (key("X"), "cross section"),
         (key("T"), "measure a distance"),
         (key("N"), "pin a note in 3D"),
+        (key("L") + " / " + key("Shift") + " " + key("L"), "delete points / keep only points with a lasso"),
         (key("Cmd") + " " + key("Shift") + " " + key("R"), "export the change report (PDF)"),
         (key("Cmd") + " " + key("1") + " … " + key("9"), "fly to a saved view"),
         (key("Cmd") + " " + key("/"), "list of all shortcuts (searchable)"),
@@ -176,6 +177,18 @@ CHAPTERS = [
         ("<b>Command palette</b> " + key("Cmd") + " " + key("K"), "type a few letters, for example "
                                                                   "\"algn\", and press Enter"),
         ("<b>History</b>", "the History tab lists every step; click one to jump back to it"),
+    ]), False),
+
+    ("Cleaning scans", keys_table([
+        ("<b>Delete points</b> " + key("L"), "draw around fish, bubbles or anything else that does not belong; "
+                                             "everything inside the outline is removed, at every depth"),
+        ("<b>Keep only</b> " + key("Shift") + " " + key("L"), "draw around the part you want to compare; "
+                                                              "the rest is removed (crop)"),
+        ("<b>Remove stray points</b>", "Edit menu: removes single points far away from their neighbours"),
+        ("<b>Protect a scan</b>", "hide it first (" + key("1") + " / " + key("2") + "): hidden scans are never cleaned"),
+        ("<b>Undo</b>", key("Cmd") + " " + key("Z") + " puts every removed point back exactly where it was"),
+        ("<b>Very big scans</b>", "above 8 million points the view draws an evenly spread part, alignment, "
+                                  "detection and measuring still use every point (Settings → Draw at most)"),
     ]), False),
 
     ("Sharing results", keys_table([

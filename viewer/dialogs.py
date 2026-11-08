@@ -139,6 +139,10 @@ class PreferencesDialog(QDialog):
         self.spheres = form.row("Round points up to", spin(0.1, 20.0, prefs.get("sphere_limit_millions"), 0.5,
                                                             decimals=1, suffix=" M points"),
                                 "Bigger scans are drawn with plain square points, which is about 3x faster")
+        self.display_limit = form.row("Draw at most", spin(1.0, 200.0, prefs.get("display_limit_millions"), 1.0,
+                                                           decimals=1, suffix=" M points"),
+                                      "Bigger scans show an evenly spread part while you work; alignment, "
+                                      "detection and measuring always use every point")
         drawing.add(form)
         layout.addWidget(drawing)
 
@@ -152,6 +156,7 @@ class PreferencesDialog(QDialog):
         prefs.set("autosave_minutes", self.autosave.value())
         prefs.set("depth_shading", self.depth_shading.isChecked())
         prefs.set("sphere_limit_millions", self.spheres.value())
+        prefs.set("display_limit_millions", self.display_limit.value())
         super().accept()
 
 

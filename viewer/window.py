@@ -211,6 +211,9 @@ class MainWindow(QMainWindow):
         focused button or checkbox in the panel would take the Space press.
         Also follows the mouse over the 3D view for the coordinate readout.
         """
+        if obj is self.scene.widget and self._pick is not None and self._pick["kind"].startswith("lasso"):
+            if self._lasso_event(event):
+                return True
         if obj is self.scene.widget:
             kind = event.type()
             if kind == QEvent.MouseMove:
@@ -292,6 +295,8 @@ class MainWindow(QMainWindow):
         "section": "Cross section: click the start point, then the end point (Esc cancels)",
         "measure": "Measure: click the first point, then the second (Esc cancels)",
         "note": "Note: click the place the note is about (Esc cancels)",
+        "lasso_delete": "Delete points: draw around the points to remove (Esc cancels). Hidden scans are not touched",
+        "lasso_keep": "Keep only: draw around the points to keep (Esc cancels). Hidden scans are not touched",
     }
 
     def start_tool(self, kind):
@@ -309,6 +314,7 @@ class MainWindow(QMainWindow):
         self._pick = None
         self.scene.widget.unsetCursor()
         self.statusBar().clearMessage()
+        self.scene.set_lasso(None)
 
     def _picked(self, position):
         point = self.scene.pick_point(position.x(), position.y())
@@ -374,6 +380,134 @@ class MainWindow(QMainWindow):
         if getattr(self, "_section_line", None):
             self.scene.remove_overlay(self._section_line)
             self._section_line = None
+
+    # Cleaning: lasso, stray points
+
+    def _lasso_event(self, event):
+        """Mouse events while a lasso tool is active. True when the event was used."""
+        kind = event.type()
+        if kind not in (QEvent.MouseButtonPress, QEvent.MouseMove, QEvent.MouseButtonRelease):
+            return False
+        position = event.position()
+        if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self._pick["path"] = [(position.x(), position.y())]
+            return True
+        path = self._pick.get("path")
+        if kind == QEvent.MouseMove and path:
+            last = path[-1]
+            if abs(position.x() - last[0]) + abs(position.y() - last[1]) > 3:
+                path.append((position.x(), position.y()))
+                self.scene.set_lasso(path)
+            return True
+        if kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton and path:
+            keep_inside = self._pick["kind"] == "lasso_keep"
+            self.cancel_tool()
+            if len(path) >= 3:
+                self.apply_lasso(path, keep_inside)
+            return True
+        return False
+
+    def apply_lasso(self, path, keep_inside=False):
+        """Remove the points inside a lasso (widget pixels), or everything outside it."""
+        from matplotlib.path import Path as Outline
+
+        outline = Outline(np.asarray(path, dtype=float))
+        keeps = {}
+        for name in self.clouds:
+            if not self.scene.is_visible(name):
+                continue
+            xy, front = self.scene.project_to_widget(name)
+            inside = front & outline.contains_points(xy)
+            keeps[name] = inside if keep_inside else ~inside
+        return self.edit_points(keeps, "Keep Only Lasso" if keep_inside else "Delete Points")
+
+    def remove_stray_points(self, neighbours=16, spread=3.0):
+        """Statistical outlier filter: points far from their neighbours (fish, bubbles, noise)."""
+        keeps = {}
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            for name, cloud in self.clouds.items():
+                if not self.scene.is_visible(name) or len(cloud.points) < neighbours + 1:
+                    continue
+                _, index = cloud.remove_statistical_outlier(nb_neighbors=neighbours, std_ratio=spread)
+                keep = np.zeros(len(cloud.points), dtype=bool)
+                keep[np.asarray(index, dtype=int)] = True
+                keeps[name] = keep
+        finally:
+            QApplication.restoreOverrideCursor()
+        return self.edit_points(keeps, "Remove Stray Points")
+
+    def edit_points(self, keeps, text):
+        """Keep only some points of some scans, undoable. keeps: {name: bool per point}.
+
+        Undo only needs the removed points and where they were, so it stays small for big scans.
+        Returns how many points were removed.
+        """
+        keeps = {name: np.asarray(keep, dtype=bool) for name, keep in keeps.items() if not np.all(keep)}
+        removed_count = sum(int((~keep).sum()) for keep in keeps.values())
+        if not removed_count:
+            self.notify("Nothing to remove", "No points of the shown scans were selected", "warning")
+            return 0
+        if any(keep.sum() < 10 for keep in keeps.values()):
+            self.notify("That would remove almost everything", "At least a few points of each scan must stay",
+                        "warning")
+            return 0
+        removed = {}
+        for name, keep in keeps.items():
+            points = np.asarray(self.clouds[name].points)
+            removed[name] = {
+                "keep": keep,
+                "points": points[~keep].copy(),
+                "intensity": None if name not in self.inspections.intensity else self.inspections.intensity[name][~keep],
+                "truth": None if name not in self.inspections.truth else self.inspections.truth[name][~keep],
+            }
+        before = self.pose_state()
+
+        def apply():
+            for name, part in removed.items():
+                keep = part["keep"]
+                cloud = self.clouds[name]
+                cloud.points = o3d.utility.Vector3dVector(np.asarray(cloud.points)[keep])
+                for table in (self.inspections.intensity, self.inspections.truth):
+                    if name in table:
+                        table[name] = table[name][keep]
+            self._points_changed(clear_changes=True)
+
+        def restore():
+            for name, part in removed.items():
+                keep = part["keep"]
+                cloud = self.clouds[name]
+                full = np.empty((len(keep), 3))
+                full[keep] = np.asarray(cloud.points)
+                full[~keep] = part["points"]
+                cloud.points = o3d.utility.Vector3dVector(full)
+                for key, table in (("intensity", self.inspections.intensity), ("truth", self.inspections.truth)):
+                    if name in table:
+                        values = np.empty(len(keep), dtype=table[name].dtype)
+                        values[keep] = table[name]
+                        values[~keep] = part[key]
+                        table[name] = values
+            self._points_changed(clear_changes=False)
+            self.apply_pose(before)
+
+        apply()
+        self.history.push(text, apply, restore)
+        self.notify(text, f"{removed_count:,} points removed · {self._shortcut_text('undo')} brings them back")
+        return removed_count
+
+    def _shortcut_text(self, name):
+        from PySide6.QtGui import QKeySequence
+
+        return self.actions[name].shortcut().toString(QKeySequence.NativeText)
+
+    def _points_changed(self, clear_changes):
+        if clear_changes and self.change_result is not None:
+            self.change_result = None
+            self.sidebar.clear_changes_result()
+        self.scene.refresh_points(self.inspections.intensity, self.inspections.truth)
+        counts = " + ".join(f"{len(c.points):,}" for c in self.clouds.values())
+        self.sidebar.show_data_status(f"{counts} points")
+        self._update_status()
 
     # Notes pinned in 3D
 
@@ -664,7 +798,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Ready in {seconds:.1f} s", 4000)
         self._show_inspections(inspections)
         counts = " + ".join(f"{len(c.points):,}" for c in inspections.clouds.values())
-        self.sidebar.show_data_status(f"{counts} points · ready in {seconds:.1f} s")
+        drawn, total = self.scene.shown_count()
+        thinned = f" · drawing {short_count(drawn)} for speed" if drawn < total else ""
+        self.sidebar.show_data_status(f"{counts} points · ready in {seconds:.1f} s{thinned}")
         if not inspections.truth:
             total = sum(len(c.points) for c in inspections.clouds.values())
             self.sidebar.show_loaded_files(inspections.title, total)
