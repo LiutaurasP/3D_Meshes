@@ -8,8 +8,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -89,8 +91,8 @@ class Sidebar(QWidget):
         settings, settings_layout = page_layout()
         self.cards = {}
         for card in (
-            self._timeline_card(),
-            self._scene_card(data_settings),
+            self._scene_card(data_settings),  # always on top
+            self._timeline_card(),  # below the scene, when a series of scans is open
             self._offset_card(data_settings),
             self._clouds_card(cloud_names, colors, view_settings),
             self._align_card(cloud_names, data_settings),
@@ -161,6 +163,26 @@ class Sidebar(QWidget):
         card.add(self.scene_info)
         card.add(divider())
 
+        # The settings of the simulated scans: folded away until wanted
+        self.scan_settings_toggle = QToolButton()
+        self.scan_settings_toggle.setText("Scan settings")
+        self.scan_settings_toggle.setCheckable(True)
+        self.scan_settings_toggle.setChecked(False)
+        self.scan_settings_toggle.setArrowType(Qt.RightArrow)
+        self.scan_settings_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.scan_settings_toggle.setCursor(Qt.PointingHandCursor)
+        self.scan_settings_toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.scan_settings_toggle.setStyleSheet(
+            "QToolButton { background: none; border: none; color: #9a9da7; font-weight: 600; padding: 2px 0; }"
+            "QToolButton:hover { color: #e6e7eb; }")
+        card.add(self.scan_settings_toggle)
+        self.scan_settings = QWidget()
+        settings_layout = QVBoxLayout(self.scan_settings)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(SPACING + 2)
+        self.scan_settings.setVisible(False)
+        self.scan_settings_toggle.toggled.connect(self._fold_scan_settings)
+
         form = Form()
         self.n_points = form.row("Size", spin(1_000, 5_000_000, data.n_points, 5_000, suffix=" points"),
                                  "Number of points in each scan")
@@ -182,12 +204,18 @@ class Sidebar(QWidget):
         self.new_seed_button.clicked.connect(lambda: self.callbacks["new_seed"]())
         seed_row.addWidget(self.new_seed_button)
         form.row("Variation", seed_row, "Each number gives a different random version of the same scene")
-        card.add(form)
+        settings_layout.addLayout(form)
+        self.data_status = hint("Changes apply right away")
+        settings_layout.addWidget(self.data_status)
+        card.add(self.scan_settings)
 
-        self.data_progress = card.add(thin_progress())
-        self.data_status = card.add(hint("Changes apply right away"))
+        self.data_progress = card.add(thin_progress())  # outside the fold: building shows even when it's closed
         self._show_scene_info(data.scene)
         return card
+
+    def _fold_scan_settings(self, open_):
+        self.scan_settings.setVisible(open_)
+        self.scan_settings_toggle.setArrowType(Qt.DownArrow if open_ else Qt.RightArrow)
 
     def _offset_card(self, data):
         card = Card("Scan B position", expanded=False)
