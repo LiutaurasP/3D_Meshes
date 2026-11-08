@@ -7,6 +7,7 @@ locally:
 
     python tests/smoke_test.py
     python tests/smoke_test.py --screenshots some/folder   # also save images
+    python tests/smoke_test.py --skip-tutorials            # quicker: everything except playing the tutorials
 """
 
 import argparse
@@ -38,6 +39,8 @@ READS_WINDOW = True  # False on CI machines that cannot read back the window ima
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--screenshots", type=Path, default=None)
+parser.add_argument("--skip-tutorials", action="store_true",
+                    help="leave out playing both tutorials (a few minutes); GitHub always runs everything")
 args = parser.parse_args()
 
 from tests.no_dialogs import block_dialogs  # noqa: E402
@@ -999,6 +1002,8 @@ def multi_scan_checks():
 def after_compare_all():
     side = window.sidebar
     check("every scan is compared with the first", sorted(window.first_comparisons()) == [1, 2, 3])
+    check("…and with the scan before", all(window.series_cache.get(pair, {}).get("changes") is not None
+                                           for pair in ((1, 2), (2, 3))) and window._all_compared())
     check("the comparison on screen stays as it was", window.series_pair == (0, 3) and window.change_result is not None)
     tracks = window.series_tracks
     scour = next((t for t in tracks if t.kind == "removed"), None)
@@ -1032,6 +1037,10 @@ def after_compare_all():
 
     import tempfile
     folder = Path(tempfile.mkdtemp())
+    tagged = window.series_cache[(1, 2)]["changes"]
+    if tagged.areas:
+        tagged.areas[0].comment = "check after the next storm"  # on a comparison that is not on screen
+    state["tagged_areas"] = len(tagged.areas)
     window.write_project(folder / "all.subdron")
     from viewer.report import collect
     report = collect(window)["series"]
@@ -1043,12 +1052,17 @@ def after_compare_all():
     window.open_project(str(folder / "all.subdron"), ask=False)
     check("a project keeps Show all, the dates and the scans shown", window.series_show_all
           and all(window.series.dates) and len(window.scene.series_actors) == 4)
+    check("…and every comparison's changes, so nothing has to be found again", window._all_compared()
+          and window._compare_all_worker is None)
+    kept = window.series_cache[(1, 2)]["changes"]
+    check("…with the comments on areas of comparisons that were not on screen",
+          state["tagged_areas"] == 0 or kept.areas[0].comment == "check after the next storm")
     wait_until(lambda: window._compare_all_worker is None and len(window.first_comparisons()) == 3,
                after_reopen_all, limit_ms=180000)
 
 
 def after_reopen_all():
-    check("…and compares all scans again by itself", len(window.series_tracks) > 0)
+    check("…and follows the areas through time again", len(window.series_tracks) > 0)
     window.sidebar.color_mode.setCurrentText("Per scan")
     window.set_show_all(False)
     check("Compare two brings scan A and B back", window.scene.actors["Scan A"].GetVisibility()
@@ -1200,6 +1214,10 @@ def orbit_checks():
 
 def orbit_released():
     check("the orbit marker goes away after letting go", window.scene.pivot_actor is None)
+    if args.skip_tutorials:
+        skip("both tutorials", "--skip-tutorials")
+        finish()
+        return
     tutorial_checks()
 
 

@@ -202,14 +202,16 @@ CHAPTERS = [
         ("<b>Automatic</b>", "every new comparison is aligned and checked for changes by itself"),
         ("<b>Instant</b>", "each comparison keeps its alignment and results; " + key("Cmd") + " " + key("Z")
                            + " goes back to the previous one"),
-        ("<b>Saved</b>", "a project keeps all scans, every comparison's alignment, the dates and the view"),
+        ("<b>Saved</b>", "a project keeps all scans and every comparison: its alignment, the changes found and "
+                         "the tags, status and comments of its areas, plus the dates and the view"),
     ]), False),
 
     ("Scans card: the whole series", keys_table([
         ("<b>Show all</b>", "every scan at once, each in its own colour from blue (oldest) to orange (newest); "
                             "the boxes and " + key("1") + " … " + key("9") + " show and hide single scans"),
-        ("<b>Align and compare all</b>", "aligns every scan with the first one and finds what changed, "
-                                         "in the background, with one progress bar"),
+        ("<b>Align and compare all</b>", "aligns every scan with the first one and with the scan before, and "
+                                         "finds what changed, in the background with one progress bar: after "
+                                         "that every Timeline comparison is instant"),
         ("<b>Dates</b>", "when each scan was made, read from the file names or typed in (2025-03-14); "
                          "the Timeline shows them and rates are worked out per month"),
         ("<b>Through time</b>", "Areas tab: every changed area followed through all scans with a small trend "

@@ -789,8 +789,9 @@ class Sidebar(QWidget):
         card.add(self.scan_rows_box)
         self.scan_checkboxes, self.scan_dates, self.scan_swatches = [], [], []
         self.compare_all_button = button("Align and compare all", primary=True,
-                                         tooltip="Align every scan with the first one and find what changed, so "
-                                                 "areas can be followed through time")
+                                         tooltip="Align every scan with the first one and with the scan before, and "
+                                                 "find what changed: areas are followed through time and every "
+                                                 "Timeline comparison is ready")
         self.compare_all_button.clicked.connect(lambda: self.callbacks["compare_all"]())
         card.add(self.compare_all_button)
         self.compare_all_progress = thin_progress()

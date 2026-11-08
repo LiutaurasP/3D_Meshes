@@ -138,3 +138,30 @@ def test_wind_turbine_series_compared_with_the_first_scan():
     anchor = next(t for t in tracks if t.kind == "added")
     assert anchor.first_seen() == 3
     assert scour.rate(series.dates, 4) < 0
+
+
+def test_compare_all_makes_both_kinds_of_comparison():
+    from series_analysis import series_pairs
+
+    assert series_pairs(4) == [(0, 1), (0, 2), (0, 3), (1, 2), (2, 3)]  # (0, 1) is both
+    assert series_pairs(4, before=False) == [(0, 1), (0, 2), (0, 3)]
+    assert series_pairs(2) == [(0, 1)]
+
+
+def test_comparisons_that_were_made_are_reused():
+    from series_analysis import compare_pairs
+    from viewer.settings import DataSettings
+
+    rng = np.random.default_rng(0)
+    import open3d as o3d
+
+    clouds = [o3d.geometry.PointCloud(o3d.utility.Vector3dVector(rng.uniform(0, 5, (2000, 3)) * [1, 1, 0.1]))
+              for _ in range(3)]
+    marker = SimpleNamespace(areas=[], changed_a=None, changed_b=None)
+    known = {(0, 1): {"matrix": np.eye(4), "steps": ["done"], "changes": marker}}
+    progress = []
+    found = compare_pairs(clouds, [(0, 1), (1, 2)], DataSettings(), known=known,
+                          on_progress=lambda d, t, text: progress.append(text))
+    assert found[(0, 1)].changes is marker  # not detected again
+    assert found[(1, 2)].changes is not marker and found[(1, 2)].steps
+    assert any("with the scan before" in text for text in progress)

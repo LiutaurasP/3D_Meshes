@@ -53,47 +53,66 @@ class Comparison:
     changes: object  # change_detection.ChangeResult
 
 
-def compare_all(clouds, settings, on_progress=None, known=None, should_stop=None):
-    """Align every scan with the first one and find what changed. Returns {k: Comparison} for k = 1 .. n-1.
+def series_pairs(count, before=True):
+    """The comparisons "Align and compare all" makes: every scan with the first one, and (before=True) every
+    scan with the one before it. (0, 1) is both."""
+    pairs = [(0, k) for k in range(1, count)]
+    if before:
+        pairs += [(k - 1, k) for k in range(2, count)]
+    return pairs
 
-    settings: viewer DataSettings (ICP method, limits, threshold). known: {k: {"matrix", "steps", "changes"}}
-    comparisons that were already made: their alignment (and changes, if found) are reused.
-    on_progress(done, total, text) reports progress.
+
+def compare_pairs(clouds, pairs, settings, on_progress=None, known=None, should_stop=None):
+    """Align the newer scan of every pair with the older one and find what changed.
+
+    Returns {(older, newer): Comparison}. settings: viewer DataSettings (ICP method, limits, threshold).
+    known: {(older, newer): {"matrix", "steps", "changes"}} comparisons that were already made: their
+    alignment (and changes, if found) are reused. on_progress(done, total, text) reports progress.
     """
     from change_detection import detect_changes
     from viewer.pipeline import icp_steps
     from volumes import measure_areas
 
     known = known or {}
-    first = clouds[0]
     results = {}
-    total = len(clouds) - 1
-    for k in range(1, len(clouds)):
+    total = len(pairs)
+    for done_count, (older, newer) in enumerate(pairs):
         if should_stop is not None and should_stop():
             break
-        done = known.get(k) or {}
+        what = "the first" if older == 0 else "the scan before"
+        done = known.get((older, newer)) or {}
         if done.get("steps"):
             matrix, steps = np.asarray(done["matrix"]), done["steps"]
         else:
             if on_progress is not None:
-                on_progress(k - 1, total, f"Aligning scan {k + 1} of {len(clouds)} with the first")
-            steps = icp_steps(clouds[k], first, max_distance=settings.max_correspondence_distance,
+                on_progress(done_count, total, f"Aligning scan {newer + 1} with {what}")
+            steps = icp_steps(clouds[newer], clouds[older], max_distance=settings.max_correspondence_distance,
                               max_iterations=settings.max_iterations, max_points=settings.max_icp_points,
                               method=settings.icp_method)
             matrix = np.asarray(steps[-1].transformation)
         changes = done.get("changes") if done.get("steps") else None
         if changes is None:
             if on_progress is not None:
-                on_progress(k - 1, total, f"Finding what changed in scan {k + 1}")
-            moved = o3d.geometry.PointCloud(clouds[k])
+                on_progress(done_count, total, f"Finding what changed in scan {newer + 1} since {what}")
+            moved = o3d.geometry.PointCloud(clouds[newer])
             moved.transform(matrix)
             threshold = None if settings.auto_threshold else settings.change_threshold
-            changes = detect_changes(first, moved, threshold=threshold, min_area_points=settings.min_area_points)
-            measure_areas(changes, first.points, moved.points)
-        results[k] = Comparison(k, matrix, steps, changes)
+            changes = detect_changes(clouds[older], moved, threshold=threshold,
+                                     min_area_points=settings.min_area_points)
+            measure_areas(changes, clouds[older].points, moved.points)
+        results[(older, newer)] = Comparison(newer, matrix, steps, changes)
     if on_progress is not None:
         on_progress(total, total, "Done")
     return results
+
+
+def compare_all(clouds, settings, on_progress=None, known=None, should_stop=None):
+    """Every scan aligned with the first one and compared with it: {k: Comparison} for k = 1 .. n-1.
+    known: {k: {"matrix", "steps", "changes"}} comparisons with the first scan that were already made."""
+    pairs = series_pairs(len(clouds), before=False)
+    known = {(0, k): state for k, state in (known or {}).items()}
+    found = compare_pairs(clouds, pairs, settings, on_progress, known, should_stop)
+    return {newer: comparison for (_, newer), comparison in found.items()}
 
 
 # The same area through time
