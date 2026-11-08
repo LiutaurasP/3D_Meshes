@@ -707,7 +707,9 @@ def tool_checks():
     check("cross section finds points of both scans",
           section is not None and len(section["a"][0]) > 20 and len(section["b"][0]) > 20)
     check("cross section window opens", window.section_window is not None and window.section_window.isVisible())
+    check("…with its line in 3D", window._section_line is not None)
     window.section_window.close()
+    check("closing the cross section removes its line", window._section_line is None)
 
     # Escape cancels a tool
     window.start_tool("measure")
@@ -720,6 +722,14 @@ def tool_checks():
     window.pick_at(middle + np.array([3.0, 4.0, 0.0]))
     distance, horizontal, vertical = window.last_measurement
     check("measuring gives the right distance", abs(distance - 5.0) < 1e-6 and abs(vertical) < 1e-6)
+    lines = len(window.scene.overlays)
+    QTest.keyClick(window, Qt.Key_Escape)
+    check("Esc removes the measuring lines", not window.measurements and len(window.scene.overlays) < lines)
+    window.start_tool("measure")
+    window.pick_at(middle)
+    window.pick_at(middle + np.array([3.0, 4.0, 0.0]))
+    window._show_inspections(window.inspections, reset_camera=False)
+    check("switching the scans removes the measuring lines", not window.measurements)
     window.clear_measurements()
     check("measurements can be cleared", not window.measurements)
 

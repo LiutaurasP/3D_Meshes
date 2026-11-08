@@ -450,6 +450,7 @@ class MainWindow(QMainWindow):
         section = compute_section(points_a, points_b, start, end)
         if self.section_window is None:
             self.section_window = SectionWindow(self)
+            self.section_window.closed.connect(self._remove_section_line)  # the line goes with its window
         self.section_window.show_section(section, self.colors[self.target_name], self.colors[self.source_name])
         self.last_section = section
 
@@ -460,13 +461,22 @@ class MainWindow(QMainWindow):
         label = f"{distance:.2f} m"
         markers = self.scene.add_marker_line(start, end, color=(0.4, 0.9, 0.6), label=label)
         self.measurements.append({"start": start.tolist(), "end": end.tolist(), "markers": markers})
-        self.notify(f"Distance {distance:.2f} m", f"horizontal {horizontal:.2f} m · vertical {vertical:+.2f} m", "success")
+        self.notify(f"Distance {distance:.2f} m", f"horizontal {horizontal:.2f} m · vertical {vertical:+.2f} m · "
+                    f"Esc removes the lines", "success")
         self.last_measurement = (distance, horizontal, vertical)
 
     def clear_measurements(self):
+        """Remove the measuring lines and the cross section line (and close the cross section)."""
+        had_lines = bool(self.measurements or getattr(self, "_section_line", None))
         for measurement in self.measurements:
             self.scene.remove_overlay(measurement["markers"])
         self.measurements = []
+        self._remove_section_line()
+        if self.section_window is not None and self.section_window.isVisible():
+            self.section_window.hide()
+        return had_lines
+
+    def _remove_section_line(self):
         if getattr(self, "_section_line", None):
             self.scene.remove_overlay(self._section_line)
             self._section_line = None
@@ -669,6 +679,9 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape and self._pick is not None:
             self.cancel_tool()
+            return
+        if event.key() == Qt.Key_Escape and self.clear_measurements():
+            self.statusBar().showMessage("Lines removed", 2500)
             return
         super().keyPressEvent(event)
 
@@ -1454,6 +1467,7 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Could not load the data", message)
 
     def _show_inspections(self, inspections, reset_camera=True):
+        self.clear_measurements()  # lines belong to the scans they were drawn on
         self.inspections = inspections
         self.clouds = inspections.clouds
         self.align_steps = None

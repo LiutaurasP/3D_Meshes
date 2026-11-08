@@ -8,7 +8,7 @@ inspectors compare two scans of a scour hole or a sand bank.
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 
 from viewer.style import BACKGROUND, CARD, CARD_BORDER, PANEL_STYLE, TEXT, TEXT_DIM
@@ -66,6 +66,8 @@ def compute_section(points_a, points_b, start, end, half_width=None):
 class SectionWindow(QDialog):
     """Floating window with the cross section chart (stays open while you keep working)."""
 
+    closed = Signal()  # hidden or closed: its line in 3D goes too
+
     def __init__(self, parent):
         super().__init__(parent, Qt.Tool)
         self.setWindowTitle("Cross Section")
@@ -122,3 +124,7 @@ class SectionWindow(QDialog):
                              f"<span style='color:#6a8fd8'>blue</span> = material removed")
         self.show()
         self.raise_()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.closed.emit()

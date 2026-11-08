@@ -181,7 +181,9 @@ CHAPTERS = [
                                        "horizontal and vertical part"),
         ("<b>Note</b> " + key("N"), "click a place and type a note; it is pinned there in 3D, saved in "
                                     "the project and listed in the report (Analyze → Notes flies to it)"),
-        ("<b>Esc</b>", "cancels a tool before the second click"),
+        ("<b>Esc</b>", "cancels a tool before the second click; afterwards it removes the lines. They also "
+                       "go when you switch to another scene or comparison, the cross section line when you close "
+                       "its window"),
         ("<b>Saved views</b>", "Camera → Save view… stores the camera; click it later to fly back "
                                "(also " + key("Cmd") + " " + key("1") + " … " + key("9") + ", saved in the project)"),
         ("<b>Command palette</b> " + key("Cmd") + " " + key("K"), "type a few letters, for example "
