@@ -3,7 +3,7 @@
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from viewer.style import ACCENT, CARD, CARD_BORDER, TEXT, TEXT_DIM
+from viewer.style import ACCENT, CARD, TEXT, TEXT_DIM
 
 KIND_COLORS = {"info": ACCENT, "success": "#3fb27f", "warning": "#e0a43a"}
 
@@ -38,8 +38,7 @@ class Toast(QWidget):
         detail_html = f"<br><span style='color:{TEXT_DIM}'>{detail}</span>" if detail else ""
         self.body.setText(f"<span style='color:{TEXT}; font-weight:600'>{text}</span>{detail_html}")
         self.body.setStyleSheet(
-            f"background:{CARD}; border:1px solid {CARD_BORDER}; border-left:3px solid {color};"
-            f" border-radius:8px; padding:10px 16px; font-size:13px;")
+            f"background:{CARD}; border:1px solid {color}; border-radius:8px; padding:10px 16px; font-size:13px;")
         self.adjustSize()
         self._place()
         self.fade.stop()
