@@ -77,6 +77,8 @@ CHAPTERS = [
         (key("R"), "reset the view"),
         (key("Space"), "show or hide this panel"),
         (key("F1"), "open this guide"),
+        (key("Cmd") + " " + key("/"), "list of all shortcuts (searchable)"),
+        (key("Cmd") + " " + key(","), "settings"),
     ]), False),
 
     ("Projects: saving and opening", P +
@@ -87,7 +89,11 @@ CHAPTERS = [
      "the original files are moved, or on another computer. Example scenes are rebuilt from "
      "their settings, which keeps those projects tiny.</p>" + P + dim(
          "A dot or asterisk in the window title means there are unsaved changes. "
-         "Recently used projects are under File → Open Recent.") + "</p>",
+         "Recently used projects are under File → Open Recent.") + "</p>" + P +
+     "<b>Your work is safe:</b> unsaved changes are saved in the background every few minutes "
+     "(Settings). If the app ever closes unexpectedly, it offers to restore them on the next start.</p>"
+     + P + "<b>Drag and drop:</b> drop a <b>.subdron</b> file on the window to open it, or two scan "
+     "files to import them (the first by name becomes scan A).</p>",
      False),
 
     ("Undo and redo", P +
@@ -155,6 +161,8 @@ CHAPTERS = [
         ("<b>Changed points</b>", "highlight of what was detected, colour can be picked"),
         ("<b>Show true change</b>", "where the change really is (example scenes only)"),
         ("<b>Background</b>", "click the swatch in Clouds to change it"),
+        ("<b>Depth shading</b>", "gives dense scans more relief (eye-dome lighting)"),
+        ("<b>Status bar</b>", "shows x, y and depth of the point under the mouse"),
     ]), False),
 
     ("Using your own scans", P +

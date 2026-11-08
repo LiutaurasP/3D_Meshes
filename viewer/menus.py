@@ -76,6 +76,9 @@ def build_menus(window):
     export.addAction(action(window, "Screenshot…", window.export_screenshot, "Ctrl+Shift+E"))
     window.export_menu = export
     file_menu.addSeparator()
+    preferences = action(window, "Settings…", window.show_preferences, QKeySequence.Preferences)
+    preferences.setMenuRole(QAction.PreferencesRole)
+    file_menu.addAction(preferences)
     quit_item = action(window, "Quit", window.close, QKeySequence.Quit)
     quit_item.setMenuRole(QAction.QuitRole)
     file_menu.addAction(quit_item)
@@ -83,7 +86,7 @@ def build_menus(window):
     # Edit
     edit = bar.addMenu("&Edit")
     undo = window.history.stack.createUndoAction(window, "Undo")
-    undo.setShortcuts(QKeySequence.Undo)
+    undo.setShortcut(QKeySequence("Ctrl+Z"))  # Cmd+Z on Mac (Qt maps Ctrl to Cmd there)
     redo = window.history.stack.createRedoAction(window, "Redo")
     # Mac: Cmd+Shift+Z. Windows / Linux: Ctrl+Y and also Ctrl+Shift+Z
     shortcuts = []
@@ -123,6 +126,7 @@ def build_menus(window):
     view.addAction(link_checkbox(action(window, "Show True Change"), side.truth))
     view.addAction(link_checkbox(action(window, "Show Changed Points"), side.show_changes))
     view.addAction(link_checkbox(action(window, "Show Area Boxes"), side.show_areas))
+    view.addAction(link_checkbox(action(window, "Depth Shading"), side.depth_shading))
     view.addSeparator()
     full = action(window, "Enter Full Screen", window.toggle_full_screen, QKeySequence.FullScreen)
     view.addAction(full)
@@ -163,6 +167,7 @@ def build_menus(window):
     # Help
     help_menu = bar.addMenu("&Help")
     help_menu.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(1))))
+    help_menu.addAction(action(window, "Keyboard Shortcuts", window.show_shortcuts, "Ctrl+/"))
     about = action(window, "About Subdron Sonar Studio", window.show_about)
     about.setMenuRole(QAction.AboutRole)
     help_menu.addAction(about)

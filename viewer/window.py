@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import open3d as o3d
-from PySide6.QtCore import QElapsedTimer, QEvent, QSettings, Qt
+from PySide6.QtCore import QElapsedTimer, QEvent, QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from datasets import short_count
-from viewer import project
+from viewer import prefs, project
 from viewer.animation import AlignmentAnimation, AlignWorker, ChangeWorker, DataWorker
 from viewer.branding import APP_NAME, LOGO_PATH, PROJECT_EXTENSION, PROJECT_FILTER, VERSION
 from viewer.menus import build_menus
@@ -30,6 +30,7 @@ from viewer.pipeline import Inspections, build_inspections, load_inspections
 from viewer.scene import SceneView
 from viewer.settings import DataSettings, Settings, ViewSettings
 from viewer.sidebar import Sidebar
+from viewer.toast import Toast
 from viewer.undo import History
 
 TEXT_INPUTS = (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit)
@@ -44,6 +45,13 @@ def is_text_input(widget):
             return True
         widget = widget.parentWidget() if isinstance(widget, QWidget) else None
     return False
+
+
+def recovery_path():
+    """Where autosaved work is kept until the project is saved or closed normally."""
+    folder = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)) / "Recovery"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"autosave{PROJECT_EXTENSION}"
 
 
 def to_cloud(points):
@@ -110,6 +118,7 @@ class MainWindow(QMainWindow):
                 "point_size": self.scene.set_point_size,
                 "truth": self.scene.set_truth_visible,
                 "axes": self.scene.set_axes_visible,
+                "depth_shading": self.scene.set_depth_shading,
                 "plotly": self.open_in_plotly,
             },
         )
@@ -122,8 +131,32 @@ class MainWindow(QMainWindow):
 
         self.status = QLabel()
         self.statusBar().addWidget(self.status)
+        self.cursor_label = QLabel()
+        self.cursor_label.setStyleSheet("color: #9a9da7; padding-right: 8px;")
+        self.statusBar().addPermanentWidget(self.cursor_label)
+        self.toast = Toast(self)
+
+        # Coordinates and depth under the mouse (looked up at most ~15 times a second)
+        self._mouse_position = None
+        self._cursor_timer = QTimer(self)
+        self._cursor_timer.setSingleShot(True)
+        self._cursor_timer.setInterval(60)
+        self._cursor_timer.timeout.connect(self._update_cursor_readout)
+        self.scene.widget.setMouseTracking(True)
+        self.scene.widget.installEventFilter(self)
+
+        self.setAcceptDrops(True)  # drop .subdron projects or two scan files on the window
+
+        # Autosave unsaved work in the background (crash recovery)
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.timeout.connect(self.autosave)
+        self.restart_autosave()
+
         self._show_inspections(self.inspections)
+        if prefs.get("depth_shading"):
+            self.sidebar.depth_shading.setChecked(True)
         self._applied_scene = self._scene_state(pose=None)
+        self.history.clear()
         self._update_title()
 
     def _cloud_colors(self):
@@ -162,7 +195,16 @@ class MainWindow(QMainWindow):
 
         Done here instead of with a normal shortcut, because otherwise a
         focused button or checkbox in the panel would take the Space press.
+        Also follows the mouse over the 3D view for the coordinate readout.
         """
+        if obj is self.scene.widget:
+            if event.type() == QEvent.MouseMove:
+                self._mouse_position = event.position()
+                if not self._cursor_timer.isActive():
+                    self._cursor_timer.start()
+            elif event.type() == QEvent.Leave:
+                self._mouse_position = None
+                self.cursor_label.clear()
         if (event.type() == QEvent.KeyPress and event.key() == Qt.Key_Space
                 and not event.isAutoRepeat()
                 and not event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier)
@@ -171,6 +213,85 @@ class MainWindow(QMainWindow):
                 self.toggle_settings_panel()
                 return True
         return super().eventFilter(obj, event)
+
+    # Notifications, cursor readout, drag & drop
+
+    def notify(self, text, detail="", kind="info"):
+        self.toast.show_message(text, detail, kind)
+
+    def _update_cursor_readout(self):
+        if self._mouse_position is None:
+            return
+        point = self.scene.pick_point(self._mouse_position.x(), self._mouse_position.y())
+        if point is None:
+            self.cursor_label.clear()
+            return
+        x, y, z = point
+        self.cursor_label.setText(f"x {x:7.2f} m    y {y:7.2f} m    depth {-z:6.2f} m")
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        projects = [p for p in paths if p.endswith(PROJECT_EXTENSION)]
+        scans = sorted(p for p in paths if Path(p).suffix.lower() in (".ply", ".pcd", ".xyz", ".xyzn", ".xyzrgb", ".pts"))
+        if projects:
+            self.open_project(projects[0])
+        elif len(scans) == 2:
+            self.open_scan_files(*scans)  # sorted by name: the first one is scan A
+            self.notify("Importing two scans", f"A: {Path(scans[0]).name}   B: {Path(scans[1]).name}")
+        elif scans:
+            self.notify("Drop two scan files", "Scan A (earlier) and scan B (later) together", "warning")
+        event.acceptProposedAction()
+
+    # Autosave and recovery
+
+    def restart_autosave(self):
+        minutes = prefs.get("autosave_minutes")
+        self._autosave_timer.stop()
+        if minutes > 0:
+            self._autosave_timer.start(minutes * 60_000)
+
+    def autosave(self):
+        """Keep unsaved work safe; written in the background so the app doesn't pause."""
+        if self.history.stack.isClean():
+            return
+        state = self.project_state()
+        state["recovery_of"] = self.project_path
+        scans = {name: np.asarray(cloud.points).copy() for name, cloud in self.clouds.items()} \
+            if self.loaded_files else None
+        changes = self.change_result
+        path = recovery_path()
+        temporary = path.with_suffix(".tmp")
+
+        def write():
+            project.save(temporary, state, scans, changes)
+            temporary.replace(path)  # never leave a half written recovery file
+
+        threading.Thread(target=write, daemon=True).start()
+
+    @staticmethod
+    def discard_recovery():
+        path = recovery_path()
+        if path.exists():
+            path.unlink()
+
+    # Dialogs
+
+    def show_preferences(self):
+        from viewer.dialogs import PreferencesDialog
+
+        if PreferencesDialog(self).exec():
+            self.restart_autosave()
+            self.scene._rebuild()  # point style limit may have changed
+            self.notify("Settings saved")
+
+    def show_shortcuts(self):
+        from viewer.dialogs import ShortcutsDialog
+
+        ShortcutsDialog(self).exec()
 
     # Data
 
@@ -264,6 +385,8 @@ class MainWindow(QMainWindow):
         if not inspections.truth:
             total = sum(len(c.points) for c in inspections.clouds.values())
             self.sidebar.show_loaded_files(inspections.title, total)
+        if not self._generate_again:
+            self.notify(inspections.title, f"{counts} points · ready in {seconds:.1f} s")
         if self._pending_pose is not None and not self._generate_again:
             self.apply_pose(self._pending_pose)
         self._pending_pose = None
@@ -421,6 +544,10 @@ class MainWindow(QMainWindow):
     def _alignment_finished(self):
         self.sidebar.set_aligning(False)
         self._update_status()
+        if self.align_steps:
+            last = self.align_steps[-1]
+            self.notify("Scan B aligned to A", f"{len(self.align_steps) - 1} rounds · RMSE {last.inlier_rmse * 100:.1f} cm",
+                        "success")
 
     def reset_alignment(self):
         before = self.pose_state()
@@ -477,6 +604,9 @@ class MainWindow(QMainWindow):
         self.sidebar.set_detecting(False)
         self.statusBar().showMessage(f"Change detection took {seconds:.1f} s", 4000)
         self._show_change_result(result)
+        count = len(result.areas)
+        self.notify(f"{count} changed area{'s' if count != 1 else ''} found" if count else "No changes found",
+                    f"threshold {result.threshold * 100:.1f} cm · {seconds:.1f} s", "success" if count else "info")
         before, after = self._detect_before, self.pose_state()
         self.history.push("Detect Changes", lambda: self.apply_pose(after), lambda: self.apply_pose(before))
 
@@ -591,6 +721,7 @@ class MainWindow(QMainWindow):
                 "show_truth": self.sidebar.truth.isChecked(),
                 "show_changes": self.sidebar.show_changes.isChecked(),
                 "show_areas": self.sidebar.show_areas.isChecked(),
+                "depth_shading": self.sidebar.depth_shading.isChecked(),
                 "visible": {name: box.isChecked() for name, box in self.sidebar.checkboxes.items()},
             },
             "alignment": {
@@ -623,6 +754,8 @@ class MainWindow(QMainWindow):
         self._add_recent(path)
         self._update_title()
         self.statusBar().showMessage(f"Saved {Path(path).name}", 4000)
+        self.notify("Project saved", Path(path).name, "success")
+        self.discard_recovery()
 
     def save_project(self):
         if not self.project_path:
@@ -666,6 +799,7 @@ class MainWindow(QMainWindow):
         self._add_recent(path)
         self._update_title()
         self.statusBar().showMessage(f"Opened {Path(path).name}", 4000)
+        self.notify("Project opened", Path(path).name)
         return True
 
     def apply_project_state(self, state, scans=None, changes=None):
@@ -709,6 +843,7 @@ class MainWindow(QMainWindow):
             side.truth.setChecked(view.get("show_truth", False))
             side.show_changes.setChecked(view.get("show_changes", True))
             side.show_areas.setChecked(view.get("show_areas", True))
+            side.depth_shading.setChecked(view.get("depth_shading", prefs.get("depth_shading")))
             for name, visible in view.get("visible", {}).items():
                 if name in side.checkboxes:
                     side.checkboxes[name].setChecked(visible)
@@ -827,6 +962,8 @@ class MainWindow(QMainWindow):
         if path:
             self.scene.plotter.screenshot(path)
             self.statusBar().showMessage(f"Saved {Path(path).name}", 4000)
+        self.notify("Project saved", Path(path).name, "success")
+        self.discard_recovery()
 
     def show_about(self):
         dialog = QDialog(self)
@@ -859,6 +996,10 @@ class MainWindow(QMainWindow):
             return
         QApplication.instance().removeEventFilter(self)
         self.history.stack.cleanChanged.disconnect(self._on_clean_changed)
+        self._autosave_timer.stop()
+        self.toast.hide()
+        if not getattr(self, "keep_recovery", False):
+            self.discard_recovery()
         self._stop_animation()
         for worker in (self._worker, self._data_worker, self._change_worker):
             if worker is not None:

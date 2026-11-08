@@ -38,6 +38,8 @@ parser.add_argument("--screenshots", type=Path, default=None)
 args = parser.parse_args()
 
 app = QApplication(sys.argv[:1])
+app.setOrganizationName("SubdronTests")  # own settings store: never touch the user's recent files / preferences
+app.setApplicationName("Sonar Studio Tests")
 apply_theme(app)
 
 # The default scene is the dropped container; the checks below use the scour scene
@@ -558,6 +560,84 @@ def embedded_checks(folder, a, b):
     window.new_project()
     window.open_project(str(path), ask=False)
     check("embedded scans open without the original files", len(window.clouds["Scan A"].points) == count)
+    pro_feel_checks()
+
+
+def pro_feel_checks():
+    """Phase 2: notifications, cursor readout, dialogs, drag & drop, autosave."""
+    from PySide6.QtCore import QMimeData, QPoint, QUrl
+    from PySide6.QtGui import QDropEvent
+    from viewer import prefs
+    from viewer.dialogs import PreferencesDialog, ShortcutsDialog, StartScreen
+    from viewer.window import recovery_path
+
+    window.notify("Test notification", "details")
+    check("notifications appear", window.toast.isVisible())
+
+    view_widget = window.scene.widget
+    window.scene.look_from("Front")
+    window.scene.plotter.render()
+    app.processEvents()
+    point = window.scene.pick_point(view_widget.width() / 2, view_widget.height() / 2)
+    check("the point under the mouse can be found", point is not None)
+    window._mouse_position = QPointF(view_widget.width() / 2, view_widget.height() / 2)
+    window._update_cursor_readout()
+    check("the status bar shows depth under the mouse", "depth" in window.cursor_label.text())
+
+    shortcuts = ShortcutsDialog(window)
+    names = [row[0] for row in shortcuts.rows]
+    check("shortcut list is built from the menus", "Undo" in " ".join(names) and "Detect Changes" in names)
+    shortcuts.search.setText("align")
+    visible = [r for r in range(shortcuts.table.rowCount()) if not shortcuts.table.isRowHidden(r)]
+    check("shortcut search filters the list", 0 < len(visible) < shortcuts.table.rowCount())
+
+    dialog = PreferencesDialog(window)
+    dialog.autosave.setValue(5)
+    dialog.accept()
+    check("settings are stored", prefs.get("autosave_minutes") == 5)
+
+    start = StartScreen(["/tmp/a.subdron"], window)
+    start._done(StartScreen.EXAMPLE, "port_approach_survey")
+    check("start screen returns the picked example", start.choice == (StartScreen.EXAMPLE, "port_approach_survey"))
+
+    window.sidebar.depth_shading.setChecked(True)
+    check("depth shading can be switched on", window.scene.depth_shading)
+    window.actions["undo"].trigger()
+    check("…and undone", not window.scene.depth_shading)
+
+    # Autosave writes a recovery file in the background
+    path = recovery_path()
+    if path.exists():
+        path.unlink()
+    window.sidebar.point_size.setValue(window.sidebar.point_size.value() + 1)  # something unsaved
+    window.autosave()
+    wait_until(lambda: path.exists(), lambda: after_autosave(path), limit_ms=20000)
+
+
+def after_autosave(path):
+    from PySide6.QtCore import QMimeData, QUrl
+    from PySide6.QtGui import QDropEvent
+
+    check("autosave writes a recovery file", path.exists())
+    check("the recovery file opens as a project", window.open_project(str(path), ask=False))
+
+    # Dropping two scan files imports them
+    import tempfile
+    import open3d as o3d
+
+    folder = Path(tempfile.mkdtemp())
+    files = [folder / "1_before.ply", folder / "2_after.ply"]
+    for file, name in zip(files, ("Scan A", "Scan B")):
+        o3d.io.write_point_cloud(str(file), window.clouds[name])
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(f)) for f in reversed(files)])
+    drop = QDropEvent(QPointF(50, 50), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+    window.dropEvent(drop)
+    wait_until(lambda: data_ready() and "1_before.ply" in window.inspections.title, after_drop)
+
+
+def after_drop():
+    check("dropped files are imported, the first name as scan A", window.inspections.title.startswith("1_before.ply"))
     finish()
 
 

@@ -11,7 +11,7 @@ PROJECT_FILTER = f"{APP_NAME} projects (*{PROJECT_EXTENSION})"
 
 ASSETS = Path(__file__).resolve().parent / "assets"
 ICON_PATH = ASSETS / "app_icon.png"
-LOGO_PATH = ASSETS / "subdron_logo.png"
+LOGO_PATH = ASSETS / "subdron_wordmark.png"  # white letters on transparent
 
 
 def set_process_name():

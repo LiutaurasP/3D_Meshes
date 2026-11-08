@@ -315,6 +315,7 @@ class Sidebar(QWidget):
             (self.show_changes, "Show Changed Points"), (self.show_areas, "Show Area Boxes"),
             (self.color_mode, "Colours"), (self.point_size, "Point Size"),
             (self.truth, "Show True Change"), (self.axes, "Show Axes"),
+            (self.depth_shading, "Depth Shading"),
         ]
         return controls
 
@@ -611,6 +612,11 @@ class Sidebar(QWidget):
         self.truth.setChecked(view_settings.show_truth)
         self.truth.toggled.connect(lambda checked: self.callbacks["truth"](checked))
         card.add(self.truth)
+
+        self.depth_shading = QCheckBox("Depth shading")
+        self.depth_shading.setToolTip("Eye-dome lighting: gives dense scans more relief, works best with many points")
+        self.depth_shading.toggled.connect(lambda checked: self.callbacks["depth_shading"](checked))
+        card.add(self.depth_shading)
 
         axes = QCheckBox("Show axes")
         axes.setChecked(view_settings.show_axes)

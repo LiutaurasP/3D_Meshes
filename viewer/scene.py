@@ -96,8 +96,10 @@ class SceneView:
         depth_range = self._depth_range() if mode == "Depth" else None
 
         # Round "sphere" points look nicer, plain points draw ~3x faster on huge scans
+        from viewer import prefs
+
         total = sum(len(cloud.points) for cloud in self.geometries.values())
-        spheres = total <= SPHERES_UP_TO
+        spheres = total <= prefs.get("sphere_limit_millions") * 1_000_000
 
         for index, (name, cloud) in enumerate(self.geometries.items()):
             data = cloud_to_polydata(cloud)
@@ -273,6 +275,28 @@ class SceneView:
                 self.settings.color_mode == "Change" and not self.change_values):
             self.actors[name].prop.color = tuple(rgba[:3])
             self.plotter.render()
+
+    def set_depth_shading(self, enabled):
+        """Eye-dome lighting: shades points by depth differences, gives dense scans more relief."""
+        self.depth_shading = bool(enabled)
+        if enabled:
+            self.plotter.enable_eye_dome_lighting()
+        else:
+            self.plotter.disable_eye_dome_lighting()
+        self.plotter.render()
+
+    def pick_point(self, x, y):
+        """World position of the surface under a widget pixel, or None over the background."""
+        import vtk
+
+        ratio = self.widget.devicePixelRatioF()
+        px, py = int(x * ratio), int((self.widget.height() - y) * ratio)
+        renderer = self.plotter.renderer
+        if renderer.GetZ(px, py) >= 0.999999:  # nothing drawn there
+            return None
+        picker = vtk.vtkWorldPointPicker()
+        picker.Pick(px, py, 0, renderer)
+        return np.array(picker.GetPickPosition())
 
     def set_background(self, rgba):
         self.settings.background = tuple(rgba)
