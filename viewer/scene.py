@@ -888,7 +888,7 @@ class SceneView:
         self.plotter.renderer.ResetCameraClippingRange()
         return point
 
-    PIVOT_RADIUS_PX = 7  # size of the orbit ball on screen
+    PIVOT_RADIUS_PX = 5  # size of the orbit ball on screen
 
     def show_pivot(self, point):
         """A small white ball on the point the camera turns around.
