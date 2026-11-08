@@ -36,9 +36,30 @@ def main():
                "--distpath", str(ROOT / "dist"), "--workpath", str(ROOT / "build"),
                str(HERE / "sonar_studio.spec")]
     subprocess.run(command, check=True, cwd=ROOT)
+    if sys.platform == "darwin":
+        strip_mac_app(ROOT / "dist" / "Subdron Sonar Studio.app")
     print("\nDone, the app is in", ROOT / "dist")
     if "--no-self-test" not in sys.argv:  # GitHub's Mac machines cannot draw 3D, the check is skipped there
         self_test()
+
+
+def strip_mac_app(app):
+    """Remove the local symbol tables from the libraries (about 110 MB, mostly VTK), then sign again.
+
+    PyInstaller's own strip option only removes debug sections, which these libraries don't have.
+    Exported symbols stay, so the libraries still link; the self-test checks the result.
+    """
+    before = folder_size(app)
+    libraries = [path for path in app.rglob("*") if path.is_file() and not path.is_symlink()
+                 and path.suffix in (".dylib", ".so")]
+    for path in libraries:
+        subprocess.run(["strip", "-x", str(path)], capture_output=True)  # a few can't be stripped, that's fine
+    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True, capture_output=True)
+    print(f"Stripped {len(libraries)} libraries: {before / 1e6:.0f} MB -> {folder_size(app) / 1e6:.0f} MB")
+
+
+def folder_size(folder):
+    return sum(path.stat().st_size for path in folder.rglob("*") if path.is_file() and not path.is_symlink())
 
 
 def self_test():
