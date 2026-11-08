@@ -1792,6 +1792,18 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Saved {Path(path).name}", 4000)
             self.notify("Screenshot saved", Path(path).name, "success")
 
+    def copy_view_image(self):
+        """The 3D view as a picture on the clipboard, to paste into a chat, an email or slides."""
+        from PySide6.QtGui import QImage
+
+        self.scene.plotter.ren_win.Render()  # the plotter's own render() waits for the event loop
+        pixels = np.ascontiguousarray(self.scene.plotter.screenshot(return_img=True)[:, :, :3])
+        height, width, _ = pixels.shape
+        image = QImage(pixels.data, width, height, 3 * width, QImage.Format_RGB888).copy()
+        QApplication.clipboard().setImage(image)
+        self.notify("View copied", "Paste it anywhere as a picture", "success")
+        return image
+
     def _export_path(self, title, suffix, file_filter):
         stem = Path(self.project_path).stem if self.project_path else "Subdron"
         start = str(Path.home() / f"{stem} {title.lower()}{suffix}")

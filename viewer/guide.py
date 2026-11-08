@@ -87,6 +87,7 @@ CHAPTERS = [
         (key("N"), "pin a note in 3D"),
         (key("L") + " / " + key("Shift") + " " + key("L"), "delete points / keep only points with a lasso"),
         (key("Cmd") + " " + key("Shift") + " " + key("R"), "export the change report (PDF)"),
+        (key("Cmd") + " " + key("Shift") + " " + key("C"), "copy the view as a picture (paste it anywhere)"),
         (key("Cmd") + " " + key("1") + " … " + key("9"), "fly to a saved view"),
         (key("Cmd") + " " + key("/"), "list of all shortcuts (searchable)"),
         (key("Cmd") + " " + key(","), "settings"),

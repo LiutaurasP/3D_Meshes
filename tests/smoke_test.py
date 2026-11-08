@@ -787,6 +787,11 @@ def output_checks():
     check("PDF report is written", pdf.startswith(b"%PDF") and pages >= 1)
     check("making the report puts the camera back", np.allclose(before["position"], after["position"]))
 
+    copied = window.copy_view_image()
+    on_clipboard = QApplication.clipboard().image()
+    check("the view can be copied as a picture", not copied.isNull() and not on_clipboard.isNull()
+          and on_clipboard.width() == copied.width())
+
     import viewer.turntable as turntable
 
     recorded = []  # the frames as recorded, before the GIF writer merges identical neighbours

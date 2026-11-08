@@ -113,6 +113,8 @@ def build_menus(window):
     edit.addAction(redo)
     actions["undo"], actions["redo"] = undo, redo
     edit.addSeparator()
+    edit.addAction(action(window, "Copy View as Image", window.copy_view_image, "Ctrl+Shift+C"))
+    edit.addSeparator()
     edit.addAction(action(window, "Delete Points with Lasso", lambda: window.start_tool("lasso_delete"), "L"))
     edit.addAction(action(window, "Keep Only Points in Lasso", lambda: window.start_tool("lasso_keep"), "Shift+L"))
     edit.addAction(action(window, "Remove Stray Points", lambda: window.remove_stray_points()))
