@@ -2,3 +2,12 @@ numpy
 open3d
 scipy
 plotly
+PySide6-Essentials
+pyvista
+pyvistaqt
+matplotlib
+pillow
+laspy[lazrs]
+pye57
+tifffile
+pyobjc-framework-Cocoa; sys_platform == "darwin"

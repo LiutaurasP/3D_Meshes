@@ -1,3 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+/build/
+/dist/
+packaging/icons/
+.DS_Store

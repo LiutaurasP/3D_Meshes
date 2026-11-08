@@ -1,0 +1,50 @@
+name: Viewer check
+
+# Installs the project on a clean Windows and Linux machine and runs the
+# viewer smoke test, so problems on another OS show up without needing
+# that machine yourself.
+#
+# macOS is not in the list: the GitHub macOS machines have no GPU and the
+# software OpenGL fallback is broken on macOS 26, so nothing 3D can be
+# tested there. On a real Mac run `python tests/smoke_test.py` instead.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # The CI machines have no GPU, this provides a virtual display and
+      # software OpenGL for VTK, plus the system libraries Qt needs on Linux
+      - uses: ./.github/actions/headless-display
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Check that the existing scripts still import
+        run: python -c "import generate_mesh, generate_blob, registration, visualize"
+
+      - name: Run the dataset and change detection tests
+        run: |
+          python -m pip install pytest
+          python -m pytest tests -q
+
+      - name: Run the viewer smoke test
+        run: python tests/smoke_test.py
