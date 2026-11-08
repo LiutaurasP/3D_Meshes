@@ -33,6 +33,7 @@ from viewer.window import MainWindow
 
 # GitHub Actions (and most other CI services) set CI=true
 ON_CI = os.environ.get("CI", "").lower() == "true"
+READS_WINDOW = True  # False on CI machines that cannot read back the window image
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--screenshots", type=Path, default=None)
@@ -168,7 +169,9 @@ def offscreen_render():
 
 def start():
     check("default scene is the dropped container", default_settings.data.scene == "quay_wall_dropped_object")
+    global READS_WINDOW
     image = window.scene.plotter.screenshot(return_img=True)
+    READS_WINDOW = renders(image)
     if renders(image) or not ON_CI:
         check("scene renders something", renders(image))
     else:
@@ -784,7 +787,16 @@ def output_checks():
 
     ok = window.export_turntable(str(folder / "turntable.gif"), count=8)
     gif = Image.open(folder / "turntable.gif")
-    check("turntable GIF has every frame", ok and gif.n_frames == 8)
+    durations = []
+    for index in range(gif.n_frames):
+        gif.seek(index)
+        durations.append(gif.info.get("duration", 0))
+    if READS_WINDOW:
+        check("turntable GIF has every frame", ok and gif.n_frames == 8)
+    else:
+        # The frames all come out blank here, and identical frames are merged in the GIF
+        skip("turntable GIF has every frame", "the window image can't be read on this CI machine")
+    check("turntable GIF lasts one full turn", ok and abs(sum(durations) - 6000) <= 8 * 20)
     check("turntable puts the camera back", np.allclose(after["position"], scene.current_view()["position"]))
     import_checks()
 

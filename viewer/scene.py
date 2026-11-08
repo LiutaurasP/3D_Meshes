@@ -504,6 +504,8 @@ class SceneView:
 
     def set_axes_visible(self, visible):
         self.settings.show_axes = visible
+        if self.plotter.iren is None:
+            return  # drawing off screen (test machines): the axes widget has no window to live in
         if visible:
             self.plotter.show_axes()
         else:
