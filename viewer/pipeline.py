@@ -5,6 +5,7 @@ used from scripts and tests as well as from the window.
 """
 
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -132,6 +133,7 @@ class Series:
     kinds: list = field(default_factory=list)
     notes: list = field(default_factory=list)
     paths: list = field(default_factory=list)  # files they came from ([] for the example)
+    dates: list = field(default_factory=list)  # when each scan was made (datetime.date or None)
 
     def pair(self, older, newer):
         """Inspections comparing two scans: older is scan A, newer is scan B."""
@@ -147,6 +149,7 @@ class Series:
 def load_series(paths, options=None):
     """Read several scans of the same place. options: one ImportOptions for all, or a list."""
     from scan_formats import ImportOptions, guess_depth_down, read_scan
+    from series_analysis import date_from_name
 
     if not isinstance(options, (list, tuple)):
         options = [options] * len(paths)
@@ -167,15 +170,25 @@ def load_series(paths, options=None):
     intensity = {i: scan.intensity for i, scan in enumerate(scans) if scan.intensity is not None}
     title = f"{Path(paths[0]).stem} … {Path(paths[-1]).stem} ({len(paths)} scans)"
     return Series(title, [Path(p).name for p in paths], clouds, intensity, offset,
-                  [scan.kind for scan in scans], notes, [str(p) for p in paths])
+                  [scan.kind for scan in scans], notes, [str(p) for p in paths],
+                  [date_from_name(Path(p).name) for p in paths])
 
 
 def example_series(n_points=30_000, key="harbour_wall_scour"):
     from datasets import generate_series
     from datasets.sonar import ScanSettings
 
+    from datasets import HIDDEN_SCENES, SCENES
+
     example = generate_series(key, settings=ScanSettings(n_points=n_points))
-    return Series(example.title, example.names, example.clouds, kinds=["Example scan"] * len(example.clouds))
+    count = len(example.clouds)
+    scene = SCENES.get(key) or HIDDEN_SCENES[key]
+    if getattr(scene, "scan_dates", None):
+        dates = [date.fromisoformat(d) for d in scene.scan_dates[:count]]
+    else:  # the scans of the other example series are a few months apart, over one year
+        months = [round(12 * k / max(count - 1, 1)) for k in range(count)]
+        dates = [date(2025 + (2 + m) // 12, (2 + m) % 12 + 1, 12) for m in months]
+    return Series(example.title, example.names, example.clouds, kinds=["Example scan"] * count, dates=dates)
 
 
 def thin_out(cloud, max_points, seed=0):

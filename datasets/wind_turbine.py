@@ -31,6 +31,8 @@ class WindTurbineFoundation(Scene):
     icp_method = "point-to-plane"
 
     scan_names = ("Spring", "Summer", "Autumn", "Spring, after the storms")
+
+    scan_dates = ("2025-04-10", "2025-07-15", "2025-10-21", "2026-04-14")  # when the dives were made
     growth_by_scan = (0.0, 0.3, 0.45, 1.0)  # how far the scour has developed
     # No two dives start from the same spot: rotation (degrees x, y, z) and shift (metres) of each scan
     drift = ((0, 0, 0, 0, 0, 0), (0.3, -0.2, 1.8, 0.6, -0.4, 0.08), (-0.2, 0.3, -1.4, -0.5, 0.7, -0.06),
