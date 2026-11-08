@@ -889,24 +889,40 @@ class SceneView:
         return point
 
     def show_pivot(self, point):
-        """A small white dot on the point the camera turns around (same size on screen at any distance)."""
+        """A small white dot on the point the camera turns around.
+
+        The camera turns around its focal point, which is always in the exact middle of the view, so the
+        dot is drawn flat in the middle of the screen: it can't drift while turning and is never hidden
+        behind scan points.
+        """
+        from viewer.vtk_classes import vtk
+
         self.hide_pivot(render=False)
         if point is None:
             return
-        # A little towards the camera along the line of sight: same place on screen, not sunk between points
-        position = np.array(self.plotter.camera.position, dtype=float)
-        shown_at = position + (np.asarray(point) - position) * 0.985
         ratio = self.widget.devicePixelRatioF()
-        self.pivot_actor = [self.plotter.add_points(
-            pv.PolyData(np.array([shown_at])), color=(0.97, 0.98, 1.0), point_size=13 * ratio,
-            render_points_as_spheres=True, reset_camera=False, name="orbit pivot", pickable=False)]
+        self.pivot_actor = []
+        for radius, color in ((7.5, (0.05, 0.06, 0.09)), (5.5, (0.97, 0.98, 1.0))):  # dark ring, white dot
+            disk = vtk.vtkRegularPolygonSource()
+            disk.SetNumberOfSides(32)
+            disk.SetRadius(radius * ratio)
+            disk.SetCenter(0, 0, 0)
+            mapper = vtk.vtkPolyDataMapper2D()
+            mapper.SetInputConnection(disk.GetOutputPort())
+            actor = vtk.vtkActor2D()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetColor(*color)
+            actor.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
+            actor.GetPositionCoordinate().SetValue(0.5, 0.5)
+            self.plotter.renderer.AddViewProp(actor)
+            self.pivot_actor.append(actor)
         self.plotter.render()
 
     def hide_pivot(self, render=True):
         if self.pivot_actor is None:
             return
         for actor in self.pivot_actor:
-            self.plotter.remove_actor(actor, render=False)
+            self.plotter.renderer.RemoveViewProp(actor)
         self.pivot_actor = None
         if render:
             self.plotter.render()

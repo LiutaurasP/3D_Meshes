@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from vtkmodules.vtkCommonCore import vtkPoints
 from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkPlane, vtkPolyData, vtkPolyLine
-from vtkmodules.vtkFiltersSources import vtkLineSource, vtkSphereSource
+from vtkmodules.vtkFiltersSources import vtkLineSource, vtkRegularPolygonSource, vtkSphereSource
 from vtkmodules.vtkInteractionWidgets import vtkLogoRepresentation
 from vtkmodules.vtkIOImage import vtkPNGReader
 from vtkmodules.vtkRenderingCore import (
