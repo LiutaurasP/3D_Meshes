@@ -787,17 +787,27 @@ def output_checks():
     check("PDF report is written", pdf.startswith(b"%PDF") and pages >= 1)
     check("making the report puts the camera back", np.allclose(before["position"], after["position"]))
 
-    ok = window.export_turntable(str(folder / "turntable.gif"), count=8)
+    import viewer.turntable as turntable
+
+    recorded = []  # the frames as recorded, before the GIF writer merges identical neighbours
+    record_frames = turntable.frames
+    turntable.frames = lambda *args, **kwargs: recorded.extend(record_frames(*args, **kwargs) or []) or recorded
+    try:
+        ok = window.export_turntable(str(folder / "turntable.gif"), count=8)
+    finally:
+        turntable.frames = record_frames
     gif = Image.open(folder / "turntable.gif")
     durations = []
     for index in range(gif.n_frames):
         gif.seek(index)
         durations.append(gif.info.get("duration", 0))
+    check("turntable records every frame", ok and len(recorded) == 8)
     if READS_WINDOW:
-        check("turntable GIF has every frame", ok and gif.n_frames == 8)
+        different = len({image.tobytes() for image in recorded})
+        check("the turntable shows the scene turning", different >= 4 and gif.n_frames >= 4)
     else:
         # The frames all come out blank here, and identical frames are merged in the GIF
-        skip("turntable GIF has every frame", "the window image can't be read on this CI machine")
+        skip("the turntable shows the scene turning", "the window image can't be read on this CI machine")
     check("turntable GIF lasts one full turn", ok and abs(sum(durations) - 6000) <= 8 * 20)
     check("turntable puts the camera back", np.allclose(after["position"], scene.current_view()["position"]))
     import_checks()
