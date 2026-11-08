@@ -24,6 +24,18 @@ from viewer.pipeline import build_inspections
 from viewer.scene import CAMERA_PRESETS, SceneView
 from viewer.sidebar import Sidebar
 
+TEXT_INPUTS = (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit)
+
+
+def is_text_input(widget):
+    """True for text and number fields, also for the line edit inside a number field."""
+    while widget is not None:
+        if isinstance(widget, TEXT_INPUTS):
+            return True
+        widget = widget.parentWidget() if isinstance(widget, QWidget) else None
+    return False
+
+
 SCAN_FILES = "Point clouds (*.ply *.pcd *.xyz *.xyzn *.xyzrgb *.pts);;All files (*)"
 
 
@@ -161,9 +173,7 @@ class MainWindow(QMainWindow):
                 and not event.isAutoRepeat()
                 and not event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier)
                 and isinstance(obj, QWidget) and obj.window() in (self, self.dock)):
-            focus = QApplication.focusWidget()
-            typing = isinstance(focus, (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit))
-            if not typing:
+            if not is_text_input(obj) and not is_text_input(QApplication.focusWidget()):
                 self.toggle_settings_panel()
                 return True
         return super().eventFilter(obj, event)

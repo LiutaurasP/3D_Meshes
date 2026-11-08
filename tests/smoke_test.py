@@ -400,6 +400,18 @@ def after_color():
     space(window.sidebar.seed.findChild(QLineEdit) or window.sidebar.seed)
     check("space while typing in a number field doesn't toggle", window.dock.isVisible())
 
+    # Scrolling over a number field that wasn't clicked into must not change it
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtCore import QPoint
+
+    noise = window.sidebar.noise
+    window.sidebar.detect_button.setFocus()
+    before = noise.value()
+    wheel = QWheelEvent(QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(0, 120),
+                        Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+    app.sendEvent(noise, wheel)
+    check("scrolling over a number field doesn't change it", noise.value() == before)
+
     # Settings / Guide switch at the top of the panel
     from viewer.guide import CHAPTERS
     from viewer.widgets import Card

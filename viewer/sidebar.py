@@ -19,6 +19,7 @@ from viewer.scene import CAMERA_PRESETS, COLOR_MODES, NAVIGATION_MODES
 from viewer.style import PANEL_STYLE
 from viewer.widgets import (
     SPACING,
+    guard_wheel,
     Card,
     ColorSwatch,
     Form,
@@ -114,7 +115,7 @@ class Sidebar(QWidget):
     def _scene_card(self, data):
         card = Card("Scene")
 
-        self.scene_picker = QComboBox()
+        self.scene_picker = guard_wheel(QComboBox())
         for key, scene in SCENES.items():
             self.scene_picker.addItem(scene_label(scene), key)
         self.scene_picker.insertSeparator(self.scene_picker.count())
@@ -326,7 +327,7 @@ class Sidebar(QWidget):
         card = Card("Alignment (ICP)")
 
         form = Form()
-        self.icp_method = QComboBox()
+        self.icp_method = guard_wheel(QComboBox())
         for label, value in ICP_METHODS:
             self.icp_method.addItem(label, value)
         self.icp_method.setCurrentIndex(self.icp_method.findData(data.icp_method))
@@ -482,7 +483,7 @@ class Sidebar(QWidget):
         card = Card("Camera")
 
         form = Form()
-        self.navigation = QComboBox()
+        self.navigation = guard_wheel(QComboBox())
         self.navigation.addItems(NAVIGATION_MODES)
         self.navigation.currentTextChanged.connect(lambda text: self.callbacks["navigation"](text))
         form.row("Navigation", self.navigation)
@@ -508,7 +509,7 @@ class Sidebar(QWidget):
         card = Card("Display")
 
         form = Form()
-        colors = QComboBox()
+        colors = guard_wheel(QComboBox())
         colors.addItems(COLOR_MODES)
         colors.setCurrentText(view_settings.color_mode)
         colors.setItemData(COLOR_MODES.index("Change"), "Blue = removed, red = added (after Detect changes)", Qt.ToolTipRole)
@@ -517,7 +518,7 @@ class Sidebar(QWidget):
 
         size_row = QHBoxLayout()
         size_row.setSpacing(10)
-        point_size = QSlider(Qt.Horizontal)
+        point_size = guard_wheel(QSlider(Qt.Horizontal))
         point_size.setRange(1, 15)
         point_size.setValue(int(view_settings.point_size))
         value_label = QLabel(str(point_size.value()))

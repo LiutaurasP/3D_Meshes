@@ -1,6 +1,6 @@
 """Small building blocks for the side panel, so every section looks the same."""
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -92,6 +92,32 @@ class Form(QGridLayout):
         return item
 
 
+class WheelGuard(QObject):
+    """Stops number fields and dropdowns from changing when the panel is scrolled over them.
+
+    The scroll wheel only changes a value after the field was clicked into;
+    otherwise the scroll goes to the panel, as in professional apps.
+    """
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Wheel and not obj.hasFocus():
+            event.ignore()
+            return True
+        return False
+
+
+WHEEL_GUARD = None
+
+
+def guard_wheel(widget):
+    global WHEEL_GUARD
+    if WHEEL_GUARD is None:
+        WHEEL_GUARD = WheelGuard()
+    widget.setFocusPolicy(Qt.StrongFocus)  # no focus just from scrolling over it
+    widget.installEventFilter(WHEEL_GUARD)
+    return widget
+
+
 def spin(minimum, maximum, value, step, decimals=None, suffix=""):
     """Number field without the small arrow buttons (type, scroll or use the arrow keys)."""
     box = QDoubleSpinBox() if decimals is not None else QSpinBox()
@@ -105,7 +131,7 @@ def spin(minimum, maximum, value, step, decimals=None, suffix=""):
     box.setKeyboardTracking(False)
     if suffix:
         box.setSuffix(suffix)
-    return box
+    return guard_wheel(box)
 
 
 def button(text, primary=False, tooltip=""):
