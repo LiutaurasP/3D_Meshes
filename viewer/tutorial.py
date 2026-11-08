@@ -124,7 +124,7 @@ class TutorialCard(QWidget):
         layout.addSpacing(4)
 
         self.keys_row = QHBoxLayout()
-        self.keys_row.setSpacing(8)
+        self.keys_row.setSpacing(5)
         layout.addLayout(self.keys_row)
         self.hint = QLabel()
         self.hint.setStyleSheet(f"color: {WARNING}; font-size: 13px;")
@@ -192,9 +192,9 @@ class TutorialCard(QWidget):
             if name is None:  # text between or after the keys
                 text = QLabel(label)
                 if label in CONNECTORS:  # "+", "then": quiet, the keys are what matters
-                    text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 18px; font-weight: 600; padding: 0 2px;")
+                    text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 17px; font-weight: 600; padding: 0;")
                 else:  # what to do: reads like an instruction
-                    text.setStyleSheet(f"color: {TEXT}; font-size: 17px; font-weight: 600; padding: 0 6px;")
+                    text.setStyleSheet(f"color: {TEXT}; font-size: 17px; font-weight: 600; padding: 0 0 0 10px;")
                 self.keys_row.addWidget(text)
                 continue
             chip = KeyChip(label, wide=len(label) > 3)

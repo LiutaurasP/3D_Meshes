@@ -69,7 +69,7 @@ class AdvancedTutorial(TutorialBase):
 
     MENU_PATH = "the Guide (or Help → Advanced Tutorial)"
     ORDER = ["welcome",
-             "c1", "c1_scans", "c1_timeline", "c1_animation", "c1_done",
+             "c1", "c1_scans", "c1_align", "c1_detect", "c1_timeline", "c1_animation", "c1_done",
              "c2", "c2_fish", "c2_lasso", "c2_undo", "c2_redo", "c2_palette", "c2_history", "c2_done",
              "c3", "c3_colours", "c3_swipe", "c3_minimap", "c3_done",
              "c4", "c4_explain", "c4_section", "c4_section_read", "c4_measure", "c4_measured", "c4_heightmap",
@@ -104,7 +104,10 @@ class AdvancedTutorial(TutorialBase):
         self.saved_minimap_pref = prefs.get("show_minimap")
         window.use_icp_method(HIDDEN_SCENES[SERIES_KEY].icp_method)  # open seabed: slide along the surface
         series = example_series(HIDDEN_SCENES[SERIES_KEY].default_points, SERIES_KEY)
-        window._on_series_ready(series)  # shows spring against a year later, then aligns and detects
+        # Chapter 1 aligns and compares by hand, step by step: the Timeline's automatic mode waits until then
+        self.saved_auto = window.sidebar.timeline_auto.isChecked()
+        window.sidebar.timeline_auto.setChecked(False)
+        window._on_series_ready(series)  # spring against a year later, not aligned yet
         for name in window.clouds:
             window.set_visible(name, False)
         self.scene.look_from("Iso", animate=False)
@@ -118,6 +121,7 @@ class AdvancedTutorial(TutorialBase):
 
         window = self.window
         prefs.set("show_minimap", self.saved_minimap_pref)
+        window.sidebar.timeline_auto.setChecked(self.saved_auto)
         if self.scene.swipe:
             window.sidebar.swipe.setChecked(False)
         self.clear_targets()
@@ -327,12 +331,23 @@ class AdvancedTutorial(TutorialBase):
                 body=f"Press <b>1</b> for the first scan, last spring. Then press <b>2</b> for the latest one, "
                      f"after the storms.",
                 keys=[("1", "1"), ("spring", None), ("2", "2"), ("a year later", None)]),
+            "c1_align": dict(
+                eyebrow="Chapter 1  ·  A year in four scans", heading="First, line them up.",
+                body=f"The two scans don't sit on top of each other yet: no two dives start from exactly the "
+                     f"same spot. Press <b>{COMMAND} + L</b> and watch the latest scan slide into place.",
+                keys=[(COMMAND, "command"), ("+", None), ("L", "L"), ("align the scans", None)]),
+            "c1_detect": dict(
+                eyebrow="Chapter 1  ·  A year in four scans", heading="Now, what changed in a year?",
+                body=f"Press <b>{COMMAND} + D</b> to compare the two scans point by point. Keep an eye on the "
+                     f"sand around the foundation.",
+                keys=[(COMMAND, "command"), ("+", None), ("D", "D"), ("find the changes", None)]),
             "c1_timeline": dict(
                 eyebrow="Chapter 1  ·  A year in four scans", heading="Scrub through the year.",
-                body=body("The <b>Timeline</b> in the side panel holds all four scans. Drag its slider through "
-                          "summer and autumn, then back to the end.",
-                          "Each comparison is aligned and checked for changes automatically. Watch the blue ring of "
-                          "missing sand grow."),
+                body=body("A ring of sand has washed away around the rocks. When did that happen? The "
+                          "<b>Timeline</b> in the side panel holds all four scans: drag its slider through summer "
+                          "and autumn, then back to the end.",
+                          "From now on the Timeline aligns and compares every pair for you, the same two steps you "
+                          "just did."),
                 keys=[("Drag", "drag"), ("the Timeline slider", None)]),
             "c1_animation": dict(
                 eyebrow="Chapter 1  ·  A year in four scans", heading="Now watch it happen.",
@@ -520,6 +535,7 @@ class AdvancedTutorial(TutorialBase):
                 window.set_visible(scan, False)
             self.revealed = set()
         elif name == "c1_timeline":
+            window.sidebar.timeline_auto.setChecked(True)
             self.visited = set()
             self.show_panel(0, window.sidebar.timeline_card, highlight=True)
             self.clickable = [window.sidebar.timeline_card]
@@ -603,6 +619,18 @@ class AdvancedTutorial(TutorialBase):
             return True
         if step == "c1_scans" and key in (Qt.Key_1, Qt.Key_2):
             self.reveal_scan("Scan A" if key == Qt.Key_1 else "Scan B")
+            return True
+        if step == "c1_align" and key == Qt.Key_L and command:
+            self.card.mark("command", "done")
+            self.card.mark("L", "done")
+            self._busy = True
+            window.align()
+            return True
+        if step == "c1_detect" and key == Qt.Key_D and command:
+            self.card.mark("command", "done")
+            self.card.mark("D", "done")
+            self._busy = True
+            window.detect_changes()
             return True
         if step == "c1_animation" and key == Qt.Key_P and self.ready():
             if window.play_change_animation():
@@ -697,6 +725,13 @@ class AdvancedTutorial(TutorialBase):
 
     def jump_to_chapter(self, number):
         """From the welcome card straight into a chapter (the earlier ones count as done)."""
+        if number == 1:
+            self.advance(to="c1")  # chapter 1 aligns and compares by hand
+            return
+        self.window.sidebar.timeline_auto.setChecked(True)
+        if not self.window.is_aligned():
+            self.window._detect_after_align = True
+            self.window.align()
         self.revealed = {"Scan A", "Scan B"}
         for name in self.window.clouds:
             self.window.set_visible(name, True)
@@ -717,6 +752,14 @@ class AdvancedTutorial(TutorialBase):
 
     def tick(self, step, before, view):
         window = self.window
+        if step == "c1_align" and self._busy and window.is_aligned():
+            self._busy = False
+            self.advance(delay=900)
+            return
+        if step == "c1_detect" and self._busy and window.change_result is not None:
+            self._busy = False
+            self.advance(delay=1600)  # a moment to look at the ring before moving on
+            return
         if self._busy and step not in ("c1_animation", "c6_display"):
             return
         waiting = step in ("c1_animation", "c2", "c2_fish", "c3", "c4", "c5", "c6") and not self.ready()

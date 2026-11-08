@@ -1309,7 +1309,14 @@ def advanced_tutorial_checks():
     plan = [(lambda: None, 300), ("until", at("welcome")), (lambda: key(Qt.Key_Return), 500), ("until", at("c1")),
             (lambda: key(Qt.Key_Return), 500), ("until", at("c1_scans")), (lambda: key(Qt.Key_1), 300),
             (lambda: key(Qt.Key_2), 300),  # during the first ping: it is kept and comes next
-            ("until", at("c1_timeline"))]
+            ("until", at("c1_align")),
+            (lambda: check("chapter 1 doesn't align or detect by itself",
+                           not window.is_aligned() and window.change_result is None), 50),
+            (lambda: key(Qt.Key_L, Qt.ControlModifier), 300), ("until", at("c1_detect")),
+            (lambda: check("…the user aligns the scans", window.is_aligned()), 50),
+            (lambda: key(Qt.Key_D, Qt.ControlModifier), 300), ("until", at("c1_timeline")),
+            (lambda: check("…and finds the changes", window.change_result is not None
+                           and window.sidebar.timeline_auto.isChecked()), 50)]
     for newer in (1, 2):
         plan += [(lambda n=newer: window.sidebar.timeline.setValue(n), 300),
                  ("until", lambda: window.is_aligned() and window.change_result is not None)]
