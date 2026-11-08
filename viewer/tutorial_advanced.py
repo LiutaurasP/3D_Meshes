@@ -198,9 +198,35 @@ class AdvancedTutorial(TutorialBase):
                 "view_angle": self.scene.plotter.camera.view_angle}
         self.scene.go_to_view(view, animate)
 
+    def need_panel(self, page, widget=None, highlight=False):
+        """This step works in the side panel. Closed? Then the card first asks for Space, and the step goes on
+        once the panel is open (it never opens by itself)."""
+        if self.window.dock.isVisible():
+            self.show_panel(page, widget, highlight)
+            return
+        self._panel_wanted = (page, widget, highlight)  # the card asks for Space, see card_content()
+
+    PANEL_STEPS = {"c1_timeline", "c2_history", "c3_colours", "c5_areas", "c5_tags"}  # they work in the side panel
+
+    def card_content(self, name):
+        content = dict(self.steps()[name])
+        if name in self.PANEL_STEPS and not self.window.dock.isVisible():
+            content["keys"] = [("Space", "space"), ("open the side panel", None)]
+            content.pop("button", None)
+        return content
+
+    def panel_toggled(self):
+        wanted = getattr(self, "_panel_wanted", None)
+        if wanted is None or not self.window.dock.isVisible():
+            return
+        self._panel_wanted = None
+        self.card.mark("space", "done")
+        self.show_panel(*wanted)
+        self.card.set_content(dict(self.steps()[self.step]), animate=False)  # the step's own keys again
+        self.card.celebrate()
+
     def show_panel(self, page, widget=None, highlight=False):
         window = self.window
-        window.dock.show()
         self._show_tab(page, highlight)
         if widget is not None:
             window.sidebar.pages.widget(page).ensureWidgetVisible(widget, 20, 40)
@@ -541,6 +567,7 @@ class AdvancedTutorial(TutorialBase):
 
     def enter(self, name):
         window = self.window
+        self._panel_wanted = None
         chapter = int(name[1]) if name[0] == "c" and name[1].isdigit() else 0
         if name in ("c2", "c3", "c4", "c5", "c6"):
             self.unlocked |= {"rotate", "pan", "fly", "panel"}
@@ -553,7 +580,7 @@ class AdvancedTutorial(TutorialBase):
         elif name == "c1_timeline":
             window.sidebar.timeline_auto.setChecked(True)
             self.visited = set()
-            self.show_panel(0, window.sidebar.timeline_card, highlight=True)
+            self.need_panel(0, window.sidebar.timeline_card, highlight=True)
             self.clickable = [window.sidebar.timeline_card]
         elif name == "c1_animation":
             self.need(SPRING, AFTER)
@@ -567,7 +594,7 @@ class AdvancedTutorial(TutorialBase):
             self.fish_before = self.fish_count()
             self.points_before = self.total_points()
         elif name == "c2_history":
-            self.show_panel(3, highlight=True)
+            self.need_panel(3, highlight=True)
             self.clickable = [window.sidebar.pages.widget(3)]
         elif name in ("c3", "c4", "c5", "c6"):
             self.need(SPRING, AFTER)
@@ -577,7 +604,7 @@ class AdvancedTutorial(TutorialBase):
                 window.sidebar.show_changes.setChecked(name != "c4")
         elif name == "c3_colours":
             self.look((0, 0, -28.5), 48.0, -100, 38)
-            self.show_panel(0, window.sidebar.color_mode)
+            self.need_panel(0, window.sidebar.color_mode)
             self.clickable = [window.sidebar.color_mode]
         elif name == "c3_swipe":
             self._swipe_moved = False
@@ -598,12 +625,12 @@ class AdvancedTutorial(TutorialBase):
             self.show_targets([CURRENT * 16.0, CURRENT * 11.0])  # the flat sand, the bottom of the hole
             self.look(CURRENT * 13.5 + np.array([0, 0, -28.5]), 22.0, 290, 35)
         elif name == "c5_areas":
-            self.show_panel(1, highlight=True)
+            self.need_panel(1, highlight=True)
             scour = self.scour_area()
             if scour is not None:
                 window.sidebar.areas_panel.select(self.area_index(scour))
         elif name == "c5_tags":
-            self.show_panel(1, highlight=True)
+            self.need_panel(1, highlight=True)
             self.clickable = [window.sidebar.areas_panel]
         elif name == "c5_note":
             self.notes_before = len(window.notes)

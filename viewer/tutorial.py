@@ -96,9 +96,9 @@ class KeyChip(QWidget):
     """A key cap (or a mouse action) that lights up when it has been used. It draws itself and has a fixed
     shape: as wide as its text needs (at least square), always the same height."""
 
-    HEIGHT = 44
-    FONT_PX = 20
-    SIDE_PADDING = 14
+    HEIGHT = 52
+    FONT_PX = 24
+    SIDE_PADDING = 17
 
     def __init__(self, text, wide=False):
         super().__init__()
@@ -150,12 +150,12 @@ class KeyChip(QWidget):
         outer = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.setPen(Qt.NoPen)
         painter.setBrush(border)  # the thicker lower edge of a key cap
-        painter.drawRoundedRect(outer, 8, 8)
-        face = outer.adjusted(1, 1, -1, -4)
+        painter.drawRoundedRect(outer, 9, 9)
+        face = outer.adjusted(1, 1, -1, -5)
         painter.setBrush(QColor(14, 19, 33))
-        painter.drawRoundedRect(face, 7, 7)
+        painter.drawRoundedRect(face, 8, 8)
         painter.setBrush(fill)
-        painter.drawRoundedRect(face, 7, 7)
+        painter.drawRoundedRect(face, 8, 8)
         painter.setPen(text)
         painter.setFont(self.key_font)
         painter.drawText(face, Qt.AlignCenter, self.label)
@@ -198,8 +198,8 @@ class TutorialCard(QWidget):
         self.fonts = {
             "eyebrow": tutorial_font(11, QFont.Bold, 2.0),
             "heading": tutorial_font(30, QFont.Bold),
-            "body": tutorial_font(16),
-            "row": tutorial_font(17, QFont.DemiBold),
+            "body": tutorial_font(18),
+            "row": tutorial_font(19, QFont.DemiBold),
             "hint": tutorial_font(14),
             "leave": tutorial_font(12),
             "button": tutorial_font(15, QFont.DemiBold),
@@ -749,6 +749,13 @@ class TutorialBase(QObject):
     def tick(self, step, before, view):
         """Called 25 times a second: check whether the step is done."""
 
+    def card_content(self, name):
+        """What the card shows for a step (a subclass can adjust it to the situation)."""
+        return dict(self.steps()[name])
+
+    def panel_toggled(self):
+        """Space opened or closed the side panel."""
+
     def key_while_busy(self, step, key):
         """A key pressed while an animation runs (it is not used, unless a subclass remembers it)."""
 
@@ -833,7 +840,7 @@ class TutorialBase(QObject):
         self._camera = self.scene.current_view()
         self.travel = 0.0
         self.clickable = []
-        content = self.steps()[name]
+        content = self.card_content(name)
         number = content.get("number")
         if number:
             content["eyebrow"] = f"Step {number} of {self.STEP_COUNT}  ·  {content['eyebrow']}"
@@ -1007,6 +1014,7 @@ class TutorialBase(QObject):
             return False  # the movement itself is done by the fly controller
         if key == Qt.Key_Space and "panel" in self.allow:
             self.window.toggle_settings_panel()
+            self.panel_toggled()
             if step == "panel" and self.window.dock.isVisible():
                 self.card.mark("space", "done")
                 self.allow.discard("panel")

@@ -1378,6 +1378,11 @@ def advanced_tutorial_checks():
             (lambda: key(Qt.Key_L, Qt.ControlModifier), 300), ("until", at("c1_detect")),
             (lambda: check("…the user aligns the scans", window.is_aligned()), 50),
             (lambda: key(Qt.Key_D, Qt.ControlModifier), 300)] + looked_at("c1_detect") + [("until", at("c1_timeline")),
+            (lambda: check("the side panel doesn't open by itself, the card asks for Space",
+                           not window.dock.isVisible() and "space" in window.tutorial.card.chips), 50),
+            (lambda: key(Qt.Key_Space), 400),
+            (lambda: check("…and Space opens it on the Timeline", window.dock.isVisible()
+                           and window.sidebar.pages.currentIndex() == 0 and "space" not in window.tutorial.card.chips), 50),
             (lambda: check("…and finds the changes", window.change_result is not None
                            and window.sidebar.timeline_auto.isChecked()), 50)]
     for newer in (1, 2):
