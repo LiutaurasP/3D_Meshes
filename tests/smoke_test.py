@@ -1041,6 +1041,21 @@ def change_animation_running():
 def change_animation_done():
     check("the change animation ends and puts the scans back", not window.change_animation.active
           and all(actor.GetVisibility() for actor in window.scene.actors.values()))
+    scene = window.scene
+    window.set_minimap(True)
+    check("the minimap is drawn in a corner", scene.minimap is not None
+          and scene.plotter.ren_win.GetRenderers().GetNumberOfItems() >= 2)
+    x0, y0, x1, y1 = scene.minimap["viewport"]
+    w, h = scene.widget.width(), scene.widget.height()
+    middle = scene.minimap_hit(w * (x0 + x1) / 2, h * (1 - (y0 + y1) / 2))
+    check("a point on the minimap is found on the site", middle is not None
+          and np.allclose(middle, scene.minimap["center"], atol=1e-6))
+    check("clicks outside the minimap are left alone", scene.minimap_hit(5, h - 5) is None)
+    scene.look_at_xy(middle + np.array([3.0, 0.0]))
+    check("clicking the minimap flies there", scene.flight.is_flying())
+    scene.flight.stop()
+    window.set_minimap(False)
+    check("the minimap can be switched off", scene.minimap is None)
     finish()
 
 

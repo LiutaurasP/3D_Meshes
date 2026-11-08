@@ -62,6 +62,7 @@ class SceneView:
         self.geometries = {}
         self.intensity = {}
         self.shown = {}  # name -> indices of the drawn points, for scans over the display budget
+        self.minimap = None  # overview from above in a corner, see set_minimap
         self.colors = {}
         self.actors = {}
         self.matrices = {}
@@ -181,7 +182,135 @@ class SceneView:
         for name in self.geometries:
             self._apply(name)
         self._attach_swipe_planes()
+        if self.minimap is not None:
+            self._fill_minimap()
         self.plotter.render()
+
+    # Minimap: the site from above in the top right corner, with the camera on it
+
+    MINIMAP_VIEWPORT = (0.77, 0.70, 0.985, 0.975)  # x0, y0, x1, y1 of the view (0 = left / bottom)
+
+    def set_minimap(self, enabled):
+        import vtk
+
+        if enabled and self.minimap is None:
+            renderer = vtk.vtkRenderer()
+            renderer.SetViewport(*self.MINIMAP_VIEWPORT)
+            renderer.SetBackground(0.07, 0.08, 0.11)
+            renderer.InteractiveOff()
+            renderer.GetActiveCamera().ParallelProjectionOn()
+            self.plotter.ren_win.AddRenderer(renderer)
+            observer = self.plotter.renderer.AddObserver("StartEvent", lambda *_: self._update_minimap_camera())
+            self.minimap = {"renderer": renderer, "observer": observer, "actors": []}
+            self._fill_minimap()
+        elif not enabled and self.minimap is not None:
+            self.plotter.renderer.RemoveObserver(self.minimap["observer"])
+            self.plotter.ren_win.RemoveRenderer(self.minimap["renderer"])
+            self.minimap = None
+        self.plotter.render()
+
+    def _fill_minimap(self):
+        import vtk
+        from matplotlib import colormaps
+
+        minimap = self.minimap
+        renderer = minimap["renderer"]
+        for actor in minimap["actors"]:
+            renderer.RemoveActor(actor)
+        minimap["actors"] = []
+        clouds = [np.asarray(c.points) for c in self.geometries.values() if len(c.points)]
+        if not clouds:
+            return
+        points = clouds[0]  # scan A is the reference
+        if len(points) > 60_000:
+            points = points[np.random.default_rng(0).choice(len(points), 60_000, replace=False)]
+        depth = -points[:, 2]
+        low, high = np.percentile(depth, [2, 98])
+        colors = (colormaps[DEPTH_COLORMAP]((depth - low) / max(high - low, 1e-6))[:, :3] * 255).astype(np.uint8)
+        cloud = pv.PolyData(points)
+        cloud["rgb"] = colors
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(cloud)
+        mapper.SetScalarModeToUsePointFieldData()
+        mapper.SelectColorArray("rgb")
+        mapper.SetColorModeToDirectScalars()
+        mapper.ScalarVisibilityOn()
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetPointSize(2)
+        renderer.AddActor(actor)
+        minimap["actors"].append(actor)
+
+        # The camera: a dot where it is and a line to where it looks
+        size = float(np.ptp(points[:, :2], axis=0).max())
+        minimap["top"] = float(points[:, 2].max()) + 1.0
+        minimap["eye"], minimap["line"] = vtk.vtkSphereSource(), vtk.vtkLineSource()
+        minimap["eye"].SetRadius(size * 0.025)
+        for source in (minimap["eye"], minimap["line"]):
+            source_mapper = vtk.vtkPolyDataMapper()
+            source_mapper.SetInputConnection(source.GetOutputPort())
+            marker = vtk.vtkActor()
+            marker.SetMapper(source_mapper)
+            marker.GetProperty().SetColor(1.0, 1.0, 1.0)
+            marker.GetProperty().SetLineWidth(2 * self.widget.devicePixelRatioF())
+            marker.GetProperty().LightingOff()
+            renderer.AddActor(marker)
+            minimap["actors"].append(marker)
+
+        # Straight from above, the whole site filling the box
+        camera = renderer.GetActiveCamera()
+        center = (points.min(axis=0) + points.max(axis=0)) / 2
+        camera.SetFocalPoint(center[0], center[1], 0)
+        camera.SetPosition(center[0], center[1], minimap["top"] + 100)
+        camera.SetViewUp(0, 1, 0)
+        # The box takes the shape of the site (a long harbour gives a wide, low box)
+        x0, _, x1, y1 = self.MINIMAP_VIEWPORT
+        extent = np.maximum(np.ptp(points[:, :2], axis=0), 1e-6)
+        width_px = (x1 - x0) * self.widget.width()
+        height = min(max(width_px * extent[1] / extent[0] / max(self.widget.height(), 1), 0.10), 0.40)
+        viewport = (x0, y1 - height, x1, y1)
+        renderer.SetViewport(*viewport)
+        minimap["viewport"] = viewport
+        box_aspect = width_px / max(height * self.widget.height(), 1)
+        camera.SetParallelScale(max(extent[1], extent[0] / box_aspect) * 0.54)  # half the height shown
+        renderer.ResetCameraClippingRange()
+        minimap["center"] = center[:2]
+        self._update_minimap_camera()
+
+    def _update_minimap_camera(self):
+        minimap = self.minimap
+        if minimap is None or "eye" not in minimap:
+            return
+        camera = self.plotter.camera
+        top = minimap["top"]
+        eye, focal = np.array(camera.position), np.array(camera.focal_point)
+        minimap["eye"].SetCenter(eye[0], eye[1], top)
+        minimap["line"].SetPoint1(eye[0], eye[1], top)
+        minimap["line"].SetPoint2(focal[0], focal[1], top)
+
+    def minimap_hit(self, x, y):
+        """Site x, y under a widget pixel inside the minimap, else None."""
+        if self.minimap is None or "center" not in self.minimap:
+            return None
+        x0, y0, x1, y1 = self.minimap["viewport"]
+        width, height = self.widget.width(), self.widget.height()
+        left, right = x0 * width, x1 * width
+        top, bottom = (1 - y1) * height, (1 - y0) * height
+        if not (left <= x <= right and top <= y <= bottom):
+            return None
+        metres_per_pixel = 2 * self.minimap["renderer"].GetActiveCamera().GetParallelScale() / (bottom - top)
+        center = self.minimap["center"]
+        return np.array([center[0] + (x - (left + right) / 2) * metres_per_pixel,
+                         center[1] - (y - (top + bottom) / 2) * metres_per_pixel])
+
+    def look_at_xy(self, xy):
+        """Fly so the camera looks at this place of the site (keeps the viewing direction)."""
+        camera = self.plotter.camera
+        offset = np.array(camera.position) - np.array(camera.focal_point)
+        points = np.asarray(next(iter(self.geometries.values())).points)
+        near = points[np.argmin(np.sum((points[:, :2] - xy) ** 2, axis=1))]
+        target = np.array([xy[0], xy[1], near[2]])
+        self.go_to_view({"position": target + offset, "focal_point": target, "up": tuple(camera.up)})
 
     def _intensity_range(self):
         values = np.concatenate([np.asarray(v, dtype=float) for v in self.intensity.values()])

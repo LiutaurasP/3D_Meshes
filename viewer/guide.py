@@ -185,6 +185,8 @@ CHAPTERS = [
         ("<b>Command palette</b> " + key("Cmd") + " " + key("K"), "type a few letters, for example "
                                                                   "\"algn\", and press Enter"),
         ("<b>History</b>", "the History tab lists every step; click one to jump back to it"),
+        ("<b>Minimap</b> " + key("Shift") + " " + key("M"), "the site from above in the corner with the camera "
+                                                            "on it; click it to fly there"),
     ]), False),
 
     ("Timeline: more than two surveys", keys_table([

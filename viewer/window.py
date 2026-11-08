@@ -145,6 +145,8 @@ class MainWindow(QMainWindow):
         self._add_dock()
         self.sidebar.add_history_page(self.history.stack)
         self.actions = build_menus(self)
+        if prefs.get("show_minimap"):
+            self.scene.set_minimap(True)
         for widget, label in self.sidebar.undoable_controls():
             self.history.watch(widget, label)
         self.history.stack.cleanChanged.connect(self._on_clean_changed)
@@ -235,6 +237,10 @@ class MainWindow(QMainWindow):
                 self.cursor_label.clear()
             elif kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
                 self._press_position = event.position()
+                hit = self.scene.minimap_hit(event.position().x(), event.position().y())
+                if hit is not None:
+                    self.scene.look_at_xy(hit)  # a click on the minimap flies there
+                    return True
                 swipe = self.scene.swipe
                 if swipe and abs(event.position().x() - swipe["fraction"] * obj.width()) < 14:
                     self._swipe_drag = True  # grab the divider instead of rotating
@@ -753,6 +759,10 @@ class MainWindow(QMainWindow):
             self.change_animation.stop()
             return False
         return self.change_animation.start(loop)
+
+    def set_minimap(self, enabled):
+        self.scene.set_minimap(enabled)
+        prefs.set("show_minimap", bool(enabled))
 
     # Display Mode
 

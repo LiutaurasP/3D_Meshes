@@ -85,6 +85,8 @@ class DisplayMode(QObject):
         window.statusBar().hide()
         window.toast.hide()
         scene.set_axes_visible(False)  # the corner belongs to the logo
+        self._minimap = scene.minimap is not None
+        scene.set_minimap(False)
         if not prefs.get("display_changes"):
             scene.set_changes_visible(False)
             scene.set_areas_visible(False)
@@ -124,6 +126,7 @@ class DisplayMode(QObject):
         scene.set_changes_visible(saved["areas"])
         scene.set_areas_visible(saved["boxes"])
         scene.set_axes_visible(saved["axes"])
+        scene.set_minimap(self._minimap)
         for markers, visible in zip(window._note_markers, saved["notes"]):
             for actor in markers:
                 actor.SetVisibility(visible)

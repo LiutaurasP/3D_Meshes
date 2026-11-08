@@ -7,6 +7,7 @@ after the app), on Windows and Linux they stay in File / Help.
 from PySide6.QtGui import QAction, QKeySequence
 
 from datasets import SCENES
+from viewer import prefs
 from viewer.scene import CAMERA_PRESETS, COLOR_MODES, NAVIGATION_MODES
 from viewer.sidebar import AREAS_PAGE, GUIDE_PAGE, HISTORY_PAGE
 
@@ -147,6 +148,10 @@ def build_menus(window):
     view.addAction(link_checkbox(action(window, "Depth Shading"), side.depth_shading))
     view.addAction(link_checkbox(action(window, "Before / After Swipe", shortcut="B"), side.swipe))
     view.addSeparator()
+    minimap = action(window, "Minimap", lambda checked: window.set_minimap(checked), "Shift+M", checkable=True)
+    minimap.setChecked(prefs.get("show_minimap"))
+    view.addAction(minimap)
+    window.actions_minimap = minimap
     view.addAction(action(window, "Display Mode", lambda: window.start_display_mode(), "Ctrl+Shift+P"))
     view.addAction(action(window, "Display Mode Settings…", window.display_mode_settings))
     full = action(window, "Enter Full Screen", window.toggle_full_screen, QKeySequence.FullScreen)
