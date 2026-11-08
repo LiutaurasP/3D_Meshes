@@ -178,7 +178,10 @@ class TutorialCard(QWidget):
         self.eyebrow.setStyleSheet(f"color: {ACCENT}; font-size: 11px; font-weight: 700; letter-spacing: 2px;")
         size = 38 if big else 25
         self.heading.setStyleSheet(f"color: {TEXT}; font-size: {size}px; font-weight: 700;")
-        self.body.setText(f"<div style='line-height: 140%'>{step.get('body', '')}</div>")
+        text = step.get("body", "")
+        if not text.lstrip().startswith("<p"):
+            text = body(text)  # a single paragraph: the same spacing as all the others
+        self.body.setText(f"<div style='line-height: 125%;'>{text}</div>")
         self.body.setStyleSheet(f"color: {TEXT_DIM}; font-size: {16 if big else 15}px;")
         self.hint.hide()
         self.task = None
@@ -458,8 +461,14 @@ class PingReveal(QObject):
 # The steps
 
 
+PARAGRAPH_GAP = 8  # px between paragraphs: about half a line, not a whole empty line
+
+
 def body(*paragraphs):
-    return "<br><br>".join(paragraphs)
+    """Paragraphs of a card's text, with a small even gap between them."""
+    last = len(paragraphs) - 1
+    return "".join(f"<p style='margin:0px 0px {0 if i == last else PARAGRAPH_GAP}px 0px;'>{text}</p>"
+                   for i, text in enumerate(paragraphs))
 
 
 class TutorialBase(QObject):

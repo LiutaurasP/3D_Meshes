@@ -55,12 +55,12 @@ def keycaps(*keys):
 def summary_card(number, learned, items):
     """What the chapter taught, as a short reference: [(keys or a name, what it does)]."""
     rows = "".join(
-        f"<tr><td style='padding:5px 16px 5px 0; white-space:nowrap;'>"
+        f"<tr><td style='padding:3px 16px 3px 0; white-space:nowrap;'>"
         f"{keycaps(*what) if isinstance(what, tuple) else f'<b>{what}</b>'}</td>"
-        f"<td style='padding:5px 0; color:#9a9da7;'>{meaning}</td></tr>"
+        f"<td style='padding:3px 0; color:#9a9da7;'>{meaning}</td></tr>"
         for what, meaning in items)
     return dict(eyebrow=f"Chapter {number} of 6  ·  what you learned", heading=f"Chapter {number} complete.",
-                body=f"<p style='margin:0 0 4px 0;'>{learned}</p><table cellspacing='0'>{rows}</table>",
+                body=f"<p style='margin:0px 0px 6px 0px;'>{learned}</p><table cellspacing='0'>{rows}</table>",
                 button="Next chapter" if number < 6 else "Finish")
 
 
