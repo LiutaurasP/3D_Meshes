@@ -31,9 +31,7 @@ jobs:
 
       # The CI machines have no GPU, this provides a virtual display and
       # software OpenGL for VTK, plus the system libraries Qt needs on Linux
-      - uses: pyvista/setup-headless-display-action@v3
-        with:
-          qt: true
+      - uses: ./.github/actions/headless-display
 
       - name: Install requirements
         run: |

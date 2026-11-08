@@ -1,0 +1,49 @@
+name: Headless display
+description: >
+  Virtual display and software OpenGL for VTK on machines without a GPU.
+  Linux uses pyvista/setup-headless-display-action. On Windows Mesa is
+  installed here, with retries, because a failed download from GitHub
+  otherwise stops the whole run.
+
+inputs:
+  mesa-version:
+    description: Mesa release from github.com/pal1000/mesa-dist-win
+    required: false
+    default: "24.3.0"
+
+runs:
+  using: composite
+  steps:
+    - if: runner.os == 'Linux'
+      uses: pyvista/setup-headless-display-action@v3
+      with:
+        qt: true
+
+    - name: Install software OpenGL (Mesa) on Windows
+      if: runner.os == 'Windows'
+      shell: bash
+      env:
+        MESA: mesa3d-${{ inputs.mesa-version }}-release-msvc
+        URL: https://github.com/pal1000/mesa-dist-win/releases/download/${{ inputs.mesa-version }}/mesa3d-${{ inputs.mesa-version }}-release-msvc.7z
+      run: |
+        set -eo pipefail
+        for attempt in 1 2 3 4 5; do
+          rm -f "$MESA.7z"
+          if curl -fsSL --retry 3 --retry-all-errors --connect-timeout 30 -o "$MESA.7z" "$URL" \
+             && [ "$(stat -c %s "$MESA.7z")" -gt 1000000 ] \
+             && 7z t "$MESA.7z" > /dev/null; then
+            break
+          fi
+          if [ "$attempt" = 5 ]; then
+            echo "::error::Could not download Mesa from $URL"
+            exit 1
+          fi
+          echo "Download attempt $attempt failed, trying again in $((attempt * 15)) s"
+          sleep $((attempt * 15))
+        done
+        7z x "$MESA.7z" -o"./$MESA" > /dev/null
+        # 1 = install the OpenGL drivers, 7 = update the system-wide deployment
+        cmd.exe //c "$MESA\\systemwidedeploy.cmd 1"
+        cmd.exe //c "$MESA\\systemwidedeploy.cmd 7"
+        rm -rf "$MESA" "$MESA.7z"
+        echo "PYVISTA_OFF_SCREEN=true" >> "$GITHUB_ENV"
