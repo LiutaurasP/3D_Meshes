@@ -379,6 +379,11 @@ class MainWindow(QMainWindow):
         self.scene.set_lasso(None)
 
     def _picked(self, position):
+        for target in (self._pick or {}).get("snap_to", []):  # suggested points (tutorial): a click nearby is enough
+            x, y = self.scene.point_on_widget(target)
+            if np.hypot(x - position.x(), y - position.y()) < 45:
+                self.pick_at(target)
+                return
         point = self.scene.pick_point(position.x(), position.y())
         if point is None:
             self.statusBar().showMessage("Click on the scan, not on the background", 3000)

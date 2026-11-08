@@ -45,9 +45,23 @@ def chapter_card(number, story):
                 body=story, button="Begin")
 
 
-def summary_card(number, learned, keys):
-    return dict(eyebrow=f"Chapter {number} of 6  ·  done", heading=f"Chapter {number}: done.",
-                body=learned, keys=keys, button="Next chapter" if number < 6 else "Finish")
+def keycaps(*keys):
+    """Keys written like small key caps inside the text (for reading, not pressing)."""
+    cap = ("<span style='background-color:#262a36; color:#e6e7eb; font-weight:600; font-size:13px;'>"
+           "&nbsp;{}&nbsp;</span>")
+    return "&thinsp;".join(cap.format(key) for key in keys)
+
+
+def summary_card(number, learned, items):
+    """What the chapter taught, as a short reference: [(keys or a name, what it does)]."""
+    rows = "".join(
+        f"<tr><td style='padding:5px 16px 5px 0; white-space:nowrap;'>"
+        f"{keycaps(*what) if isinstance(what, tuple) else f'<b>{what}</b>'}</td>"
+        f"<td style='padding:5px 0; color:#9a9da7;'>{meaning}</td></tr>"
+        for what, meaning in items)
+    return dict(eyebrow=f"Chapter {number} of 6  ·  what you learned", heading=f"Chapter {number} complete.",
+                body=f"{learned}<br><br><table cellspacing='0'>{rows}</table>",
+                button="Next chapter" if number < 6 else "Finish")
 
 
 class AdvancedTutorial(TutorialBase):
@@ -58,10 +72,12 @@ class AdvancedTutorial(TutorialBase):
              "c1", "c1_scans", "c1_timeline", "c1_animation", "c1_done",
              "c2", "c2_fish", "c2_lasso", "c2_undo", "c2_redo", "c2_palette", "c2_history", "c2_done",
              "c3", "c3_colours", "c3_swipe", "c3_minimap", "c3_done",
-             "c4", "c4_section", "c4_section_read", "c4_measure", "c4_measured", "c4_heightmap", "c4_done",
+             "c4", "c4_explain", "c4_section", "c4_section_read", "c4_measure", "c4_measured", "c4_heightmap",
+             "c4_done",
              "c5", "c5_areas", "c5_tags", "c5_note", "c5_done",
              "c6", "c6_details", "c6_report", "c6_display", "end"]
     CONTINUE = {"welcome", "c1", "c1_done", "c2", "c2_fish", "c2_history", "c2_done", "c3", "c3_done", "c4",
+                "c4_explain",
                 "c4_section_read", "c4_measured", "c4_heightmap", "c4_done", "c5", "c5_areas", "c5_done", "c6",
                 "c6_details"}
 
@@ -74,6 +90,8 @@ class AdvancedTutorial(TutorialBase):
         self.revealed = set()
         self.visited = set()
         self.waiting_for = None  # (older, newer): comparison that has to be aligned and detected first
+        self.targets = []  # points the user is asked to click (chapter 4)
+        self.target_actors = []
 
     # Start and end
 
@@ -101,6 +119,7 @@ class AdvancedTutorial(TutorialBase):
         prefs.set("show_minimap", self.saved_minimap_pref)
         if self.scene.swipe:
             window.sidebar.swipe.setChecked(False)
+        self.clear_targets()
         for helper in ("section_window", "height_map_window"):
             if getattr(window, helper, None) is not None:
                 getattr(window, helper).hide()
@@ -166,6 +185,45 @@ class AdvancedTutorial(TutorialBase):
             window.sidebar.pages.widget(page).ensureWidgetVisible(widget, 20, 40)
             QTimer.singleShot(0, lambda: window.sidebar.pages.widget(page).ensureWidgetVisible(widget, 20, 40))
 
+    def surface(self, xy):
+        """The seabed under a spot (x, y), from the newer scan as it is shown."""
+        cloud = self.window.clouds["Scan B"]
+        matrix = self.scene.matrices["Scan B"]
+        points = np.asarray(cloud.points) @ matrix[:3, :3].T + matrix[:3, 3]
+        near = np.hypot(points[:, 0] - xy[0], points[:, 1] - xy[1]) < 0.8
+        z = float(np.median(points[near, 2])) if near.any() else -28.0
+        return np.array([xy[0], xy[1], z])
+
+    def show_targets(self, spots, line=False):
+        """Numbered dots on the seabed that show where to click (and an outline of the line between them)."""
+        import pyvista as pv
+
+        self.clear_targets()
+        plotter = self.scene.plotter
+        ratio = self.scene.widget.devicePixelRatioF()
+        self.targets = [self.surface(spot) for spot in spots]
+        lifted = [point + np.array([0, 0, 0.15]) for point in self.targets]
+        self.target_actors = [
+            plotter.add_points(np.array(lifted), color=(1.0, 1.0, 1.0), point_size=22 * ratio,
+                               render_points_as_spheres=True, reset_camera=False, name="tutorial targets",
+                               pickable=False),
+            plotter.add_point_labels(np.array(lifted) + np.array([0, 0, 1.2]), [str(i + 1) for i in range(len(lifted))],
+                                     font_size=20, bold=True, text_color="white", shape_color=(0.24, 0.5, 0.96),
+                                     shape_opacity=0.95, show_points=False, always_visible=True, reset_camera=False,
+                                     name="tutorial target labels")]
+        if line:
+            self.target_actors.append(plotter.add_mesh(pv.Line(lifted[0], lifted[1]), color=(0.85, 0.9, 1.0),
+                                                       line_width=2 * ratio, opacity=0.6, reset_camera=False,
+                                                       name="tutorial target line", pickable=False))
+        plotter.render()
+
+    def clear_targets(self):
+        for actor in getattr(self, "target_actors", []):
+            self.scene.plotter.remove_actor(actor, render=False)
+        self.target_actors = []
+        self.targets = []
+        self.scene.plotter.render()
+
     def fish_count(self):
         cloud = self.window.clouds.get("Scan B")
         if cloud is None or not len(cloud.points):
@@ -209,6 +267,10 @@ class AdvancedTutorial(TutorialBase):
         anchor_volume = anchor.volume if anchor is not None and anchor.volume is not None else 0
         measured = getattr(self.window, "last_measurement", None)
         depth = abs(measured[2]) if measured else 0
+        distance = measured[0] if measured else 0
+        section = getattr(self.window, "last_section", None) or {}
+        section_length = section.get("length", 0)
+        section_depth = abs(section["biggest"][1]) if section.get("biggest") else 0  # (where, how much)
         return {
             "welcome": dict(
                 big=True, position="center", eyebrow="Advanced tutorial  ·  about 15 minutes",
@@ -242,7 +304,8 @@ class AdvancedTutorial(TutorialBase):
                      "out of the old seabed.",
                 keys=[("P", "P"), ("play the change", None)]),
             "c1_done": summary_card(1, "You stepped through a year of scans and watched the seabed change.",
-                                    [("Timeline", "t"), ("P", "p")]),
+                                    [("Timeline slider", "steps through the scans of a series"),
+                                     (("P",), "plays the change as an animation")]),
 
             "c2": chapter_card(2, body(
                 "Real scans are never clean. Fish, bubbles and stray echoes all end up as points, and they get in "
@@ -281,7 +344,10 @@ class AdvancedTutorial(TutorialBase):
                      "it, and click a later one to come forward again.",
                 button="Continue"),
             "c2_done": summary_card(2, "You cleaned a scan without ever losing a point.",
-                                    [("L", "l"), (f"{COMMAND} Z", "z"), (f"{COMMAND} K", "k")]),
+                                    [(("L",), "lasso: draw a loop, the points inside are deleted"),
+                                     ((COMMAND, "Z"), "undo"), ((COMMAND, SHIFT, "Z"), "redo"),
+                                     ((COMMAND, "K"), "command palette: find any command by typing"),
+                                     ("History tab", "go back to any earlier step")]),
 
             "c3": chapter_card(3, body(
                 "Back to the whole year: spring against the scan after the storms.",
@@ -301,30 +367,45 @@ class AdvancedTutorial(TutorialBase):
                 body=f"Press <b>{SHIFT} M</b> for the minimap: the site from above, with you on it. Click "
                      f"anywhere on it to fly there.",
                 keys=[(SHIFT, "shift"), ("M", "M"), ("then click on the map", None)]),
-            "c3_done": summary_card(3, "Colours, the swipe and the minimap: three ways to see more.",
-                                    [("Colours", "c"), ("B", "b"), (f"{SHIFT} M", "m")]),
+            "c3_done": summary_card(3, "Three ways to see a change more clearly.",
+                                    [("Colours: Change", "blue where something is gone, red where something was added"),
+                                     (("B",), "before / after swipe"),
+                                     ((SHIFT, "M"), "minimap: click it to fly there")]),
 
             "c4": chapter_card(4, body(
                 "Seeing a hole is one thing. The operator will want numbers: how deep, how wide, where exactly.",
                 "Out with the tools.")),
+            "c4_explain": dict(
+                eyebrow="Chapter 4  ·  Measure it", heading="Slice through the seabed.",
+                body=body("A <b>cross section</b> works like cutting a cake: you draw a line across the seabed, "
+                          "and the app shows the height of both scans along that line, one above the other. "
+                          "A hole is easy to see that way, and easy to put a number on.",
+                          "We've marked a good line for you: <b>dot 1</b> on the rocks next to the pile, "
+                          "<b>dot 2</b> on the flat sand beyond the hole."),
+                button="Continue"),
             "c4_section": dict(
-                eyebrow="Chapter 4  ·  Measure it", heading="Cut through the hole.",
-                body="Press <b>X</b>, then click on the rocks near the pile and on the flat sand beyond the hole. "
-                     "That cuts a slice through both scans, right across the scour.",
-                keys=[("X", "X"), ("then click twice, across the hole", None)]),
+                eyebrow="Chapter 4  ·  Measure it", heading="Cut the slice.",
+                body="Press <b>X</b>, then click <b>dot 1</b> and then <b>dot 2</b>. A click close to a dot is "
+                     "enough.",
+                keys=[("X", "X"), ("then", None), ("1", "1"), ("2", "2")]),
             "c4_section_read": dict(
                 eyebrow="Chapter 4  ·  Measure it", heading="Read the slice.",
-                body="The blue line is the seabed last spring, the orange one after the storms. The gap between "
-                     "them is the sand the currents carried away.",
+                body=body(f"The new window shows your line from dot 1 on the left to dot 2 on the right, "
+                          f"{section_length:.0f} m long. The <b>blue</b> line is the seabed last spring, the "
+                          f"<b>orange</b> line after the storms.",
+                          f"Where orange drops below blue, sand is gone: up to <b>{section_depth:.1f} m</b> along "
+                          f"this line."),
                 button="Continue"),
             "c4_measure": dict(
-                eyebrow="Chapter 4  ·  Measure it", heading="How deep is it?",
-                body="Press <b>T</b>, click the flat sand at the edge of the hole, then its deepest point.",
-                keys=[("T", "T"), ("then click the edge and the bottom", None)]),
+                eyebrow="Chapter 4  ·  Measure it", heading="Now, the measuring tape.",
+                body="Press <b>T</b>, click <b>dot 1</b> on the flat sand, then <b>dot 2</b> at the bottom of the "
+                     "hole. You get the straight distance between them, and how much of it goes down.",
+                keys=[("T", "T"), ("then", None), ("1", "1"), ("2", "2")]),
             "c4_measured": dict(
-                eyebrow="Chapter 4  ·  Measure it", heading=f"{depth:.1f} metres down." if depth else "Measured.",
-                body="The line shows the distance, and the notification splits it into horizontal and vertical. "
-                     "Measurements stay in the scene until you clear them.",
+                eyebrow="Chapter 4  ·  Measure it", heading=f"{depth:.1f} metres deep." if depth else "Measured.",
+                body=body(f"The line between the dots is {distance:.1f} m long, and {depth:.1f} m of it goes "
+                          f"straight down: that's how deep the currents dug.",
+                          "Measurements stay in the scene until you clear them (Analyze → Clear Measurements)."),
                 button="Continue"),
             "c4_heightmap": dict(
                 eyebrow="Chapter 4  ·  Measure it", heading="The whole site from above.",
@@ -332,7 +413,9 @@ class AdvancedTutorial(TutorialBase):
                      "came up. The scour ring stands out, deepest where the current comes from.",
                 keys=[("H", "H")], button="Continue"),
             "c4_done": summary_card(4, "A slice, a measurement and a map: the numbers behind the picture.",
-                                    [("X", "x"), ("T", "t2"), ("H", "h")]),
+                                    [(("X",), "cross section: click two points, see both scans along that line"),
+                                     (("T",), "measure: click two points, get the distance and the height"),
+                                     (("H",), "height difference map of the whole site")]),
 
             "c5": chapter_card(5, body(
                 "The software found the changes. Now it's your call: what is it, and does someone need to act?",
@@ -355,8 +438,9 @@ class AdvancedTutorial(TutorialBase):
                 body="Press <b>N</b> and click on the anchor, right in front of you. The note is pinned in 3D and "
                      "goes into the report.",
                 keys=[("N", "N"), ("then click on the anchor", None)]),
-            "c5_done": summary_card(5, "Volumes, confidence, tags and a note: the change is judged.",
-                                    [("Areas", "a"), ("N", "n")]),
+            "c5_done": summary_card(5, "Every change is measured, judged and labelled.",
+                                    [("Areas tab", "volumes, confidence, tags, status and comments"),
+                                     (("N",), "pin a note in 3D, it goes into the report")]),
 
             "c6": chapter_card(6, body(
                 "The operator is waiting. Time to put it all into a report, and to show it off.",
@@ -419,9 +503,10 @@ class AdvancedTutorial(TutorialBase):
             self.clickable = [window.sidebar.pages.widget(3)]
         elif name in ("c3", "c4", "c5", "c6"):
             self.need(SPRING, AFTER)
-            if name != "c3":  # back to the normal colours with the yellow highlight after chapter 3
+            if name != "c3":  # back to the normal colours after chapter 3
                 window.sidebar.color_mode.setCurrentText("Per scan")
-                window.sidebar.show_changes.setChecked(True)
+                # Chapter 4 measures the seabed itself: the yellow highlight would cover the dots to click
+                window.sidebar.show_changes.setChecked(name != "c4")
         elif name == "c3_colours":
             self.look((0, 0, -28.5), 48.0, -100, 38)
             self.show_panel(0, window.sidebar.color_mode)
@@ -430,14 +515,20 @@ class AdvancedTutorial(TutorialBase):
             self._swipe_moved = False
         elif name == "c3_minimap":
             self._minimap_flown = False
+        elif name == "c4_explain":
+            # Seen from above, so it's clear where the dots are; the line runs from the rocks across the hole
+            self.show_targets([CURRENT * 7.0, CURRENT * 16.0], line=True)
+            self.look(CURRENT * 11.5 + np.array([0, 0, -28.5]), 30.0, 290, 68)
         elif name == "c4_section":
-            self.look(SCOUR, 26.0, 290, 50)  # from the side, so the pile doesn't stand in the way
-        elif name == "c4_section_read":
-            pass
+            if not self.targets:
+                self.show_targets([CURRENT * 7.0, CURRENT * 16.0], line=True)
+                self.look(CURRENT * 11.5 + np.array([0, 0, -28.5]), 30.0, 290, 68)
         elif name == "c4_heightmap":
             self._map_opened = False
         elif name == "c4_measure":
             self.measured_before = len(window.measurements)
+            self.show_targets([CURRENT * 16.0, CURRENT * 11.0])  # the flat sand, the bottom of the hole
+            self.look(CURRENT * 13.5 + np.array([0, 0, -28.5]), 22.0, 290, 35)
         elif name == "c5_areas":
             self.show_panel(1, highlight=True)
             scour = self.scour_area()
@@ -522,10 +613,12 @@ class AdvancedTutorial(TutorialBase):
             return True
         if step == "c4_section" and key == Qt.Key_X and not command:
             window.start_tool("section")
+            window._pick["snap_to"] = list(self.targets)
             self.card.mark("X", "done")
             return True
         if step == "c4_measure" and key == Qt.Key_T and not command:
             window.start_tool("measure")
+            window._pick["snap_to"] = list(self.targets)
             self.card.mark("T", "done")
             return True
         if step == "c4_heightmap" and key == Qt.Key_H and not command:
@@ -630,10 +723,16 @@ class AdvancedTutorial(TutorialBase):
             start = getattr(self, "_minimap_view", None)
             if start is not None and np.linalg.norm(np.subtract(view["focal_point"], start["focal_point"])) > 2.0:
                 self.advance(delay=1400)
-        elif step == "c4_section" and window.section_window is not None and window.section_window.isVisible():
-            self.advance(delay=600)
-        elif step == "c4_measure" and len(window.measurements) > self.measured_before:
-            self.advance(delay=700)
+        elif step in ("c4_section", "c4_measure"):
+            picked = len(window._pick["points"]) if window._pick is not None else 0
+            if picked >= 1:
+                self.card.mark("1", "done")
+            if step == "c4_section" and window.section_window is not None and window.section_window.isVisible():
+                self.card.mark("2", "done")
+                self.advance(delay=700)
+            elif step == "c4_measure" and len(window.measurements) > self.measured_before:
+                self.card.mark("2", "done")
+                self.advance(delay=700)
         elif step == "c5_tags":
             scour, anchor = self.scour_area(), self.anchor_area()
             marks = {"scour": scour is not None and scour.tag == "Scour",
@@ -663,8 +762,15 @@ class AdvancedTutorial(TutorialBase):
             QTimer.singleShot(delay, lambda: window.sidebar.swipe.setChecked(False))
         if step == "c3_minimap":
             QTimer.singleShot(delay, lambda: window.set_minimap(False))
-        if step == "c4_section_read" and window.section_window is not None:
-            window.section_window.hide()
+        if step == "c4_section_read":
+            self.clear_targets()
+            if window.section_window is not None:
+                window.section_window.hide()
+            if getattr(window, "_section_line", None):  # the slice's line would get in the way of measuring
+                self.scene.remove_overlay(window._section_line)
+                window._section_line = None
+        if step == "c4_measured":
+            self.clear_targets()
         if step == "c4_heightmap" and getattr(window, "height_map_window", None) is not None:
             window.height_map_window.hide()
         if step == "c2_history" or step == "c5_tags" or step == "c1_timeline":

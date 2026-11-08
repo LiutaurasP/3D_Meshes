@@ -705,6 +705,15 @@ class SceneView:
 
     # Cleaning: which points are under a lasso, and redrawing after points were removed
 
+    def point_on_widget(self, point):
+        """Widget pixel position (x, y from the top left) of one point in the scene."""
+        renderer = self.plotter.renderer
+        renderer.SetWorldPoint(*np.asarray(point, dtype=float), 1.0)
+        renderer.WorldToDisplay()
+        x, y, _ = renderer.GetDisplayPoint()
+        ratio = self.widget.devicePixelRatioF()
+        return x / ratio, self.widget.height() - y / ratio
+
     def project_to_widget(self, name):
         """Widget pixel position (x, y from the top left) of every point of a cloud, and
         whether it is in front of the camera."""

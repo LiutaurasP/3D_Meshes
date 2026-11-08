@@ -49,7 +49,7 @@ class KeyChip(QLabel):
     def __init__(self, text, wide=False):
         super().__init__(text)
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumWidth(78 if wide else 38)
+        self.setMinimumWidth(96 if wide else 48)
         self.state = "idle"
         self._glow = 0.0
         self.pulse = QVariantAnimation(self)
@@ -89,8 +89,8 @@ class KeyChip(QLabel):
             text = TEXT
         self.setStyleSheet(
             f"QLabel {{ background: {fill}; color: {text}; border: 1px solid {border};"
-            f" border-bottom: 3px solid {border}; border-radius: 7px; padding: 5px 11px;"
-            f" font-size: 15px; font-weight: 700; }}")
+            f" border-bottom: 4px solid {border}; border-radius: 8px; padding: 7px 14px;"
+            f" font-size: 20px; font-weight: 700; }}")
 
 
 class TutorialCard(QWidget):

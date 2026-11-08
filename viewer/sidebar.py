@@ -796,7 +796,7 @@ class Sidebar(QWidget):
                           "minutes.</span>")
         text.setWordWrap(True)
         layout.addWidget(text, 1)
-        start = button("Advanced" if advanced else "Start Tutorial", primary=not advanced)
+        start = button("Advanced Tutorial" if advanced else "Start Tutorial", primary=not advanced)
         start.clicked.connect(lambda: self.callbacks["advanced_tutorial" if advanced else "tutorial"]())
         layout.addWidget(start, 0, Qt.AlignVCenter)
         if advanced:
