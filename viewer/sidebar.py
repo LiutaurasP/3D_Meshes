@@ -6,10 +6,13 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +43,9 @@ SETTINGS_PAGE, AREAS_PAGE, GUIDE_PAGE, HISTORY_PAGE = range(4)
 
 
 def scene_label(scene):
+    names = getattr(scene, "scan_names", None)
+    if names:  # a scene made of several scans opens as a scan series
+        return f"{len(names)} scans · {scene.title} · {short_count(scene.default_points)} points each"
     return f"{size_label(scene.default_points)} · {scene.title} · {short_count(scene.default_points)} points"
 
 
@@ -89,8 +95,9 @@ class Sidebar(QWidget):
         settings, settings_layout = page_layout()
         self.cards = {}
         for card in (
-            self._timeline_card(),
-            self._scene_card(data_settings),
+            self._scene_card(data_settings),  # always on top
+            self._timeline_card(),  # below the scene, when a series of scans is open
+            self._scans_card(),  # every scan of the series: show them all, align and compare all, dates
             self._offset_card(data_settings),
             self._clouds_card(cloud_names, colors, view_settings),
             self._align_card(cloud_names, data_settings),
@@ -111,7 +118,8 @@ class Sidebar(QWidget):
 
         areas_page, areas_layout = page_layout()
         self.areas_panel = AreasPanel(lambda index: self.callbacks["focus_area"](index),
-                                      lambda index, field, value: self.callbacks["area_edit"](index, field, value))
+                                      lambda index, field, value: self.callbacks["area_edit"](index, field, value),
+                                      lambda number: self.callbacks["show_track"](number))
         areas_layout.addWidget(self.areas_panel)
         self.pages.addWidget(scrolling(areas_page))
         self.pages.addWidget(scrolling(self._guide_page()))
@@ -161,6 +169,26 @@ class Sidebar(QWidget):
         card.add(self.scene_info)
         card.add(divider())
 
+        # The settings of the simulated scans: folded away until wanted
+        self.scan_settings_toggle = QToolButton()
+        self.scan_settings_toggle.setText("Scan settings")
+        self.scan_settings_toggle.setCheckable(True)
+        self.scan_settings_toggle.setChecked(False)
+        self.scan_settings_toggle.setArrowType(Qt.RightArrow)
+        self.scan_settings_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.scan_settings_toggle.setCursor(Qt.PointingHandCursor)
+        self.scan_settings_toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.scan_settings_toggle.setStyleSheet(
+            "QToolButton { background: none; border: none; color: #9a9da7; font-weight: 600; padding: 2px 0; }"
+            "QToolButton:hover { color: #e6e7eb; }")
+        card.add(self.scan_settings_toggle)
+        self.scan_settings = QWidget()
+        settings_layout = QVBoxLayout(self.scan_settings)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(SPACING + 2)
+        self.scan_settings.setVisible(False)
+        self.scan_settings_toggle.toggled.connect(self._fold_scan_settings)
+
         form = Form()
         self.n_points = form.row("Size", spin(1_000, 5_000_000, data.n_points, 5_000, suffix=" points"),
                                  "Number of points in each scan")
@@ -182,12 +210,18 @@ class Sidebar(QWidget):
         self.new_seed_button.clicked.connect(lambda: self.callbacks["new_seed"]())
         seed_row.addWidget(self.new_seed_button)
         form.row("Variation", seed_row, "Each number gives a different random version of the same scene")
-        card.add(form)
+        settings_layout.addLayout(form)
+        self.data_status = hint("Changes apply right away")
+        settings_layout.addWidget(self.data_status)
+        card.add(self.scan_settings)
 
-        self.data_progress = card.add(thin_progress())
-        self.data_status = card.add(hint("Changes apply right away"))
+        self.data_progress = card.add(thin_progress())  # outside the fold: building shows even when it's closed
         self._show_scene_info(data.scene)
         return card
+
+    def _fold_scan_settings(self, open_):
+        self.scan_settings.setVisible(open_)
+        self.scan_settings_toggle.setArrowType(Qt.DownArrow if open_ else Qt.RightArrow)
 
     def _offset_card(self, data):
         card = Card("Scan B position", expanded=False)
@@ -270,6 +304,9 @@ class Sidebar(QWidget):
         self.icp_method.setCurrentIndex(self.icp_method.findData(scene.icp_method))
         self.icp_method.blockSignals(False)
         self._show_scene_info(key)
+        if getattr(scene, "scan_names", None):
+            self.callbacks["series_scene"](key)  # all its scans, with the Timeline and the Scans card
+            return
         self.callbacks["generate"]()
 
     def _data_widgets(self):
@@ -634,6 +671,9 @@ class Sidebar(QWidget):
         colors.addItems(COLOR_MODES)
         colors.setCurrentText(view_settings.color_mode)
         colors.setItemData(COLOR_MODES.index("Change"), "Blue = removed, red = added (after Detect changes)", Qt.ToolTipRole)
+        colors.setItemData(COLOR_MODES.index("When changed"),
+                           "Each changed point in the colour of the scan in which it first changed (a scan series "
+                           "after Align and compare all)", Qt.ToolTipRole)
         colors.setItemData(COLOR_MODES.index("Intensity"), "Strength of the sonar return (only if the files have it)",
                            Qt.ToolTipRole)
         colors.currentTextChanged.connect(lambda text: self.callbacks["color_mode"](text))
@@ -690,6 +730,13 @@ class Sidebar(QWidget):
         if not available and combo.currentText() == "Intensity":
             combo.setCurrentText("Per scan")
 
+    def set_when_available(self, available):
+        """The "When changed" colours need a series whose scans were all compared with the first one."""
+        combo = self.color_mode
+        combo.model().item(COLOR_MODES.index("When changed")).setEnabled(available)
+        if not available and combo.currentText() == "When changed":
+            combo.setCurrentText("Per scan")
+
     # Timeline (several scans of the same place)
 
     def _timeline_card(self):
@@ -725,6 +772,103 @@ class Sidebar(QWidget):
         card.setVisible(False)
         return card
 
+    # Scans of a series
+
+    def _scans_card(self):
+        card = Card("Scans")
+        self.scans_card = card
+        self.scan_view = SegmentedSwitch(("Compare two", "Show all"))
+        self.scan_view.setToolTip("Compare two: scan A and B of the Timeline. Show all: every scan at once, "
+                                  "each in its own colour")
+        self.scan_view.changed.connect(lambda index: self.callbacks["scan_view"](index == 1))
+        card.add(self.scan_view)
+        self.scan_rows_box = QWidget()
+        self.scan_rows = QVBoxLayout(self.scan_rows_box)
+        self.scan_rows.setContentsMargins(0, 0, 0, 0)
+        self.scan_rows.setSpacing(6)
+        card.add(self.scan_rows_box)
+        self.scan_checkboxes, self.scan_dates, self.scan_swatches = [], [], []
+        self.compare_all_button = button("Align and compare all", primary=True,
+                                         tooltip="Align every scan with the first one and with the scan before, and "
+                                                 "find what changed: areas are followed through time and every "
+                                                 "Timeline comparison is ready")
+        self.compare_all_button.clicked.connect(lambda: self.callbacks["compare_all"]())
+        card.add(self.compare_all_button)
+        self.compare_all_progress = thin_progress()
+        card.add(self.compare_all_progress)
+        self.scans_status = hint()
+        card.add(self.scans_status)
+        card.setVisible(False)
+        return card
+
+    def show_scans(self, names, colors, dates=None):
+        """Fill the Scans card for a series (None hides it)."""
+        while self.scan_rows.count():
+            item = self.scan_rows.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self.scan_checkboxes, self.scan_dates, self.scan_swatches = [], [], []
+        if not names:
+            self.scans_card.setVisible(False)
+            return
+        dates = dates or [None] * len(names)
+        for index, name in enumerate(names):
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            swatch = QLabel()
+            swatch.setFixedSize(14, 14)
+            color = colors[index]
+            swatch.setStyleSheet(f"background: rgb({int(color[0] * 255)},{int(color[1] * 255)},{int(color[2] * 255)});"
+                                 " border-radius: 7px;")
+            self.scan_swatches.append(swatch)
+            row.addWidget(swatch)
+            checkbox = QCheckBox(name)
+            checkbox.setChecked(True)
+            checkbox.setToolTip(name)
+            checkbox.toggled.connect(lambda checked, k=index: self.callbacks["scan_visible"](k, checked))
+            self.scan_checkboxes.append(checkbox)
+            row.addWidget(checkbox, 1)
+            date = QLineEdit()
+            date.setPlaceholderText("date")
+            date.setToolTip("When this scan was made, e.g. 2025-03-14 (used for rates per month)")
+            date.setFixedWidth(96)
+            date.setText(dates[index].isoformat() if dates[index] is not None else "")
+            date.editingFinished.connect(lambda k=index, field=date: self.callbacks["scan_date"](k, field.text()))
+            self.scan_dates.append(date)
+            row.addWidget(date)
+            if index < 9:
+                row.addWidget(keycap(str(index + 1)))
+            self.scan_rows.addWidget(row_widget)
+        self.scans_card.setVisible(True)
+
+    def set_scan_view(self, show_all):
+        self.scan_view.set_index(1 if show_all else 0)
+        for checkbox in self.scan_checkboxes:
+            checkbox.setEnabled(show_all)
+
+    def set_scan_checked(self, index, checked):
+        checkbox = self.scan_checkboxes[index]
+        checkbox.blockSignals(True)
+        checkbox.setChecked(checked)
+        checkbox.blockSignals(False)
+
+    def set_scan_date(self, index, value):
+        field = self.scan_dates[index]
+        field.blockSignals(True)
+        field.setText(value.isoformat() if value is not None else "")
+        field.blockSignals(False)
+
+    def set_comparing_all(self, busy, done=0, total=1, text=""):
+        self.compare_all_button.setEnabled(not busy)
+        bar = self.compare_all_progress
+        bar.setVisible(busy)
+        bar.setRange(0, max(total, 1))
+        bar.setValue(done)
+        if text:
+            self.scans_status.setText(text)
+
     def _timeline_changed(self):
         self.callbacks["series_pair"](self.timeline.value(), self.timeline_mode.currentData())
 
@@ -734,6 +878,7 @@ class Sidebar(QWidget):
             self.timeline_card.setVisible(False)
             return
         self.series_names = list(names)
+        self.series_dates = []
         self.timeline.blockSignals(True)
         self.timeline.setRange(1, len(names) - 1)
         self.timeline.blockSignals(False)
@@ -741,14 +886,35 @@ class Sidebar(QWidget):
         self.timeline_last.setText(names[-1])
         self.timeline_card.setVisible(True)
 
+    def set_series_dates(self, dates):
+        """Dates of the scans (shown on the Timeline), None where a scan has no date."""
+        self.series_dates = list(dates or [])
+        names = getattr(self, "series_names", [])
+        if names:
+            self.timeline_first.setText(self._scan_label(0, html=True, stacked=True))
+            self.timeline_last.setText(self._scan_label(len(names) - 1, html=True, stacked=True))
+
+    def _scan_label(self, index, html=False, stacked=False):
+        from series_analysis import format_date
+
+        name = self.series_names[index]
+        dates = getattr(self, "series_dates", [])
+        when = format_date(dates[index]) if index < len(dates) else ""
+        if not when:
+            return name
+        if stacked:
+            return f"{name}<br>{when}"
+        return f"{name} <span style='color:#9a9da7'>· {when}</span>" if html else f"{name}, {when}"
+
     def set_series_pair(self, older, newer, mode):
         for widget, value in ((self.timeline, newer), (self.timeline_mode, self.timeline_mode.findData(mode))):
             widget.blockSignals(True)
             widget.setValue(value) if widget is self.timeline else widget.setCurrentIndex(value)
             widget.blockSignals(False)
         names = self.series_names
-        self.timeline_title.setText(f"<b>{names[newer]}</b><br><span style='color:#9a9da7'>compared with "
-                                    f"{names[older]} · scan {newer + 1} of {len(names)}</span>")
+        self.timeline_title.setText(f"<b>{self._scan_label(newer, html=True)}</b><br><span style='color:#9a9da7'>"
+                                    f"compared with {self._scan_label(older, html=True)} · scan {newer + 1} of "
+                                    f"{len(names)}</span>")
 
     # Compare
 

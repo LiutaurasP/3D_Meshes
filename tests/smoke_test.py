@@ -7,6 +7,7 @@ locally:
 
     python tests/smoke_test.py
     python tests/smoke_test.py --screenshots some/folder   # also save images
+    python tests/smoke_test.py --skip-tutorials            # quicker: everything except playing the tutorials
 """
 
 import argparse
@@ -38,6 +39,8 @@ READS_WINDOW = True  # False on CI machines that cannot read back the window ima
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--screenshots", type=Path, default=None)
+parser.add_argument("--skip-tutorials", action="store_true",
+                    help="leave out playing both tutorials (a few minutes); GitHub always runs everything")
 args = parser.parse_args()
 
 from tests.no_dialogs import block_dialogs  # noqa: E402
@@ -707,7 +710,9 @@ def tool_checks():
     check("cross section finds points of both scans",
           section is not None and len(section["a"][0]) > 20 and len(section["b"][0]) > 20)
     check("cross section window opens", window.section_window is not None and window.section_window.isVisible())
+    check("…with its line in 3D", window._section_line is not None)
     window.section_window.close()
+    check("closing the cross section removes its line", window._section_line is None)
 
     # Escape cancels a tool
     window.start_tool("measure")
@@ -720,6 +725,14 @@ def tool_checks():
     window.pick_at(middle + np.array([3.0, 4.0, 0.0]))
     distance, horizontal, vertical = window.last_measurement
     check("measuring gives the right distance", abs(distance - 5.0) < 1e-6 and abs(vertical) < 1e-6)
+    lines = len(window.scene.overlays)
+    QTest.keyClick(window, Qt.Key_Escape)
+    check("Esc removes the measuring lines", not window.measurements and len(window.scene.overlays) < lines)
+    window.start_tool("measure")
+    window.pick_at(middle)
+    window.pick_at(middle + np.array([3.0, 4.0, 0.0]))
+    window._show_inspections(window.inspections, reset_camera=False)
+    check("switching the scans removes the measuring lines", not window.measurements)
     window.clear_measurements()
     check("measurements can be cleared", not window.measurements)
 
@@ -786,6 +799,11 @@ def output_checks():
     pdf = (folder / "report.pdf").read_bytes()
     check("PDF report is written", pdf.startswith(b"%PDF") and pages >= 1)
     check("making the report puts the camera back", np.allclose(before["position"], after["position"]))
+
+    copied = window.copy_view_image()
+    on_clipboard = QApplication.clipboard().image()
+    check("the view can be copied as a picture", not copied.isNull() and not on_clipboard.isNull()
+          and on_clipboard.width() == copied.width())
 
     import viewer.turntable as turntable
 
@@ -968,7 +986,88 @@ def after_series_step():
     check("a project keeps the whole scan series", window.series is not None and len(window.series.clouds) == 4
           and window.series_pair == (0, 3) and window.change_result is not None)
     check("…with each comparison's alignment", (0, 1) in window.series_cache)
-    workflow_checks()
+    wait_until(lambda: window.change_result is not None and window.is_aligned(), multi_scan_checks, limit_ms=120000)
+
+
+def multi_scan_checks():
+    """Scans card: align and compare all, show all, trends, dates, When changed colours."""
+    side = window.sidebar
+    check("the Scans card lists every scan of the series", side.scans_card.isVisible()
+          and len(side.scan_checkboxes) == 4)
+    check("the example series has dates", all(window.series.dates) and "2025" in side.timeline_title.text())
+    check("align and compare all starts", window.align_compare_all())
+    wait_until(lambda: window._compare_all_worker is None, after_compare_all, limit_ms=180000)
+
+
+def after_compare_all():
+    side = window.sidebar
+    check("every scan is compared with the first", sorted(window.first_comparisons()) == [1, 2, 3])
+    check("…and with the scan before", all(window.series_cache.get(pair, {}).get("changes") is not None
+                                           for pair in ((1, 2), (2, 3))) and window._all_compared())
+    check("the comparison on screen stays as it was", window.series_pair == (0, 3) and window.change_result is not None)
+    tracks = window.series_tracks
+    scour = next((t for t in tracks if t.kind == "removed"), None)
+    volumes = scour.volumes(4) if scour else []
+    check("the scour is followed through time and grows", scour is not None and volumes[3] < volumes[1] < 0)
+    check("the rate per month comes from the dates", scour is not None and scour.rate(window.series.dates, 4) < 0)
+    panel = side.areas_panel
+    check("the Areas tab shows the areas through time", not panel.time_card.isHidden()
+          and panel.time_table.rowCount() == len(tracks))
+    check("an area's chart opens", window.show_track(scour.number) and window.trend_window.isVisible())
+    window.trend_window.hide()
+
+    window.set_show_all(True)
+    check("Show all draws every scan", len(window.scene.series_actors) == 4
+          and not window.scene.actors["Scan A"].GetVisibility())
+    check("…and keys 1 and 2 switch to the scans of the series", not any(a.isEnabled() for a in window.ab_actions)
+          and all(a.isEnabled() for a in window.scan_actions[:4]) and not window.scan_actions[4].isEnabled())
+    window.scan_actions[1].trigger()
+    check("a number key hides one scan", window.series_visible == [True, False, True, True]
+          and not window.scene.series_actors[1].GetVisibility() and not side.scan_checkboxes[1].isChecked())
+    side.scan_checkboxes[1].setChecked(True)
+    check("…and its box shows it again", window.series_visible[1] and window.scene.series_actors[1].GetVisibility())
+    side.color_mode.setCurrentText("When changed")
+    when = window.scene.when_values
+    check("When changed colours every scan by when it changed", len(when) == 4
+          and set(when[3].tolist()) >= {-1, 3} and window.scene.legend_actor is not None)
+    window.set_scan_date(3, "2026-06-01")
+    check("a scan date can be changed", str(window.series.dates[3]) == "2026-06-01")
+    window.actions["undo"].trigger()
+    check("…and changed back with undo", str(window.series.dates[3]) != "2026-06-01")
+
+    import tempfile
+    folder = Path(tempfile.mkdtemp())
+    tagged = window.series_cache[(1, 2)]["changes"]
+    if tagged.areas:
+        tagged.areas[0].comment = "check after the next storm"  # on a comparison that is not on screen
+    state["tagged_areas"] = len(tagged.areas)
+    window.write_project(folder / "all.subdron")
+    from viewer.report import collect
+    report = collect(window)["series"]
+    check("the report has the change over time", report["compared"] == 3 and report["tracks"]
+          and all(report["dates"]))
+    check("the report with the change over time chapter is written",
+          window.export_report(str(folder / "series.pdf")) >= 2)
+    window.new_project()
+    window.open_project(str(folder / "all.subdron"), ask=False)
+    check("a project keeps Show all, the dates and the scans shown", window.series_show_all
+          and all(window.series.dates) and len(window.scene.series_actors) == 4)
+    check("…and every comparison's changes, so nothing has to be found again", window._all_compared()
+          and window._compare_all_worker is None)
+    kept = window.series_cache[(1, 2)]["changes"]
+    check("…with the comments on areas of comparisons that were not on screen",
+          state["tagged_areas"] == 0 or kept.areas[0].comment == "check after the next storm")
+    wait_until(lambda: window._compare_all_worker is None and len(window.first_comparisons()) == 3,
+               after_reopen_all, limit_ms=180000)
+
+
+def after_reopen_all():
+    check("…and follows the areas through time again", len(window.series_tracks) > 0)
+    window.sidebar.color_mode.setCurrentText("Per scan")
+    window.set_show_all(False)
+    check("Compare two brings scan A and B back", window.scene.actors["Scan A"].GetVisibility()
+          and not window.scene.series_actors and all(a.isEnabled() for a in window.ab_actions))
+    wait_until(lambda: window.change_result is not None and window.is_aligned(), workflow_checks, limit_ms=120000)
 
 
 def workflow_checks():
@@ -1115,6 +1214,10 @@ def orbit_checks():
 
 def orbit_released():
     check("the orbit marker goes away after letting go", window.scene.pivot_actor is None)
+    if args.skip_tutorials:
+        skip("both tutorials", "--skip-tutorials")
+        finish()
+        return
     tutorial_checks()
 
 

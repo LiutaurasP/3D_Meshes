@@ -100,7 +100,8 @@ def save(path, state, scan_points=None, changes=None, intensity=None, series=Non
     scan_points:  {"Scan A": array, "Scan B": array} to embed, or None for example scenes
     changes:      ChangeResult or None
     intensity:    {"Scan A": array, ...} sonar return strength of embedded scans, if they have it
-    series:       (list of point arrays, {scan index: intensity}) for a scan series (Timeline)
+    series:       (list of point arrays, {scan index: intensity}) for a scan series (Timeline), optionally
+                  with a third part {(older, newer): ChangeResult}: the changes found in every other comparison
     """
     state = dict(state)
     state["format"] = FORMAT
@@ -118,11 +119,19 @@ def save(path, state, scan_points=None, changes=None, intensity=None, series=Non
                     arrays[f"intensity{i}"] = np.asarray(intensity[name], dtype=np.float32)
             archive.writestr("scans.npz", _npz_bytes(arrays))
         if series is not None:
-            points, strengths = series
+            points, strengths = series[:2]
             arrays = {f"scan{i}": np.asarray(p, dtype=np.float32) for i, p in enumerate(points)}
             arrays.update({f"scan_intensity{i}": np.asarray(v, dtype=np.float32) for i, v in strengths.items()})
             state["series"]["embedded"] = len(points)
             archive.writestr("series.npz", _npz_bytes(arrays))
+            # The changes of every comparison (with their tags, status and comments), one file each
+            comparisons = series[2] if len(series) > 2 else {}
+            saved = {}
+            for (older, newer), result in sorted(comparisons.items()):
+                summary, arrays = changes_to_files(result)
+                saved[f"{older}-{newer}"] = summary
+                archive.writestr(f"comparison_{older}-{newer}.npz", _npz_bytes(arrays))
+            state["series"]["comparisons"] = saved
         if changes is not None:
             summary, arrays = changes_to_files(changes)
             state["detection"]["result"] = summary
@@ -156,7 +165,8 @@ def load(path):
                                  if f"intensity{i}" in arrays.files}
 
             series = None
-            count = (state.get("series") or {}).get("embedded")
+            series_state = state.get("series") or {}
+            count = series_state.get("embedded")
             if count:
                 with np.load(io.BytesIO(archive.read("series.npz"))) as arrays:
                     # projects saved before the rename call them survey0, survey_intensity0, ...
@@ -164,6 +174,13 @@ def load(path):
                     series = ([arrays[f"{prefix}{i}"].astype(float) for i in range(count)],
                               {i: arrays[f"{prefix}_intensity{i}"] for i in range(count)
                                if f"{prefix}_intensity{i}" in arrays.files})
+                # Changes of the other comparisons (projects from before 0.3 don't have them)
+                found = {}
+                for key, summary in (series_state.get("comparisons") or {}).items():
+                    older, newer = (int(v) for v in key.split("-"))
+                    with np.load(io.BytesIO(archive.read(f"comparison_{key}.npz"))) as saved:
+                        found[(older, newer)] = changes_from_files(summary, {k: saved[k] for k in saved.files})
+                series_state["comparison_results"] = found
 
             changes = None
             summary = state.get("detection", {}).get("result")

@@ -175,6 +175,7 @@ class TutorialCard(QWidget):
     GAP_ROW = 18  # text → keys and button
     GAP_HINT = 10  # keys → hint
     ROW_HEIGHT = KeyChip.HEIGHT
+    PRESS_HEIGHT = 20  # the small "Press" above the first key (first card only)
 
     def __init__(self, owner, on_continue, on_leave):
         super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
@@ -254,6 +255,11 @@ class TutorialCard(QWidget):
         self.keys_row.setContentsMargins(0, 0, 0, 0)
         self.keys_row.setSpacing(6)
         layout.addWidget(self.row)
+        self.press = QLabel("PRESS", self.row)  # placed above the first key by relayout(), not in the layout
+        self.press.setFont(self.fonts["eyebrow"])
+        self.press.setAlignment(Qt.AlignCenter)
+        coloured(self.press, TEXT_DIM)
+        self.press.hide()
 
         self.hint_space = QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Fixed)
         layout.addItem(self.hint_space)
@@ -371,8 +377,11 @@ class TutorialCard(QWidget):
         self.body.setFixedSize(inner, text)
 
         has_row = bool(self.chips) or self.next.isVisibleTo(self) or self.keys_row.count() > 2
+        press = has_row and bool(self.chips) and self._step.get("press_label", False)
+        extra = self.PRESS_HEIGHT if press else 0
         self.row.setVisible(has_row)
-        self.row.setFixedSize(inner, self.ROW_HEIGHT)
+        self.keys_row.setContentsMargins(0, extra, 0, 0)
+        self.row.setFixedSize(inner, self.ROW_HEIGHT + extra)
         self.row_space.changeSize(0, self.GAP_ROW if has_row else 0, QSizePolicy.Minimum, QSizePolicy.Fixed)
 
         hint = 0
@@ -384,13 +393,19 @@ class TutorialCard(QWidget):
 
         height = top + header + self.GAP_TITLE + heading + self.GAP_TEXT + text
         if has_row:
-            height += self.GAP_ROW + self.ROW_HEIGHT
+            height += self.GAP_ROW + self.ROW_HEIGHT + extra
         if hint:
             height += self.GAP_HINT + hint
         height += bottom
         self.setFixedSize(width, height)
         self.layout().invalidate()
         self.layout().activate()
+        self.press.setVisible(press)
+        if press:
+            self.keys_row.activate()
+            chip = next(iter(self.chips.values()))
+            self.press.setFixedSize(max(chip.width(), 60), self.PRESS_HEIGHT - 4)
+            self.press.move(chip.x() + (chip.width() - self.press.width()) // 2, 0)
 
     fit_height = relayout  # older name
 
@@ -1119,7 +1134,7 @@ class Tutorial(TutorialBase):
                 body=body("In the next few minutes you'll dive 50 metres down, look around a sonar scan "
                           "of the seafloor, and find something that wasn't there before.",
                           "Everything is switched off for now. We'll turn it on piece by piece."),
-                keys=[("1", "1"), ("bring up the first scan", None)]),
+                keys=[("1", "1"), ("bring up the first scan", None)], press_label=True),
             "scan_a": dict(
                 number=1, eyebrow="Scan A  ·  the seafloor", heading="50 metres down.",
                 body=body("This is a sonar scan of the seafloor, about 50 m below the surface, recorded by a "

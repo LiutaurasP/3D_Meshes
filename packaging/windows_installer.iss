@@ -2,7 +2,9 @@
 ; First run "python packaging\build.py" on Windows, then open this file in Inno Setup and press Compile.
 
 #define AppName "Subdron Sonar Studio"
-#define AppVersion "0.1.0"
+#ifndef AppVersion
+  #define AppVersion "0.0.0"  ; set by the build: iscc /DAppVersion=...
+#endif
 #define AppExe "Subdron Sonar Studio.exe"
 
 [Setup]
@@ -13,7 +15,7 @@ AppPublisher=Subdron
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=..\dist
-OutputBaseFilename=Subdron Sonar Studio Setup {#AppVersion}
+OutputBaseFilename=Subdron-Sonar-Studio-Setup-{#AppVersion}
 SetupIconFile=icons\app_icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2

@@ -87,6 +87,7 @@ CHAPTERS = [
         (key("N"), "pin a note in 3D"),
         (key("L") + " / " + key("Shift") + " " + key("L"), "delete points / keep only points with a lasso"),
         (key("Cmd") + " " + key("Shift") + " " + key("R"), "export the change report (PDF)"),
+        (key("Cmd") + " " + key("Shift") + " " + key("C"), "copy the view as a picture (paste it anywhere)"),
         (key("Cmd") + " " + key("1") + " … " + key("9"), "fly to a saved view"),
         (key("Cmd") + " " + key("/"), "list of all shortcuts (searchable)"),
         (key("Cmd") + " " + key(","), "settings"),
@@ -180,7 +181,9 @@ CHAPTERS = [
                                        "horizontal and vertical part"),
         ("<b>Note</b> " + key("N"), "click a place and type a note; it is pinned there in 3D, saved in "
                                     "the project and listed in the report (Analyze → Notes flies to it)"),
-        ("<b>Esc</b>", "cancels a tool before the second click"),
+        ("<b>Esc</b>", "cancels a tool before the second click; afterwards it removes the lines. They also "
+                       "go when you switch to another scene or comparison, the cross section line when you close "
+                       "its window"),
         ("<b>Saved views</b>", "Camera → Save view… stores the camera; click it later to fly back "
                                "(also " + key("Cmd") + " " + key("1") + " … " + key("9") + ", saved in the project)"),
         ("<b>Command palette</b> " + key("Cmd") + " " + key("K"), "type a few letters, for example "
@@ -191,14 +194,34 @@ CHAPTERS = [
     ]), False),
 
     ("Timeline: more than two scans", keys_table([
-        ("<b>Load</b>", "File → Import Scan Series: select all scans of one place at once (oldest first: "
-                        "start the file names with the date). Try File → Example Scenes → Scan Series"),
+        ("<b>Load</b>", "File → Import Scan Series, or drop three or more scan files on the window. They are "
+                        "put in order by the date in their names (2025-03-14, 20250314, 14.03.2025 or 2025-03). "
+                        "Try File → Example Scenes → Scan Series"),
         ("<b>Slider</b>", "picks the later scan; Compare with: the first scan (change so far) or the "
                           "scan before (change since last time)"),
         ("<b>Automatic</b>", "every new comparison is aligned and checked for changes by itself"),
         ("<b>Instant</b>", "each comparison keeps its alignment and results; " + key("Cmd") + " " + key("Z")
                            + " goes back to the previous one"),
-        ("<b>Saved</b>", "a project keeps all scans and every comparison's alignment"),
+        ("<b>Saved</b>", "a project keeps all scans and every comparison: its alignment, the changes found and "
+                         "the tags, status and comments of its areas, plus the dates and the view"),
+    ]), False),
+
+    ("Scans card: the whole series", keys_table([
+        ("<b>Show all</b>", "every scan at once, each in its own colour from blue (oldest) to orange (newest); "
+                            "the boxes and " + key("1") + " … " + key("9") + " show and hide single scans"),
+        ("<b>Align and compare all</b>", "aligns every scan with the first one and with the scan before, and "
+                                         "finds what changed, in the background with one progress bar: after "
+                                         "that every Timeline comparison is instant"),
+        ("<b>Dates</b>", "when each scan was made, read from the file names or typed in (2025-03-14); "
+                         "the Timeline shows them and rates are worked out per month"),
+        ("<b>Through time</b>", "Areas tab: every changed area followed through all scans with a small trend "
+                                "line, its volume now and its rate; click one for its chart"),
+        ("<b>Estimate</b>", "the chart's dashed line: the volume in 6 months if it keeps changing at the "
+                            "same rate. A simple projection, not a prediction"),
+        ("<b>When changed</b>", "Colours → When changed: each changed spot in the colour of the scan in which "
+                                "it first changed, grey where nothing changed"),
+        ("<b>Report</b>", "the PDF gets a Change over time chapter: the scans with dates, every area with its "
+                          "rate, and its chart"),
     ]), False),
 
     ("Cleaning scans", keys_table([
@@ -250,6 +273,8 @@ CHAPTERS = [
         ("<b>Per scan</b>", "A and B in their own colour (click a swatch to change it)"),
         ("<b>Depth</b>", "depth below the water surface, shallow red to deep blue"),
         ("<b>Change</b>", "after Detect changes: blue removed, white unchanged, red added"),
+        ("<b>When changed</b>", "scan series: the scan in which each spot first changed (after Align and "
+                                "compare all)"),
         ("<b>Changed points</b>", "highlight of what was detected, colour can be picked"),
         ("<b>Show true change</b>", "where the change really is (example scenes only)"),
         ("<b>Background</b>", "click the swatch in Clouds to change it"),

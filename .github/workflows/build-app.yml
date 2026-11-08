@@ -1,8 +1,12 @@
 name: Build app
 
-# Builds Subdron Sonar Studio for macOS and Windows. Start it by hand
-# (Actions tab → Build app → Run workflow) or push a version tag like v0.2.0.
-# The apps can be downloaded from the run's page (Artifacts).
+# Builds Subdron Sonar Studio for macOS and Windows.
+#
+# - Start it by hand (Actions tab → Build app → Run workflow): the apps can be
+#   downloaded from the run's page (Artifacts). The version comes from the code.
+# - Push a version tag like v0.3.0: the version in the apps is taken from the tag,
+#   and a draft pre-release with both apps attached is created on GitHub. Check
+#   its text and publish it.
 #
 # The Windows build is started once after building (--self-test: aligns, detects,
 # makes a report, ...). GitHub's Mac machines cannot draw 3D, so the Mac build is
@@ -33,6 +37,23 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Version (from the tag, or from the code)
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            python - "$VERSION" <<'PY'
+          import re, sys, pathlib
+          path = pathlib.Path("viewer/branding.py")
+          text = path.read_text(encoding="utf-8")
+          path.write_text(re.sub(r'^VERSION = ".*"$', f'VERSION = "{sys.argv[1]}"', text, flags=re.M), encoding="utf-8")
+          PY
+          else
+            VERSION=$(python -c "import sys; sys.path.insert(0, 'viewer'); from branding import VERSION; print(VERSION)")
+          fi
+          echo "Building version $VERSION"
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - uses: ./.github/actions/headless-display
         if: runner.os == 'Windows'
 
@@ -46,16 +67,47 @@ jobs:
 
       - name: Zip the Mac app
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent "dist/Subdron Sonar Studio.app" "dist/Subdron Sonar Studio (macOS).zip"
+        run: ditto -c -k --keepParent "dist/Subdron Sonar Studio.app" "dist/Subdron-Sonar-Studio-$APP_VERSION-macOS.zip"
+
+      - name: Zip the Windows app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist\Subdron Sonar Studio" -DestinationPath "dist\Subdron-Sonar-Studio-$env:APP_VERSION-Windows.zip"
 
       - name: Windows installer (Inno Setup)
         if: runner.os == 'Windows'
-        continue-on-error: true  # the plain app folder is uploaded either way
-        run: iscc packaging\windows_installer.iss
+        continue-on-error: true  # the zipped app is uploaded either way
+        shell: pwsh
+        run: iscc "/DAppVersion=$env:APP_VERSION" packaging\windows_installer.iss
 
       - uses: actions/upload-artifact@v4
         with:
           name: Subdron Sonar Studio (${{ runner.os }})
-          # Mac: the zipped .app; Windows: the app folder and the installer
-          path: ${{ runner.os == 'macOS' && 'dist/*.zip' || 'dist/' }}
+          path: |
+            dist/*.zip
+            dist/*Setup*.exe
           if-no-files-found: error
+
+  release:
+    # Only for version tags: a draft pre-release with both apps attached
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la release
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft --prerelease \
+            --title "Subdron Sonar Studio ${GITHUB_REF_NAME#v}" \
+            --generate-notes

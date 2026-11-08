@@ -101,12 +101,12 @@ class AdvancedTutorial(TutorialBase):
     def setup(self):
         from viewer import prefs
         from viewer.pipeline import example_series
-        from datasets import HIDDEN_SCENES
+        from datasets import SCENES
 
         window = self.window
         self.saved_minimap_pref = prefs.get("show_minimap")
-        window.use_icp_method(HIDDEN_SCENES[SERIES_KEY].icp_method)  # open seabed: slide along the surface
-        series = example_series(HIDDEN_SCENES[SERIES_KEY].default_points, SERIES_KEY)
+        window.use_icp_method(SCENES[SERIES_KEY].icp_method)  # open seabed: slide along the surface
+        series = example_series(SCENES[SERIES_KEY].default_points, SERIES_KEY)
         # Chapter 1 aligns and compares by hand, step by step: the Timeline's automatic mode waits until then
         self.saved_auto = window.sidebar.timeline_auto.isChecked()
         window.sidebar.timeline_auto.setChecked(False)

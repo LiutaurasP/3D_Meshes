@@ -8,7 +8,7 @@ Spring, summer, autumn and the next spring after the storm season:
   * after the storms, a lost anchor with its chain lies on the seabed, caught on the foundation,
     and one of the rock bags of the protection has slipped into the scour hole
 
-Used by the advanced tutorial and listed as an example scan series.
+Used by the advanced tutorial, listed as an example scan series and as a scene (spring and the next spring).
 """
 
 import numpy as np
@@ -31,6 +31,8 @@ class WindTurbineFoundation(Scene):
     icp_method = "point-to-plane"
 
     scan_names = ("Spring", "Summer", "Autumn", "Spring, after the storms")
+
+    scan_dates = ("2025-04-10", "2025-07-15", "2025-10-21", "2026-04-14")  # when the dives were made
     growth_by_scan = (0.0, 0.3, 0.45, 1.0)  # how far the scour has developed
     # No two dives start from the same spot: rotation (degrees x, y, z) and shift (metres) of each scan
     drift = ((0, 0, 0, 0, 0, 0), (0.3, -0.2, 1.8, 0.6, -0.4, 0.08), (-0.2, 0.3, -1.4, -0.5, 0.7, -0.06),

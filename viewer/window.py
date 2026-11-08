@@ -25,12 +25,13 @@ from datasets import short_count
 from scan_formats import ALL_TYPES, ImportOptions
 from scan_formats import FILE_FILTER as SCAN_FILES
 from viewer import prefs, project
-from viewer.animation import AlignmentAnimation, AlignWorker, ChangeWorker, DataWorker, SeriesWorker
+from viewer.animation import AlignmentAnimation, AlignWorker, ChangeWorker, DataWorker
 from viewer.branding import APP_NAME, LOGO_PATH, PROJECT_EXTENSION, PROJECT_FILTER, VERSION
 from viewer.menus import build_menus
 from viewer.pipeline import Inspections, build_inspections, load_inspections
 from viewer.scene import SceneView
 from viewer.settings import DataSettings, Settings, ViewSettings
+from viewer.series_view import SeriesMixin
 from viewer.sidebar import Sidebar
 from viewer.toast import Toast
 from viewer.undo import History
@@ -61,7 +62,7 @@ def to_cloud(points):
     return cloud
 
 
-class MainWindow(QMainWindow):
+class MainWindow(SeriesMixin, QMainWindow):
     """Main application window: 3D scene in the middle, side panel on the right."""
 
     def __init__(self, settings):
@@ -117,7 +118,7 @@ class MainWindow(QMainWindow):
                 "background": self.set_background,
                 "navigation": self.set_navigation,
                 "camera": self.scene.look_from,
-                "color_mode": self.scene.set_color_mode,
+                "color_mode": self.set_color_mode,
                 "point_size": self.scene.set_point_size,
                 "truth": self.scene.set_truth_visible,
                 "axes": self.scene.set_axes_visible,
@@ -127,6 +128,12 @@ class MainWindow(QMainWindow):
                 "go_view": self.go_to_saved_view,
                 "plotly": self.open_in_plotly,
                 "series_pair": self.on_timeline,
+                "scan_view": self.set_show_all,
+                "scan_visible": self.set_scan_visible,
+                "compare_all": self.align_compare_all,
+                "scan_date": self.set_scan_date,
+                "series_scene": self.open_example_series,
+                "show_track": self.show_track,
                 "area_edit": self.edit_area,
                 "tutorial": self.start_tutorial,
                 "advanced_tutorial": lambda: self.start_tutorial(advanced=True),
@@ -137,12 +144,18 @@ class MainWindow(QMainWindow):
         self.report_details = {}  # client, site, inspector, reference, remarks (saved in the project)
         self.series_pair = None  # (older, newer) scan index shown as scan A / scan B
         self.series_cache = {}  # (older, newer) -> pose_state, so going back to a comparison is instant
+        self.series_show_all = False  # every scan at once instead of scan A and B ("Show all")
+        self.series_visible = []  # per scan, in "Show all"
+        self.series_tracks = []  # changed areas followed through the scans, see series_analysis.track_areas
+        self._compare_all_worker = None
+        self._when_cache = None  # (key, values) for the "When changed" colours
         self._detect_after_align = False
         self.notes = []  # [{"text": ..., "point": [x, y, z]}], pinned in 3D and listed in the report
         self._note_markers = []
         self._pick = None  # active click tool: {"kind": "section" / "measure", "points": [...]}
         self._swipe_drag = False
         self.section_window = None
+        self.trend_window = None  # chart of one area through time
         self.measurements = []
         self._add_dock()
         self.sidebar.add_history_page(self.history.stack)
@@ -353,8 +366,11 @@ class MainWindow(QMainWindow):
                 return
             self.open_scan_files(*scans, options)
             self.notify("Importing two scans", f"A: {Path(scans[0]).name}   B: {Path(scans[1]).name}")
+        elif len(scans) > 2:
+            self.open_series_files(scans)  # three or more: a scan series, oldest first
         elif scans:
-            self.notify("Drop two scan files", "Scan A (earlier) and scan B (later) together", "warning")
+            self.notify("Drop two or more scan files", "Two: scan A (earlier) and scan B (later). "
+                        "More: a scan series of the same place", "warning")
         event.acceptProposedAction()
 
     # Click tools: cross section and measuring
@@ -434,6 +450,7 @@ class MainWindow(QMainWindow):
         section = compute_section(points_a, points_b, start, end)
         if self.section_window is None:
             self.section_window = SectionWindow(self)
+            self.section_window.closed.connect(self._remove_section_line)  # the line goes with its window
         self.section_window.show_section(section, self.colors[self.target_name], self.colors[self.source_name])
         self.last_section = section
 
@@ -444,13 +461,22 @@ class MainWindow(QMainWindow):
         label = f"{distance:.2f} m"
         markers = self.scene.add_marker_line(start, end, color=(0.4, 0.9, 0.6), label=label)
         self.measurements.append({"start": start.tolist(), "end": end.tolist(), "markers": markers})
-        self.notify(f"Distance {distance:.2f} m", f"horizontal {horizontal:.2f} m · vertical {vertical:+.2f} m", "success")
+        self.notify(f"Distance {distance:.2f} m", f"horizontal {horizontal:.2f} m · vertical {vertical:+.2f} m · "
+                    f"Esc removes the lines", "success")
         self.last_measurement = (distance, horizontal, vertical)
 
     def clear_measurements(self):
+        """Remove the measuring lines and the cross section line (and close the cross section)."""
+        had_lines = bool(self.measurements or getattr(self, "_section_line", None))
         for measurement in self.measurements:
             self.scene.remove_overlay(measurement["markers"])
         self.measurements = []
+        self._remove_section_line()
+        if self.section_window is not None and self.section_window.isVisible():
+            self.section_window.hide()
+        return had_lines
+
+    def _remove_section_line(self):
         if getattr(self, "_section_line", None):
             self.scene.remove_overlay(self._section_line)
             self._section_line = None
@@ -580,6 +606,7 @@ class MainWindow(QMainWindow):
             for pair, state in self.series_cache.items():
                 if set(pair) & set(self.series_pair):
                     state["changes"] = None
+            self._when_cache = None
         if clear_changes and self.change_result is not None:
             self.change_result = None
             self.sidebar.clear_changes_result()
@@ -653,168 +680,10 @@ class MainWindow(QMainWindow):
         if event.key() == Qt.Key_Escape and self._pick is not None:
             self.cancel_tool()
             return
+        if event.key() == Qt.Key_Escape and self.clear_measurements():
+            self.statusBar().showMessage("Lines removed", 2500)
+            return
         super().keyPressEvent(event)
-
-    # Timeline: several scans of the same place
-
-    def open_series_dialog(self):
-        """Pick all scans of one place (oldest first when the file names start with a date)."""
-        from viewer.import_dialog import ImportDialog, default_options
-
-        paths, _ = QFileDialog.getOpenFileNames(self, "Import Scan Series: select all scans of the same place",
-                                                "", SCAN_FILES)
-        if not paths:
-            return False
-        if len(paths) < 2:
-            self.notify("Select at least two scans", "Hold Cmd / Ctrl to select several files", "warning")
-            return False
-        paths = sorted(paths)
-        named = {f"Scan {i + 1}": path for i, path in enumerate(paths)}
-        if self.show_import_dialog:
-            dialog = ImportDialog(named, self)
-            dialog.setWindowTitle("Import Scan Series")
-            if not dialog.exec():
-                return False
-            options = list(dialog.options().values())
-        else:
-            options = list(default_options(named).values())
-        self._start_series_worker(SeriesWorker(paths, options), f"Loading {len(paths)} scans...")
-        return True
-
-    def open_example_series(self, key="harbour_wall_scour"):
-        from datasets import HIDDEN_SCENES, SCENES
-
-        scene = SCENES.get(key) or HIDDEN_SCENES[key]
-        points = 30_000 if key == "harbour_wall_scour" else scene.default_points
-        self.use_icp_method(scene.icp_method)  # like picking a scene: the method that measured best for it
-        self._start_series_worker(SeriesWorker(n_points=points, key=key), "Building the scan series...")
-
-    def _start_series_worker(self, worker, message):
-        if not self.maybe_save():
-            return
-        if self._data_worker is not None and self._data_worker.isRunning():
-            return
-        self._stop_animation()
-        self.sidebar.set_generating(True)
-        self.statusBar().showMessage(message)
-        self._clock.start()
-        self._data_worker = worker
-        worker.done.connect(self._on_series_ready)
-        worker.failed.connect(self._on_data_failed)
-        worker.start()
-
-    def _on_series_ready(self, series):
-        self.sidebar.set_generating(False)
-        self.statusBar().clearMessage()
-        self.series = series
-        self.series_cache = {}
-        self.series_pair = None
-        self.loaded_files = tuple(series.paths) if series.paths else None
-        self.project_path = None
-        self.sidebar.show_series(series.names)
-        self._show_series_pair(0, len(series.names) - 1, first=True)
-        self.history.clear()
-        self._update_title()
-        detail = f"{len(series.names)} scans · drag the Timeline slider to compare them"
-        if series.notes:
-            detail += " · " + " · ".join(series.notes)
-        self.notify(series.title, detail, "success", seconds=6)
-
-    def on_timeline(self, newer, mode):
-        """The Timeline slider or the "compare with" choice changed."""
-        older = 0 if mode == "first" else newer - 1
-        self.compare_scans(older, newer)
-
-    def compare_scans(self, older, newer):
-        if self.series is None or (older, newer) == self.series_pair:
-            return
-        before = self.series_pair
-        self._show_series_pair(older, newer)
-        names = self.series.names
-        self.history.push(f"Compare {names[newer]} with {names[older]}",
-                          lambda: self._show_series_pair(older, newer), lambda: self._show_series_pair(*before))
-
-    def _show_series_pair(self, older, newer, first=False):
-        if self.series_pair is not None:
-            if self._animation is not None and self._animation.is_running() and self.align_steps:
-                # Leaving during the alignment animation: remember where B ends up, not where it is right now
-                self.scene.set_transform(self.source_name, self.align_steps[-1].transformation)
-            self.series_cache[self.series_pair] = self.pose_state()
-        self._stop_animation()
-        self.series_pair = (older, newer)
-        if self.series.paths:  # the two files of this comparison (report, project details)
-            self.loaded_files = (self.series.paths[older], self.series.paths[newer])
-        inspections = self.series.pair(older, newer)
-        self._show_inspections(inspections, reset_camera=first)
-        total = sum(len(c.points) for c in inspections.clouds.values())
-        self.sidebar.show_loaded_files(inspections.title, total, "Scan series")
-        counts = " + ".join(f"{len(c.points):,}" for c in inspections.clouds.values())
-        self.sidebar.show_data_status(f"{counts} points")
-        mode = "first" if older == 0 else "previous"
-        self.sidebar.set_series_pair(older, newer, mode)
-        cached = self.series_cache.get((older, newer))
-        automatic = self.sidebar.timeline_auto.isChecked() and not self.history.applying
-        if cached is not None and cached["steps"] is not None:
-            self.apply_pose(cached)
-            if cached["changes"] is None and automatic:
-                QTimer.singleShot(0, self.detect_changes)  # it was left before its changes were found
-        elif automatic:
-            self._detect_after_align = True
-            QTimer.singleShot(0, self.align)
-
-    def _series_state(self):
-        if self.series is None:
-            return None
-        if self.series_pair is not None:
-            self.series_cache[self.series_pair] = self.pose_state()
-        return {
-            "title": self.series.title,
-            "names": self.series.names,
-            "kinds": self.series.kinds,
-            "offset": [float(v) for v in self.series.offset],
-            "pair": list(self.series_pair),
-            "auto": self.sidebar.timeline_auto.isChecked(),
-            "alignments": {f"{a}-{b}": np.asarray(pose["matrix"]).ravel().tolist()
-                           for (a, b), pose in self.series_cache.items()},
-        }
-
-    def _series_arrays(self):
-        if self.series is None:
-            return None
-        points = [np.asarray(cloud.points).copy() for cloud in self.series.clouds]
-        return points, {i: np.asarray(v).copy() for i, v in self.series.intensity.items()}
-
-    def _restore_series(self, series_state, arrays):
-        """Rebuild a scan series from a project; returns the Inspections of the comparison that was open."""
-        from datasets import to_cloud
-        from viewer.pipeline import Series
-
-        points, strengths = arrays
-        self.series = Series(series_state.get("title", "Scan series"), list(series_state["names"]),
-                             [to_cloud(p) for p in points], dict(strengths),
-                             np.asarray(series_state.get("offset", [0, 0, 0]), dtype=float),
-                             list(series_state.get("kinds", [])))
-        self.series_cache = {}
-        for key, matrix in series_state.get("alignments", {}).items():
-            older, newer = (int(v) for v in key.split("-"))
-            self.series_cache[(older, newer)] = {"matrix": np.array(matrix).reshape(4, 4), "steps": None,
-                                                 "changes": None}
-        older, newer = series_state.get("pair", [0, len(points) - 1])
-        self.series_pair = (older, newer)
-        self.series_cache.pop((older, newer), None)  # the open comparison comes from the project itself
-        self.loaded_files = (self.series.names[older], self.series.names[newer])
-        self.sidebar.show_series(self.series.names)
-        self.sidebar.set_series_pair(older, newer, "first" if older == 0 else "previous")
-        self.sidebar.timeline_auto.setChecked(series_state.get("auto", True))
-        return self.series.pair(older, newer)
-
-    def leave_series(self):
-        """Back to a normal pair of scans (another scene or files were opened)."""
-        self.series = None
-        self.series_pair = None
-        self.series_cache = {}
-        self.sidebar.show_series(None)
-        self.history.clear()
 
     # Change animation
 
@@ -825,6 +694,8 @@ class MainWindow(QMainWindow):
         if self.change_result is None:
             self.notify("No changes to show yet", "Run Detect Changes first", "warning")
             return False
+        if self.series_show_all:
+            self.set_show_all(False)  # the animation moves scan A and B
         if getattr(self, "change_animation", None) is None:
             self.change_animation = ChangeAnimation(self)
         if self.change_animation.active:
@@ -1137,6 +1008,7 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Could not load the data", message)
 
     def _show_inspections(self, inspections, reset_camera=True):
+        self.clear_measurements()  # lines belong to the scans they were drawn on
         self.inspections = inspections
         self.clouds = inspections.clouds
         self.align_steps = None
@@ -1226,6 +1098,7 @@ class MainWindow(QMainWindow):
             self.scene.clear_changes()
             self.sidebar.clear_changes_result()
         self._update_status()
+        self._series_analysis_changed()
 
     # Alignment
 
@@ -1289,6 +1162,7 @@ class MainWindow(QMainWindow):
     def _alignment_finished(self):
         self.sidebar.set_aligning(False)
         self._update_status()
+        self._series_analysis_changed()
         if self._detect_after_align:
             self._detect_after_align = False
             QTimer.singleShot(0, self.detect_changes)
@@ -1367,6 +1241,7 @@ class MainWindow(QMainWindow):
                     f"threshold {result.threshold * 100:.1f} cm · {seconds:.1f} s", "success" if count else "info")
         before, after = self._detect_before, self.pose_state()
         self.history.push("Detect Changes", lambda: self.apply_pose(after), lambda: self.apply_pose(before))
+        self._series_analysis_changed()
 
     def _show_change_result(self, result):
         from change_detection import score
@@ -1694,6 +1569,11 @@ class MainWindow(QMainWindow):
             self._set_saved_views(state.get("saved_views", []))
             self._set_notes(state.get("notes", []))
             self.report_details = dict(state.get("report") or {})
+            if series_state and series:
+                self.set_show_all(bool(series_state.get("show_all")))
+                if series_state.get("compared_all") and not self._all_compared():
+                    # Saved by an older version, without the changes of every comparison: find them again
+                    QTimer.singleShot(0, self.align_compare_all)
             self.clear_measurements()
             if side.swipe.isChecked():
                 side.swipe.setChecked(False)
@@ -1791,6 +1671,18 @@ class MainWindow(QMainWindow):
             self.scene.plotter.screenshot(path)
             self.statusBar().showMessage(f"Saved {Path(path).name}", 4000)
             self.notify("Screenshot saved", Path(path).name, "success")
+
+    def copy_view_image(self):
+        """The 3D view as a picture on the clipboard, to paste into a chat, an email or slides."""
+        from PySide6.QtGui import QImage
+
+        self.scene.plotter.ren_win.Render()  # the plotter's own render() waits for the event loop
+        pixels = np.ascontiguousarray(self.scene.plotter.screenshot(return_img=True)[:, :, :3])
+        height, width, _ = pixels.shape
+        image = QImage(pixels.data, width, height, 3 * width, QImage.Format_RGB888).copy()
+        QApplication.clipboard().setImage(image)
+        self.notify("View copied", "Paste it anywhere as a picture", "success")
+        return image
 
     def _export_path(self, title, suffix, file_filter):
         stem = Path(self.project_path).stem if self.project_path else "Subdron"
@@ -1961,7 +1853,9 @@ class MainWindow(QMainWindow):
         if not getattr(self, "keep_recovery", False):
             self.discard_recovery()
         self._stop_animation()
-        for worker in (self._worker, self._data_worker, self._change_worker):
+        if self._compare_all_worker is not None:
+            self._compare_all_worker.requestInterruption()
+        for worker in (self._worker, self._data_worker, self._change_worker, self._compare_all_worker):
             if worker is not None:
                 worker.wait()
         self.scene.close()

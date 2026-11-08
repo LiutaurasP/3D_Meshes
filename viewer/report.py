@@ -76,7 +76,56 @@ def collect(window):
                 "confidence": area.confidence,
                 "tag": area.tag, "status": area.status, "comment": area.comment,
             })
+    info["series"] = collect_series(window)
     return info
+
+
+def collect_series(window):
+    """The scan series and its areas followed through time (None without a series)."""
+    series = getattr(window, "series", None)
+    if series is None:
+        return None
+    from series_analysis import format_date
+    from viewer.trend import ESTIMATE_MONTHS
+
+    count = len(series.names)
+    dates = list(series.dates) + [None] * (count - len(series.dates))
+    tracks = []
+    for track in getattr(window, "series_tracks", []):
+        seen = track.first_seen()
+        tracks.append({
+            "number": track.number,
+            "kind": track.kind,
+            "volumes": track.volumes(count),
+            "depths": track.depths(count),
+            "first_seen": series.names[seen],
+            "rate": track.rate(dates, count),
+            "estimate": track.estimate(dates, count, ESTIMATE_MONTHS),
+        })
+    return {
+        "names": list(series.names),
+        "dates": [format_date(d) for d in dates],
+        "points": [len(cloud.points) for cloud in series.clouds],
+        "compared": len(window.first_comparisons()),
+        "tracks": tracks,
+        "estimate_months": ESTIMATE_MONTHS,
+    }
+
+
+def chart_image(track, names, dates, width_px=1400):
+    """The chart of one area through time as a QImage (light colours, for paper)."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from viewer.trend import trend_chart
+
+    figure = Figure(figsize=(7.2, 4.0), dpi=width_px / 7.2)
+    trend_chart(figure, track, names, dates, dark=False)
+    canvas = FigureCanvasAgg(figure)
+    canvas.draw()
+    pixels = np.asarray(canvas.buffer_rgba())
+    height, width, _ = pixels.shape
+    return QImage(pixels.tobytes(), width, height, 4 * width, QImage.Format_RGBA8888).copy()
 
 
 def snapshot(scene):
@@ -247,7 +296,96 @@ def areas_table(pages, areas, names):
         pages.y += 1
 
 
-def write_pdf(path, info, overview, close_ups, height_map=None):
+def simple_table(pages, columns, rows, colors=None):
+    """columns: [(label, width)], the last width 0 = the rest of the line. rows: lists of text."""
+    widths = [w for _, w in columns]
+    widths[-1] = PAGE_W - 2 * MARGIN - sum(widths[:-1])
+
+    def header():
+        pages.need(40)
+        x = MARGIN
+        pages.font(8.5, bold=True, color=DIM)
+        for (label, _), width in zip(columns, widths):
+            pages.painter.drawText(QRectF(x, pages.y, width, 14), Qt.AlignLeft | Qt.AlignVCenter, label)
+            x += width
+        pages.y += 16
+        pages.painter.setPen(QPen(LINE, 0.8))
+        pages.painter.drawLine(MARGIN, pages.y, PAGE_W - MARGIN, pages.y)
+        pages.y += 3
+
+    header()
+    for number, row in enumerate(rows):
+        if pages.y + 16 > PAGE_H - MARGIN - 18:
+            pages.new_page()
+            header()
+        x = MARGIN
+        for index, (value, width) in enumerate(zip(row, widths)):
+            color = (colors[number] if colors and index == 1 else INK)
+            pages.font(9, bold=bool(colors) and index == 1, color=color)
+            pages.painter.drawText(QRectF(x, pages.y, width, 15), Qt.AlignLeft | Qt.AlignVCenter, value)
+            x += width
+        pages.y += 15
+        pages.painter.setPen(QPen(LINE, 0.4))
+        pages.painter.drawLine(MARGIN, pages.y, PAGE_W - MARGIN, pages.y)
+        pages.y += 1
+
+
+def series_chapter(pages, series, charts):
+    """Change over time: the scans with their dates, every area followed through them, and its chart."""
+    from volumes import format_volume
+
+    def signed(value):
+        return ("+" if value >= 0 else "−") + format_volume(abs(value))
+
+    pages.heading("Change over time", keep=120)
+    count = len(series["names"])
+    pages.text(f"The same place was scanned {count} times. Every scan was aligned with the first one and compared "
+               f"with it, so the volumes add up over time: they are the change since {series['names'][0]}.",
+               9, color=DIM, gap=8)
+    simple_table(pages, [("Scan", 30), ("Name", 230), ("Date", 110), ("Points", 0)],
+                 [[str(k + 1), name, series["dates"][k] or "–", f"{series['points'][k]:,}"]
+                  for k, name in enumerate(series["names"])])
+    if series["compared"] < count - 1:
+        pages.y += 6
+        pages.text(f"Only {series['compared']} of {count - 1} scans were compared with the first one. "
+                   f"Use Align and compare all in the Scans card to follow every area through time.", 9, color=DIM)
+        return
+    tracks = series["tracks"]
+    if not tracks:
+        pages.y += 6
+        pages.text("No area changed in a way that could be followed through the scans.", 9, color=DIM)
+        return
+    pages.y += 10
+    dated = all(series["dates"])
+    columns = [("#", 20), ("Change", 60), ("First seen in", 150), ("Volume now", 80), ("Per month", 80),
+               (f"In {series['estimate_months']} months*", 0)]
+    rows, colors = [], []
+    for track in tracks:
+        rows.append([str(track["number"]), track["kind"], track["first_seen"], signed(track["volumes"][-1]),
+                     signed(track["rate"]) if track["rate"] is not None else "–",
+                     signed(track["estimate"]) if track["estimate"] is not None else "–"])
+        colors.append(ADDED if track["kind"] == "added" else REMOVED)
+    simple_table(pages, columns, rows, colors)
+    pages.y += 4
+    if dated:
+        pages.text(f"Per month: from the last two scans. * Estimate: what the volume would be "
+                   f"{series['estimate_months']} months after the last scan if it keeps changing at the same rate. "
+                   f"It is a simple projection, not a prediction: storms, maintenance or settling can change it.",
+                   8.5, color=DIM)
+    else:
+        pages.text("Rates per month need a date for every scan (enter them in the Scans card).", 8.5, color=DIM)
+
+    width = PAGE_W - 2 * MARGIN
+    for index, image in enumerate(charts):
+        height = width * image.height() / max(image.width(), 1)
+        pages.need(height + 12)
+        if index == 0:
+            pages.y += 8
+        pages.image(image, MARGIN, width, height)
+        pages.y += height + 10
+
+
+def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=None):
     pages = Pages(path, f"Change report – {info['title']}")
     painter = pages.painter
 
@@ -359,6 +497,9 @@ def write_pdf(path, info, overview, close_ups, height_map=None):
             if column == 1 or index == len(close_ups) - 1:
                 pages.y += height + 24
 
+    if info.get("series"):
+        series_chapter(pages, info["series"], series_charts or [])
+
     if info["notes"]:
         pages.heading("Notes", keep=40)
         for number, note in enumerate(info["notes"], start=1):
@@ -384,4 +525,7 @@ def export_report(window, path):
 
         grid, extent, cell = window.height_map_data()
         height_map = map_image(grid, extent, cell, window.change_result.areas, window.inspections.offset)
-    return write_pdf(path, info, overview, close_ups, height_map)
+    charts = []
+    if info.get("series") and info["series"]["compared"] >= len(window.series.names) - 1:
+        charts = [chart_image(track, window.series.names, window.series.dates) for track in window.series_tracks[:6]]
+    return write_pdf(path, info, overview, close_ups, height_map, charts)

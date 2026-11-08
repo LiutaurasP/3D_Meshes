@@ -51,13 +51,13 @@ class OriginalWall(Scene):
 
 # Order in the app's dropdown: the harbour quay section first (the default scene), then the dropped container
 _ORDER = [HarbourQuaySection, QuayWallDroppedObject] + [s for s in SIMPLE_SCENES if s is not QuayWallDroppedObject] \
-    + MORE_SCENES + [s for s in BIG_SCENES if s is not HarbourQuaySection]
+    + MORE_SCENES + [WindTurbineFoundation] + [s for s in BIG_SCENES if s is not HarbourQuaySection]
 SCENES = {scene.key: scene for scene in _ORDER + [OriginalWall]}
 DEFAULT_SCENE = HarbourQuaySection.key
 # Older names of scenes, so projects saved before a rename still open
 RENAMED_SCENES = {"port_approach_survey": "port_approach_scan"}
 # Scenes that are not in the lists of examples (the tutorial loads its own)
-HIDDEN_SCENES = {TutorialSeafloor.key: TutorialSeafloor, WindTurbineFoundation.key: WindTurbineFoundation}
+HIDDEN_SCENES = {TutorialSeafloor.key: TutorialSeafloor}
 
 
 def size_label(n_points):
@@ -93,8 +93,13 @@ def generate(key, settings=None):
     scene = scene_class()
     scene.build_world(np.random.default_rng(settings.seed))
 
+    # Scenes made for a scan series: A is the first scan, B the last one
+    growth_by_scan = getattr(scene_class, "growth_by_scan", None)
     scans = {}
     for number, state in enumerate(("a", "b"), start=1):
+        if growth_by_scan:
+            scene.scan_index = 0 if state == "a" else len(growth_by_scan) - 1
+            scene.growth = growth_by_scan[scene.scan_index]
         rng = np.random.default_rng([settings.seed, number])
         scans[state] = scan(
             lambda r, n, s=state: scene.sample(r, n, s),

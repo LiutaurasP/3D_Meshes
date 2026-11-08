@@ -16,13 +16,15 @@ CAMERA_PRESETS = {
 }
 
 NAVIGATION_MODES = ("Orbit", "Fly (WASD)")
-COLOR_MODES = ("Per scan", "Depth", "Change", "Intensity")
+COLOR_MODES = ("Per scan", "Depth", "Change", "Intensity", "When changed")
 INTENSITY_COLORMAP = "copper"  # dark = weak return, bright = strong, like a backscatter mosaic
 INTENSITY_LABEL = "Intensity (sonar return)"
 DEPTH_COLORMAP = "turbo_r"  # shallow = red, deep = blue, like sonar software
 DEPTH_LABEL = "Depth below surface (m)"
 CHANGE_COLORMAP = "coolwarm"  # blue = material removed, white = unchanged, red = added
 CHANGE_LABEL = "Change (m): - removed / + added"
+WHEN_LABEL = "First changed in"
+UNCHANGED_GREY = (0.42, 0.44, 0.48)
 HIGHLIGHTS = ("truth", "changes")
 SPHERES_UP_TO = 1_500_000  # total points; above this, points are drawn as plain squares
 
@@ -73,6 +75,11 @@ class SceneView:
         self.change_limit = 0.3
         self.area_actors = []
         self.pivot_actor = None  # marker on the point the camera turns around, while orbiting
+        self.series_view = None  # every scan of a series at once, see show_series
+        self.series_actors = {}
+        self.when_values = {}  # name -> scan in which each point first changed (-1 = never), "When changed"
+        self.when_colors = []  # colour per scan for the "When changed" colours
+        self.legend_actor = None
 
     # Geometry
 
@@ -136,6 +143,8 @@ class SceneView:
             mode = "Per scan"  # nothing detected yet
         if mode == "Intensity" and not self.intensity:
             mode = "Per scan"  # these scans have no intensity values
+        if mode == "When changed" and not self.when_values:
+            mode = "Per scan"  # needs a series compared with its first scan
         depth_range = self._depth_range() if mode == "Depth" else None
         intensity_range = self._intensity_range() if mode == "Intensity" else None
 
@@ -161,6 +170,10 @@ class SceneView:
                 actor = self.plotter.add_points(
                     data, scalars=CHANGE_LABEL, cmap=CHANGE_COLORMAP, clim=[-limit, limit],
                     show_scalar_bar=index == 0, scalar_bar_args={"title": CHANGE_LABEL, **bar}, **style)
+            elif mode == "When changed" and name in self.when_values:
+                data[WHEN_LABEL] = self._shown(name, self.when_values[name]) + 1
+                actor = self.plotter.add_points(data, scalars=WHEN_LABEL, show_scalar_bar=False,
+                                                **self._when_style(), **style)
             elif mode == "Intensity" and name in self.intensity:
                 data[INTENSITY_LABEL] = self._shown(name, self.intensity[name])
                 first = name == next(n for n in self.geometries if n in self.intensity)
@@ -185,6 +198,9 @@ class SceneView:
         self._attach_swipe_planes()
         if self.minimap is not None:
             self._fill_minimap()
+        if self.series_view is not None:
+            self._rebuild_series()
+        self._update_legend()
         self.plotter.render()
 
     # Minimap: the site from above in the top right corner, with the camera on it
@@ -325,13 +341,14 @@ class SceneView:
 
     def _apply(self, name):
         """Push the stored position and visibility of one cloud to its actors."""
+        shown = self.visible[name] and self.series_view is None  # "Show all" draws the scans itself
         self.actors[name].user_matrix = self.matrices[name]
-        self.actors[name].SetVisibility(self.visible[name])
+        self.actors[name].SetVisibility(shown)
         for kind in HIGHLIGHTS:
             actor = self.highlight_actors[kind].get(name)
             if actor is not None:
                 actor.user_matrix = self.matrices[name]
-                actor.SetVisibility(self.visible[name] and self._highlight_shown(kind))
+                actor.SetVisibility(shown and self._highlight_shown(kind))
 
     def _highlight_color(self, kind):
         return self.settings.color_truth if kind == "truth" else self.settings.color_changes
@@ -522,6 +539,8 @@ class SceneView:
         for layer in self.highlight_actors.values():
             for actor in layer.values():
                 actor.prop.point_size = self._highlight_point_size()
+        for actor in self.series_actors.values():
+            actor.prop.point_size = self._screen_point_size()
         self.plotter.render()
 
     def _screen_point_size(self):
@@ -869,25 +888,52 @@ class SceneView:
         self.plotter.renderer.ResetCameraClippingRange()
         return point
 
+    PIVOT_RADIUS_PX = 5  # size of the orbit ball on screen
+
     def show_pivot(self, point):
-        """A small white dot on the point the camera turns around (same size on screen at any distance)."""
+        """A small white ball on the point the camera turns around.
+
+        A real ball in 3D, lit like the scans. Before every frame it is put back on the line from the
+        camera (where it is now) to that point, just in front of the surface: the camera turns around
+        this point, so the ball stays exactly in the middle of the view and never sinks between points.
+        """
         self.hide_pivot(render=False)
         if point is None:
             return
-        # A little towards the camera along the line of sight: same place on screen, not sunk between points
-        position = np.array(self.plotter.camera.position, dtype=float)
-        shown_at = position + (np.asarray(point) - position) * 0.985
-        ratio = self.widget.devicePixelRatioF()
-        self.pivot_actor = [self.plotter.add_points(
-            pv.PolyData(np.array([shown_at])), color=(0.97, 0.98, 1.0), point_size=13 * ratio,
-            render_points_as_spheres=True, reset_camera=False, name="orbit pivot", pickable=False)]
+        actor = self.plotter.add_mesh(pv.Sphere(radius=1.0, theta_resolution=32, phi_resolution=32),
+                                      color=(0.97, 0.98, 1.0), smooth_shading=True, ambient=0.35, specular=0.6,
+                                      specular_power=30, reset_camera=False, name="orbit pivot", pickable=False)
+        observer = self.plotter.renderer.AddObserver("StartEvent", lambda *_: self._place_pivot())
+        self.pivot_actor = [actor]
+        self._pivot = {"point": np.asarray(point, dtype=float), "observer": observer}
+        self._place_pivot()
         self.plotter.render()
+
+    def _place_pivot(self):
+        pivot = getattr(self, "_pivot", None)
+        if pivot is None or self.pivot_actor is None:
+            return
+        camera = self.plotter.camera
+        position = np.array(camera.position, dtype=float)
+        towards_camera = position - pivot["point"]
+        distance = float(np.linalg.norm(towards_camera)) or 1.0
+        height = max(self.widget.height(), 1)
+        # World size of PIVOT_RADIUS_PX pixels at that distance
+        radius = distance * np.tan(np.radians(camera.view_angle) / 2) * self.PIVOT_RADIUS_PX / (height / 2)
+        center = pivot["point"] + towards_camera / distance * radius  # resting on the surface, facing the camera
+        actor = self.pivot_actor[0]
+        actor.SetScale(radius, radius, radius)
+        actor.SetPosition(*center)
 
     def hide_pivot(self, render=True):
         if self.pivot_actor is None:
             return
         for actor in self.pivot_actor:
             self.plotter.remove_actor(actor, render=False)
+        pivot = getattr(self, "_pivot", None)
+        if pivot is not None:
+            self.plotter.renderer.RemoveObserver(pivot["observer"])
+            self._pivot = None
         self.pivot_actor = None
         if render:
             self.plotter.render()
@@ -900,6 +946,115 @@ class SceneView:
         index = (NAVIGATION_MODES.index(self.navigation) + 1) % len(NAVIGATION_MODES)
         self.set_navigation(NAVIGATION_MODES[index])
         return self.navigation
+
+    # Every scan of a series at once ("Show all" in the Scans card)
+
+    def show_series(self, clouds, colors, matrices, visible):
+        """Draw all scans of a series, each in its own colour and moved onto the first scan, instead of
+        scan A and B. clouds, colors, matrices and visible are lists with one entry per scan."""
+        self.series_view = {"clouds": list(clouds), "colors": list(colors),
+                            "matrices": [np.asarray(m) for m in matrices], "visible": list(visible)}
+        self._rebuild_series()
+        self._refresh()
+
+    def hide_series(self):
+        if self.series_view is None:
+            return
+        self.series_view = None
+        self._remove_series_actors()
+        self._update_legend()
+        self._refresh()
+
+    def set_series_matrices(self, matrices):
+        if self.series_view is None:
+            return
+        self.series_view["matrices"] = [np.asarray(m) for m in matrices]
+        for index, actor in self.series_actors.items():
+            actor.user_matrix = self.series_view["matrices"][index]
+        self.plotter.render()
+
+    def set_series_visible(self, index, visible):
+        if self.series_view is None:
+            return
+        self.series_view["visible"][index] = bool(visible)
+        actor = self.series_actors.get(index)
+        if actor is not None:
+            actor.SetVisibility(bool(visible))
+        self.plotter.render()
+
+    def set_when_values(self, values, colors):
+        """values: name (or scan index in "Show all") -> first changed scan per point; colors: one per scan."""
+        self.when_values = dict(values or {})
+        self.when_colors = list(colors or [])
+        if self.settings.color_mode == "When changed":
+            self._rebuild()
+
+    def _remove_series_actors(self):
+        for actor in self.series_actors.values():
+            self.plotter.remove_actor(actor, render=False)
+        self.series_actors = {}
+
+    def _rebuild_series(self):
+        from viewer import prefs
+
+        self._remove_series_actors()
+        view = self.series_view
+        budget = int(prefs.get("display_limit_millions") * 1_000_000)
+        total = sum(len(c.points) for c in view["clouds"])
+        spheres = min(total, budget) <= prefs.get("sphere_limit_millions") * 1_000_000
+        mode = self.settings.color_mode
+        depth_range = self._depth_range() if mode == "Depth" else None
+        rng = np.random.default_rng(0)
+        for index, cloud in enumerate(view["clouds"]):
+            points = np.asarray(cloud.points)
+            keep = None
+            if total > budget:
+                keep = np.sort(rng.choice(len(points), max(1, int(len(points) * budget / total)), replace=False))
+                points = points[keep]
+            data = pv.PolyData(points)
+            style = dict(point_size=self._screen_point_size(), render_points_as_spheres=spheres,
+                         name=f"series scan {index}", reset_camera=False)
+            when = self.when_values.get(index)
+            if mode == "When changed" and when is not None:
+                data[WHEN_LABEL] = (when if keep is None else when[keep]) + 1
+                actor = self.plotter.add_points(data, scalars=WHEN_LABEL, show_scalar_bar=False,
+                                                **self._when_style(), **style)
+            elif mode == "Depth":
+                moved = points @ view["matrices"][index][:3, :3].T + view["matrices"][index][:3, 3]
+                data[DEPTH_LABEL] = -moved[:, 2]
+                actor = self.plotter.add_points(data, scalars=DEPTH_LABEL, cmap=DEPTH_COLORMAP, clim=depth_range,
+                                                show_scalar_bar=index == 0,
+                                                scalar_bar_args={"title": DEPTH_LABEL, "color": "white"}, **style)
+            else:
+                actor = self.plotter.add_points(data, color=view["colors"][index][:3], **style)
+            actor.user_matrix = view["matrices"][index]
+            actor.SetVisibility(view["visible"][index])
+            self.series_actors[index] = actor
+        self._update_legend()
+
+    def _when_style(self):
+        from matplotlib.colors import ListedColormap
+
+        colors = [UNCHANGED_GREY] + [tuple(c[:3]) for c in self.when_colors[1:]]
+        count = max(len(colors), 2)
+        return {"cmap": ListedColormap(colors if len(colors) > 1 else colors * 2), "clim": [-0.5, count - 0.5]}
+
+    def set_legend(self, entries):
+        """Small colour legend in the bottom right corner: [(label, rgb)] (None or [] removes it)."""
+        self.legend_entries = list(entries or [])
+        self._update_legend()
+        self.plotter.render()
+
+    def _update_legend(self):
+        if self.legend_actor is not None:
+            self.plotter.remove_legend(render=False)
+            self.legend_actor = None
+        entries = getattr(self, "legend_entries", None)
+        if not entries:
+            return
+        self.legend_actor = self.plotter.add_legend([[label, tuple(color[:3])] for label, color in entries],
+                                                    bcolor=(0.08, 0.09, 0.12), border=False, loc="lower right",
+                                                    size=(0.22, 0.04 * len(entries) + 0.02), face="circle")
 
     def close(self):
         self.fly.shutdown()

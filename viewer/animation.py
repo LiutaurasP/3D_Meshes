@@ -60,6 +60,28 @@ class ChangeWorker(QThread):
         self.done.emit(result)
 
 
+class CompareAllWorker(QThread):
+    """Aligns the scans of a series pair by pair (with the first, with the one before) and finds the changes,
+    off the GUI thread."""
+
+    progress = Signal(int, int, str)  # done, total, what it is doing
+    done = Signal(object)  # {(older, newer): series_analysis.Comparison}
+
+    def __init__(self, clouds, pairs, data_settings, known):
+        super().__init__()
+        self.clouds = clouds
+        self.pairs = pairs
+        self.data = data_settings
+        self.known = known
+
+    def run(self):
+        from series_analysis import compare_pairs
+
+        results = compare_pairs(self.clouds, self.pairs, self.data, on_progress=self.progress.emit,
+                                known=self.known, should_stop=self.isInterruptionRequested)
+        self.done.emit(results)
+
+
 class DataWorker(QThread):
     """Builds or loads the scans off the GUI thread."""
 
