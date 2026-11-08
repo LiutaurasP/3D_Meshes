@@ -297,6 +297,12 @@ class MainWindow(QMainWindow):
         self.tutorial.start()
         return self.tutorial
 
+    def use_icp_method(self, method):
+        combo = self.sidebar.icp_method
+        combo.blockSignals(True)
+        combo.setCurrentIndex(combo.findData(method))
+        combo.blockSignals(False)
+
     def open_default_scene(self):
         """The default example with its own settings, as after a fresh start (end of the tutorial)."""
         from datasets import DEFAULT_SCENE, SCENES
@@ -678,9 +684,9 @@ class MainWindow(QMainWindow):
     def open_example_series(self, key="harbour_wall_scour"):
         from datasets import HIDDEN_SCENES, SCENES
 
-        points = (SCENES.get(key) or HIDDEN_SCENES[key]).default_points
-        if key == "harbour_wall_scour":
-            points = 30_000
+        scene = SCENES.get(key) or HIDDEN_SCENES[key]
+        points = 30_000 if key == "harbour_wall_scour" else scene.default_points
+        self.use_icp_method(scene.icp_method)  # like picking a scene: the method that measured best for it
         self._start_series_worker(SeriesWorker(n_points=points, key=key), "Building the scan series...")
 
     def _start_series_worker(self, worker, message):

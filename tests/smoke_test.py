@@ -1288,8 +1288,8 @@ def advanced_tutorial_checks():
         cloud = window.clouds["Scan B"]
         matrix = window.scene.matrices["Scan B"]
         points = np.asarray(cloud.points) @ matrix[:3, :3].T + matrix[:3, 3]
-        fish = (np.hypot(points[:, 0] - adv.FISH[0], points[:, 1] - adv.FISH[1]) < 6) & (points[:, 2] > -26) \
-            & (np.hypot(points[:, 0], points[:, 1]) > 3.8) & front
+        fish = (np.hypot(points[:, 0] - adv.FISH[0], points[:, 1] - adv.FISH[1]) < 6) & (points[:, 2] > -25.5) \
+            & (np.hypot(points[:, 0], points[:, 1]) > 5) & front
         (x0, y0), (x1, y1) = np.percentile(xy[fish], 3, axis=0), np.percentile(xy[fish], 97, axis=0)
         cx, cy, rx, ry = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) * 0.75 + 8, (y1 - y0) * 0.75 + 8
         window.cancel_tool()

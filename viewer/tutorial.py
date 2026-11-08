@@ -37,6 +37,7 @@ COMMAND = "⌘" if MAC else "Ctrl"
 TUTORIAL_SCENE = "tutorial_seafloor"
 ENTER_KEYS = (Qt.Key_Return, Qt.Key_Enter)
 FLY_KEYS = {Qt.Key_W: "W", Qt.Key_A: "A", Qt.Key_S: "S", Qt.Key_D: "D", Qt.Key_Q: "Q", Qt.Key_E: "E"}
+CONNECTORS = ("+", "then", "or")  # small words between key caps
 MOUSE_EVENTS = (QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick, QEvent.MouseMove)
 
 
@@ -188,9 +189,12 @@ class TutorialCard(QWidget):
                 item.widget().deleteLater()
         self.chips = {}
         for label, name in step.get("keys", []):
-            if name is None:  # plain text between the keys
+            if name is None:  # text between or after the keys
                 text = QLabel(label)
-                text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 14px; padding: 0 4px;")
+                if label in CONNECTORS:  # "+", "then": quiet, the keys are what matters
+                    text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 18px; font-weight: 600; padding: 0 2px;")
+                else:  # what to do: reads like an instruction
+                    text.setStyleSheet(f"color: {TEXT}; font-size: 17px; font-weight: 600; padding: 0 6px;")
                 self.keys_row.addWidget(text)
                 continue
             chip = KeyChip(label, wide=len(label) > 3)
@@ -908,7 +912,7 @@ class Tutorial(TutorialBase):
                 number=9, eyebrow="Align", heading="Line them up.",
                 body=f"The software can slide scan B onto scan A by itself, by matching the shape of the "
                      f"seafloor. Press {COMMAND} L and watch it find the fit.",
-                keys=[(COMMAND, "command"), ("L", "L")]),
+                keys=[(COMMAND, "command"), ("+", None), ("L", "L")]),
             "aligned": dict(
                 number=9, eyebrow="Align", heading="A perfect fit.",
                 body=aligned, button="Continue"),
@@ -916,7 +920,7 @@ class Tutorial(TutorialBase):
                 number=10, eyebrow="Find the changes", heading="Now, what changed?",
                 body=f"Press {COMMAND} D. Every dot is compared with the other scan, and whatever is new "
                      f"or missing lights up.",
-                keys=[(COMMAND, "command"), ("D", "D")]),
+                keys=[(COMMAND, "command"), ("+", None), ("D", "D")]),
             "found": dict(
                 number=10, eyebrow="Find the changes", heading="Found it.",
                 body=found, button="Continue"),

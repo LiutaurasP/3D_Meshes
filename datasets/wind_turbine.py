@@ -38,7 +38,7 @@ class WindTurbineFoundation(Scene):
     scan_index = 0  # set for every scan of the series
     growth = 0.0
 
-    half = 26.0  # the site is 52 x 52 m
+    half = 26.0  # the site is a round patch about 52 m across
     depth = 28.0
     pile_radius = 3.0
     pile_top = -12.0  # the sonar sees the pile up to here
@@ -50,6 +50,7 @@ class WindTurbineFoundation(Scene):
         self.sand = HeightField(rng, (-h, h), (-h, h), 0.35)
         self.rock_texture = HeightField(rng, (-12, 12), (-12, 12), 0.22, scales=(3, 1.6, 0.8, 0.4))
         self.ripple_phase = rng.uniform(0, 2 * np.pi)
+        self.edge_wobble = rng.uniform(0, 2 * np.pi, 3)
         bag_angle = self.current + np.deg2rad(28)
         self.bag_before = np.array([8.2 * np.cos(bag_angle), 8.2 * np.sin(bag_angle)])
         self.bag_after = np.array([11.2 * np.cos(bag_angle - 0.08), 11.2 * np.sin(bag_angle - 0.08)])
@@ -60,6 +61,12 @@ class WindTurbineFoundation(Scene):
         self.anchor_yaw = self.anchor_angle + np.pi / 2  # lying across, around the pile
 
     # Seabed
+
+    def edge(self, angle):
+        """Radius of the scanned patch in every direction: round, but not perfectly."""
+        a, b, c = self.edge_wobble
+        return self.half * (1 + 0.035 * np.sin(3 * angle + a) + 0.02 * np.sin(7 * angle + b)
+                            + 0.012 * np.sin(13 * angle + c))
 
     def scour(self, x, y):
         """How much lower the sand is: a ring just outside the protection, deepest towards the current."""
@@ -95,15 +102,16 @@ class WindTurbineFoundation(Scene):
 
     def sample(self, rng, n, state):
         pile_height = self.pile_top + self.depth
-        areas = [(2 * self.half) ** 2, 2 * np.pi * self.pile_radius * pile_height]
+        areas = [np.pi * self.half ** 2, 2 * np.pi * self.pile_radius * pile_height]
         anchor = self.scan_index >= 3
         fish = self.scan_index == 2
         if anchor:
             areas.append(40.0)  # anchor and chain
         counts = split(rng, n, areas)
 
-        x = rng.uniform(-self.half, self.half, counts[0])
-        y = rng.uniform(-self.half, self.half, counts[0])
+        angle = rng.uniform(0, 2 * np.pi, counts[0])
+        distance = self.edge(angle) * np.sqrt(rng.uniform(0, 1, counts[0]))
+        x, y = distance * np.cos(angle), distance * np.sin(angle)
         outside = np.hypot(x, y) > self.pile_radius
         x, y = x[outside], y[outside]
         seabed = np.column_stack([x, y, self.seabed_z(x, y)])

@@ -49,7 +49,7 @@ def keycaps(*keys):
     """Keys written like small key caps inside the text (for reading, not pressing)."""
     cap = ("<span style='background-color:#262a36; color:#e6e7eb; font-weight:600; font-size:13px;'>"
            "&nbsp;{}&nbsp;</span>")
-    return "&thinsp;".join(cap.format(key) for key in keys)
+    return " <span style='color:#62656e;'>+</span> ".join(cap.format(key) for key in keys)
 
 
 def summary_card(number, learned, items):
@@ -102,6 +102,7 @@ class AdvancedTutorial(TutorialBase):
 
         window = self.window
         self.saved_minimap_pref = prefs.get("show_minimap")
+        window.use_icp_method(HIDDEN_SCENES[SERIES_KEY].icp_method)  # open seabed: slide along the surface
         series = example_series(HIDDEN_SCENES[SERIES_KEY].default_points, SERIES_KEY)
         window._on_series_ready(series)  # shows spring against a year later, then aligns and detects
         for name in window.clouds:
@@ -195,32 +196,67 @@ class AdvancedTutorial(TutorialBase):
         return np.array([xy[0], xy[1], z])
 
     def show_targets(self, spots, line=False):
-        """Numbered dots on the seabed that show where to click (and an outline of the line between them)."""
-        import pyvista as pv
+        """Numbered dots on the seabed that show where to click. They pop up one after another
+        (with a little bounce), then the line between them appears, and the dots keep breathing gently."""
+        import time
 
         self.clear_targets()
+        self.targets = [self.surface(spot) for spot in spots]
+        self._target_line = line
+        self._target_shown = 0
+        self._target_clock = time.monotonic()
+        self.target_timer = QTimer(self)
+        self.target_timer.setInterval(16)
+        self.target_timer.timeout.connect(self._animate_targets)
+        self.target_timer.start()
+
+    TARGET_GAP = 0.45  # seconds between the dots popping up
+    TARGET_POP = 0.38  # seconds for one pop
+
+    def _animate_targets(self):
+        import time
+
+        import pyvista as pv
+
         plotter = self.scene.plotter
         ratio = self.scene.widget.devicePixelRatioF()
-        self.targets = [self.surface(spot) for spot in spots]
         lifted = [point + np.array([0, 0, 0.15]) for point in self.targets]
-        self.target_actors = [
-            plotter.add_points(np.array(lifted), color=(1.0, 1.0, 1.0), point_size=22 * ratio,
-                               render_points_as_spheres=True, reset_camera=False, name="tutorial targets",
-                               pickable=False),
-            plotter.add_point_labels(np.array(lifted) + np.array([0, 0, 1.2]), [str(i + 1) for i in range(len(lifted))],
-                                     font_size=20, bold=True, text_color="white", shape_color=(0.24, 0.5, 0.96),
-                                     shape_opacity=0.95, show_points=False, always_visible=True, reset_camera=False,
-                                     name="tutorial target labels")]
-        if line:
-            self.target_actors.append(plotter.add_mesh(pv.Line(lifted[0], lifted[1]), color=(0.85, 0.9, 1.0),
-                                                       line_width=2 * ratio, opacity=0.6, reset_camera=False,
-                                                       name="tutorial target line", pickable=False))
+        elapsed = time.monotonic() - self._target_clock
+        while self._target_shown < len(lifted) and elapsed >= self._target_shown * self.TARGET_GAP:
+            index = self._target_shown
+            dot = plotter.add_points(lifted[index][None, :], color=(1.0, 1.0, 1.0), point_size=1,
+                                     render_points_as_spheres=True, reset_camera=False,
+                                     name=f"tutorial target {index}", pickable=False)
+            label = plotter.add_point_labels(lifted[index][None, :] + np.array([0, 0, 1.4]), [str(index + 1)],
+                                             font_size=34, bold=True, text_color="white",
+                                             shape_color=(0.24, 0.5, 0.96), shape_opacity=0.95, show_points=False,
+                                             always_visible=True, reset_camera=False,
+                                             name=f"tutorial target label {index}")
+            self.target_actors += [dot, label]
+            self._target_dots = getattr(self, "_target_dots", []) + [(dot, index * self.TARGET_GAP)]
+            self._target_shown += 1
+            if self._target_shown == len(lifted) and self._target_line:
+                self.target_actors.append(plotter.add_mesh(
+                    pv.Line(lifted[0], lifted[1]), color=(0.85, 0.9, 1.0), line_width=2 * ratio, opacity=0.6,
+                    reset_camera=False, name="tutorial target line", pickable=False))
+        for dot, born in getattr(self, "_target_dots", []):
+            age = elapsed - born
+            if age < self.TARGET_POP:  # pop: grow past the final size, then settle (ease out with overshoot)
+                t = age / self.TARGET_POP
+                scale = 1 + 5.0 * (t - 1) ** 3 + 4.0 * (t - 1) ** 2
+            else:  # breathe gently, so the eye keeps finding them
+                scale = 1 + 0.12 * np.sin((age - self.TARGET_POP) * 2 * np.pi / 1.6)
+            dot.GetProperty().SetPointSize(max(1.0, 26 * ratio * scale))
         plotter.render()
 
     def clear_targets(self):
+        timer = getattr(self, "target_timer", None)
+        if timer is not None:
+            timer.stop()
         for actor in getattr(self, "target_actors", []):
             self.scene.plotter.remove_actor(actor, render=False)
         self.target_actors = []
+        self._target_dots = []
         self.targets = []
         self.scene.plotter.render()
 
@@ -231,8 +267,8 @@ class AdvancedTutorial(TutorialBase):
         matrix = self.scene.matrices["Scan B"]
         points = np.asarray(cloud.points) @ matrix[:3, :3].T + matrix[:3, 3]
         near = np.hypot(points[:, 0] - FISH[0], points[:, 1] - FISH[1]) < 6.0
-        off_pile = np.hypot(points[:, 0], points[:, 1]) > 3.8
-        return int(np.count_nonzero(near & off_pile & (points[:, 2] > -26.0)))
+        off_pile = np.hypot(points[:, 0], points[:, 1]) > 5.0  # the pile's surface is 3 m out, each scan a bit shifted
+        return int(np.count_nonzero(near & off_pile & (points[:, 2] > -25.5)))
 
     def total_points(self):
         return sum(len(cloud.points) for cloud in self.window.clouds.values())
@@ -326,18 +362,18 @@ class AdvancedTutorial(TutorialBase):
                 eyebrow="Chapter 2  ·  Clean up", heading="Changed your mind?",
                 body=f"Press <b>{COMMAND} Z</b>. Every edit can be undone, and the points come back exactly "
                      f"where they were.",
-                keys=[(COMMAND, "command"), ("Z", "Z")]),
+                keys=[(COMMAND, "command"), ("+", None), ("Z", "Z")]),
             "c2_redo": dict(
                 eyebrow="Chapter 2  ·  Clean up", heading="Nothing is ever lost.",
                 body=f"And <b>{COMMAND} {SHIFT} Z</b> redoes it: the fish are gone again.",
-                keys=[(COMMAND, "command"), (SHIFT, "shift"), ("Z", "Z")]),
+                keys=[(COMMAND, "command"), ("+", None), (SHIFT, "shift"), ("+", None), ("Z", "Z")]),
             "c2_palette": dict(
                 eyebrow="Chapter 2  ·  Clean up", heading="The one shortcut to remember.",
                 body=body(f"<b>{COMMAND} K</b> opens the command palette: every command in the app, found by "
                           f"typing a few letters.",
                           "Open it, type <b>stray</b> and press Enter. That removes single echoes floating far "
                           "from everything else."),
-                keys=[(COMMAND, "command"), ("K", "K"), ("then type  stray", None)]),
+                keys=[(COMMAND, "command"), ("+", None), ("K", "K"), ("then type  stray", None)]),
             "c2_history": dict(
                 eyebrow="Chapter 2  ·  Clean up", heading="Every step, on record.",
                 body="The <b>History</b> tab lists everything you did. Click any earlier step to travel back to "
@@ -356,7 +392,7 @@ class AdvancedTutorial(TutorialBase):
                 eyebrow="Chapter 3  ·  Look closer", heading="Colour it by change.",
                 body="In the side panel, set <b>Colours</b> to <b>Change</b>. Blue is where something is gone, red "
                      "where something was added, and the stronger the colour, the bigger the change.",
-                keys=[("Colours", "colours"), ("→", None), ("Change", "change")]),
+                keys=[("Colours", "colours"), ("then", None), ("Change", "change")]),
             "c3_swipe": dict(
                 eyebrow="Chapter 3  ·  Look closer", heading="Before and after, side by side.",
                 body="Press <b>B</b> for the before / after swipe, then drag the white line across the "
@@ -366,7 +402,7 @@ class AdvancedTutorial(TutorialBase):
                 eyebrow="Chapter 3  ·  Look closer", heading="Where am I?",
                 body=f"Press <b>{SHIFT} M</b> for the minimap: the site from above, with you on it. Click "
                      f"anywhere on it to fly there.",
-                keys=[(SHIFT, "shift"), ("M", "M"), ("then click on the map", None)]),
+                keys=[(SHIFT, "shift"), ("+", None), ("M", "M"), ("then click on the map", None)]),
             "c3_done": summary_card(3, "Three ways to see a change more clearly.",
                                     [("Colours: Change", "blue where something is gone, red where something was added"),
                                      (("B",), "before / after swipe"),
@@ -456,12 +492,12 @@ class AdvancedTutorial(TutorialBase):
                 eyebrow="Chapter 6  ·  Hand it over", heading="Write the report.",
                 body=f"Press <b>{COMMAND} {SHIFT} R</b>. The PDF gets an overview, a close-up of every area, the "
                      f"table with volumes and tags, the height map and your note. It opens when it's ready.",
-                keys=[(COMMAND, "command"), (SHIFT, "shift"), ("R", "R")]),
+                keys=[(COMMAND, "command"), ("+", None), (SHIFT, "shift"), ("+", None), ("R", "R")]),
             "c6_display": dict(
                 eyebrow="Chapter 6  ·  Hand it over", heading="One more thing.",
                 body=f"Presenting this to the operator? Press <b>{COMMAND} {SHIFT} P</b> for Display Mode. Any key "
                      f"brings you back.",
-                keys=[(COMMAND, "command"), (SHIFT, "shift"), ("P", "P")]),
+                keys=[(COMMAND, "command"), ("+", None), (SHIFT, "shift"), ("+", None), ("P", "P")]),
             "end": dict(
                 big=True, position="center", eyebrow="Advanced tutorial complete", heading="Storm season: survived.",
                 body=body("Timeline, cleaning, comparing, measuring, judging and reporting: you've used all of it.",
