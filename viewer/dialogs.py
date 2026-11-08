@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -166,7 +167,7 @@ class PreferencesDialog(QDialog):
 class StartScreen(QDialog):
     """Welcome window when the app opens: new project, open, recent projects, examples."""
 
-    NEW, OPEN, RECENT, EXAMPLE = range(4)
+    NEW, OPEN, RECENT, EXAMPLE, TUTORIAL = range(5)
 
     def __init__(self, recent_paths, parent=None):
         super().__init__(parent)
@@ -210,6 +211,8 @@ class StartScreen(QDialog):
         right = QVBoxLayout()
         right.setContentsMargins(24, 28, 24, 24)
         right.setSpacing(10)
+        right.addWidget(self._tutorial_card())
+        right.addSpacing(6)
         right.addWidget(QLabel("<b style='font-size:14px'>Recent projects</b>"))
         recent = QListWidget()
         for path in recent_paths:
@@ -235,6 +238,39 @@ class StartScreen(QDialog):
         holder = QWidget()
         holder.setLayout(right)
         outer.addWidget(holder, 1)
+
+    def _tutorial_card(self):
+        """The invitation to the tutorial, at the top of the start screen."""
+        first_time = not prefs.get("tutorial_done")
+        card = QFrame()
+        card.setObjectName("tutorialCard")
+        card.setStyleSheet(
+            "#tutorialCard { border: 1px solid rgba(61, 127, 245, 0.55); border-radius: 12px;"
+            " background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #17254a, stop:1 #10162a); }"
+            "#tutorialCard QLabel { background: transparent; }")
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(16)
+        text = QVBoxLayout()
+        text.setSpacing(4)
+        badge = QLabel("RECOMMENDED FOR FIRST-TIME USERS" if first_time else "TUTORIAL")
+        badge.setStyleSheet("color: #7fb0ff; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
+        text.addWidget(badge)
+        heading = QLabel("New here? Take the 5-minute dive." if first_time else "Take the 5-minute dive again")
+        heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        text.addWidget(heading)
+        detail = QLabel("Learn the controls step by step on a real-looking sonar scan, and find what fell "
+                        "to the seafloor.")
+        detail.setWordWrap(True)
+        detail.setStyleSheet("color: #9a9da7;")
+        text.addWidget(detail)
+        layout.addLayout(text, 1)
+        start = button("Start Tutorial  →", primary=True)
+        start.setMinimumHeight(38)
+        start.clicked.connect(lambda: self._done(self.TUTORIAL))
+        layout.addWidget(start, 0, Qt.AlignVCenter)
+        self.tutorial_button = start
+        return card
 
     def _done(self, kind, value=None):
         self.choice = (kind, value)

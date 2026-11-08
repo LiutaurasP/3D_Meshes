@@ -11,7 +11,7 @@ from viewer.branding import APP_NAME, LOGO_PATH, PROJECT_EXTENSION, VERSION, app
 
 set_process_name()  # before Qt starts, so the menu bar shows the app's name
 
-from PySide6.QtCore import QEvent, QObject, Qt  # noqa: E402
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen  # noqa: E402
 
@@ -86,6 +86,8 @@ def show_start_screen(window):
     elif kind == StartScreen.EXAMPLE:
         window.pick_scene(value)
         window.history.clear()
+    elif kind == StartScreen.TUTORIAL:
+        QTimer.singleShot(150, window.start_tutorial)  # once the window is on screen
 
 
 class FileOpener(QObject):

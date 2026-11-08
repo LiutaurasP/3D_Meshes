@@ -265,7 +265,45 @@ class MainWindow(QMainWindow):
     # Notifications, cursor readout, drag & drop
 
     def notify(self, text, detail="", kind="info", seconds=3.5):
+        if self.in_tutorial():
+            return  # the tutorial card does the talking
         self.toast.show_message(text, detail, kind, seconds)
+
+    # Tutorial
+
+    def in_tutorial(self):
+        return getattr(self, "tutorial", None) is not None and self.tutorial.active
+
+    def start_tutorial(self):
+        """Step by step introduction on a scan of a container on the seafloor (Help → Tutorial)."""
+        from viewer.tutorial import Tutorial
+
+        if self.in_tutorial() or not self.maybe_save():
+            return None
+        if getattr(self, "display_mode", None) is not None and self.display_mode.active:
+            self.display_mode.stop()
+        self.tutorial = Tutorial(self)
+        self.tutorial.start()
+        return self.tutorial
+
+    def open_default_scene(self):
+        """The default example with its own settings, as after a fresh start (end of the tutorial)."""
+        from datasets import DEFAULT_SCENE, SCENES
+
+        side = self.sidebar
+        scene = SCENES[DEFAULT_SCENE]
+        for widget, value in ((side.scene_picker, side.scene_picker.findData(DEFAULT_SCENE)),
+                              (side.n_points, scene.default_points),
+                              (side.icp_method, side.icp_method.findData(scene.icp_method))):
+            widget.blockSignals(True)
+            widget.setValue(value) if hasattr(widget, "setValue") else widget.setCurrentIndex(value)
+            widget.blockSignals(False)
+        side._previous_scene = side.scene_picker.currentIndex()
+        side._show_scene_info(DEFAULT_SCENE)
+        self.loaded_files = None
+        self.project_path = None
+        self._clear_history_when_ready = True
+        self.generate(record=False)
 
     def _update_cursor_readout(self):
         if self._mouse_position is None:
@@ -1053,6 +1091,11 @@ class MainWindow(QMainWindow):
         self.history.resync()
         if self._generate_again:
             self.generate(record=False)
+        elif getattr(self, "_clear_history_when_ready", False):
+            self._clear_history_when_ready = False
+            self._applied_scene = self._scene_state(pose=None)
+            self.history.clear()
+            self._update_title()
 
     def _on_data_failed(self, message):
         self.sidebar.set_generating(False)

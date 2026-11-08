@@ -1080,7 +1080,150 @@ def change_animation_done():
     scene.flight.stop()
     window.set_minimap(False)
     check("the minimap can be switched off", scene.minimap is None)
-    finish()
+    tutorial_checks()
+
+
+# Tutorial: every step driven with keys and the mouse
+
+
+def key(code, modifiers=Qt.NoModifier):
+    target = QApplication.focusWidget() or view
+    app.sendEvent(target, QKeyEvent(QEvent.KeyPress, code, modifiers))
+    app.sendEvent(target, QKeyEvent(QEvent.KeyRelease, code, modifiers))
+
+
+def drag(dx, modifiers=Qt.NoModifier):
+    x, y = view.width() / 2, view.height() / 2
+    app.sendEvent(view, QMouseEvent(QEvent.MouseButtonPress, QPointF(x, y), QPointF(x, y), Qt.LeftButton,
+                                    Qt.LeftButton, modifiers))
+    if window.scene.plotter.iren is None:
+        # Drawing off screen (CI): VTK has no mouse handling here, so turn or slide the camera
+        # directly while the button is held, and let go a little later
+        camera = window.scene.plotter.camera
+        if modifiers & Qt.ShiftModifier:
+            sideways = np.cross(np.subtract(camera.focal_point, camera.position), camera.up)
+            step = sideways / np.linalg.norm(sideways) * dx / 80
+            camera.position = tuple(np.add(camera.position, step))
+            camera.focal_point = tuple(np.add(camera.focal_point, step))
+        else:
+            camera.Azimuth(dx / 6)
+        window.scene.plotter.render()
+        end = QPointF(x + dx, y)
+        QTimer.singleShot(250, lambda: app.sendEvent(view, QMouseEvent(
+            QEvent.MouseButtonRelease, end, end, Qt.LeftButton, Qt.NoButton, modifiers)))
+        return
+    for i in range(1, 31):
+        point = QPointF(x + dx * i / 30, y)
+        app.sendEvent(view, QMouseEvent(QEvent.MouseMove, point, point, Qt.NoButton, Qt.LeftButton, modifiers))
+        app.processEvents()
+    end = QPointF(x + dx, y)
+    app.sendEvent(view, QMouseEvent(QEvent.MouseButtonRelease, end, end, Qt.LeftButton, Qt.NoButton, modifiers))
+
+
+def hold(code, seconds):
+    target = QApplication.focusWidget() or view
+    app.sendEvent(target, QKeyEvent(QEvent.KeyPress, code, Qt.NoModifier))
+    QTimer.singleShot(int(seconds * 1000), lambda: app.sendEvent(QApplication.focusWidget() or view,
+                                                                 QKeyEvent(QEvent.KeyRelease, code, Qt.NoModifier)))
+
+
+def run_plan(plan, done, index=0, waited=0):
+    """Run (action, wait ms) items; an item ("until", condition) waits for the condition (max 60 s)."""
+    if index >= len(plan):
+        done()
+        return
+    action, argument = plan[index]
+    if action == "until":
+        if argument():
+            QTimer.singleShot(50, lambda: run_plan(plan, done, index + 1))
+        elif waited > 60_000:
+            tutorial = getattr(window, "tutorial", None)
+            check(f"tutorial step {getattr(tutorial, 'step', None)} finishes", False)
+            done()
+        else:
+            QTimer.singleShot(100, lambda: run_plan(plan, done, index, waited + 100))
+        return
+    action()
+    QTimer.singleShot(argument, lambda: run_plan(plan, done, index + 1))
+
+
+def at(name):
+    return lambda: window.in_tutorial() and window.tutorial.step == name and not window.tutorial._busy
+
+
+def tutorial_checks():
+    from viewer.dialogs import StartScreen
+
+    screen = StartScreen([], window)
+    screen.tutorial_button.click()
+    check("the start screen offers the tutorial", screen.choice[0] == StartScreen.TUTORIAL)
+    screen.deleteLater()
+
+    window.dock.show()
+    tutorial = window.start_tutorial()
+    state["tutorial"] = tutorial
+    check("the tutorial starts with everything switched off", tutorial is not None and tutorial.active
+          and not window.dock.isVisible() and not any(window.scene.visible.values())
+          and not any(item.isEnabled() for item in window.menuBar().actions()))
+    key(Qt.Key_L)
+    key(Qt.Key_Space)
+    check("locked keys do nothing", window._pick is None and not window.dock.isVisible())
+
+    def check_scan_a():
+        check("1 brings up scan A with a sonar ping", window.scene.visible["Scan A"] and not window.scene.visible["Scan B"])
+
+    def check_found():
+        result = window.change_result
+        check("the tutorial finds the container", result is not None and len(result.areas) == 1
+              and result.areas[0].kind == "added" and 25 < result.areas[0].volume < 60)
+
+    plan = [(lambda: None, 300), ("until", at("welcome")), (lambda: key(Qt.Key_1), 200),
+            ("until", at("scan_a")), (check_scan_a, 50), (lambda: key(Qt.Key_Return), 600),
+            ("until", at("rotate"))]
+    plan += [(lambda: drag(260), 400)] * 6 + [("until", at("pan"))]
+    plan += [(lambda: drag(220, Qt.ShiftModifier), 400)] * 6 + [("until", at("fly"))]
+    for code in (Qt.Key_W, Qt.Key_A, Qt.Key_S, Qt.Key_D):
+        plan.append((lambda c=code: hold(c, 0.6), 800))
+    plan += [("until", at("reset")), (lambda: key(Qt.Key_R), 300), ("until", at("scan_b")),
+             (lambda: key(Qt.Key_2), 300), ("until", at("difference")), (lambda: key(Qt.Key_Return), 600),
+             ("until", at("toggle"))]
+    plan += [(lambda: key(Qt.Key_1), 200), (lambda: key(Qt.Key_2), 200),
+             (lambda: check("the tutorial asks to bring both scans back", window.tutorial.card.hint.isVisible()), 50),
+             (lambda: key(Qt.Key_1), 200), (lambda: key(Qt.Key_2), 200), ("until", at("align")),
+             (lambda: key(Qt.Key_L, Qt.ControlModifier), 300), ("until", at("aligned")),
+             (lambda: check("the tutorial aligns the scans", window.is_aligned()), 50),
+             (lambda: key(Qt.Key_Return), 600), ("until", at("detect")),
+             (lambda: key(Qt.Key_D, Qt.ControlModifier), 300), ("until", at("found")), (check_found, 50),
+             (lambda: key(Qt.Key_Return), 600), ("until", at("panel")), (lambda: key(Qt.Key_Space), 300),
+             ("until", at("tab_settings")),
+             (lambda: check("Space opens the side panel in the tutorial", window.dock.isVisible()), 50)]
+    for name, page in (("tab_areas", 1), ("tab_guide", 2), ("tab_history", 3)):
+        plan += [(lambda: key(Qt.Key_Return), 500), ("until", at(name)),
+                 (lambda p=page, n=name: check(f"the tour shows the {n[4:].title()} tab",
+                                               window.sidebar.pages.currentIndex() == p), 50)]
+    plan += [(lambda: key(Qt.Key_Return), 500), ("until", at("end")), (lambda: key(Qt.Key_Return), 300),
+             ("until", lambda: not window.in_tutorial() and data_ready())]
+    run_plan(plan, tutorial_done)
+
+
+def tutorial_done():
+    from datasets import DEFAULT_SCENE, SCENES
+
+    check("after the tutorial everything is unlocked", all(item.isEnabled() for item in window.menuBar().actions())
+          and window.dock.isVisible() and window.statusBar().isVisible())
+    check("…the default scene is open", window.inspections.title == SCENES[DEFAULT_SCENE].title)
+    check("…and there is nothing to undo", window.history.stack.count() == 0)
+    tutorial = window.start_tutorial()
+    plan = [(lambda: None, 400), ("until", at("welcome")), (lambda: key(Qt.Key_Escape), 400),
+            (lambda: check("Esc asks before leaving the tutorial", tutorial.confirming and tutorial.active), 50),
+            (lambda: key(Qt.Key_Escape), 400),
+            (lambda: check("…a second Esc stays", not tutorial.confirming and tutorial.active), 50),
+            (lambda: key(Qt.Key_Escape), 400), (lambda: key(Qt.Key_Return), 300),
+            ("until", lambda: not window.in_tutorial() and data_ready()),
+            (lambda: check("…Enter leaves it and gives everything back",
+                           all(item.isEnabled() for item in window.menuBar().actions())
+                           and window.inspections.title == SCENES[DEFAULT_SCENE].title), 50)]
+    run_plan(plan, finish)
 
 
 def finish():

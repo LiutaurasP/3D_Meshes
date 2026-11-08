@@ -10,6 +10,7 @@ Subdron Sonar Studio (desktop app):
 run app.py (after the setup above). It uses Qt + PyVista for the window and Open3D for the data.
 Projects are saved as .subdron files (File > Save), with undo / redo for almost every action.
 The Plotly viewer from main.py still works as before.
+New to the app? The start screen (or Help > Tutorial) has a 5-minute step-by-step tutorial.
 Quick check that the viewer works on your machine: python tests/smoke_test.py
 
 Tools in the app: before/after swipe (B), cross section (X), measure (T),

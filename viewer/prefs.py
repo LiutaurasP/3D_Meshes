@@ -10,7 +10,8 @@ DEFAULTS = {
     "display_limit_millions": 8.0,  # above this many points, draw an evenly spread part of them
     "restore_last_layout": True,
     "inspector_name": "",
-    "show_minimap": False,  # filled into new change reports
+    "show_minimap": False,
+    "tutorial_done": False,  # the start screen recommends the tutorial until it has been finished once
     # Display Mode
     "display_speed": "Normal",
     "display_direction": "Counter-clockwise",

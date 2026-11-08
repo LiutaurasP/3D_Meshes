@@ -19,6 +19,7 @@ from datasets.big_scenes import BIG_SCENES, HarbourQuaySection
 from datasets.more_scenes import MORE_SCENES
 from datasets.scenes import SIMPLE_SCENES, QuayWallDroppedObject, Scene
 from datasets.sonar import ScanSettings, scan
+from datasets.tutorial import TutorialSeafloor
 
 
 @dataclass
@@ -54,6 +55,8 @@ SCENES = {scene.key: scene for scene in _ORDER + [OriginalWall]}
 DEFAULT_SCENE = HarbourQuaySection.key
 # Older names of scenes, so projects saved before a rename still open
 RENAMED_SCENES = {"port_approach_survey": "port_approach_scan"}
+# Scenes that are not in the lists of examples (the tutorial loads its own)
+HIDDEN_SCENES = {TutorialSeafloor.key: TutorialSeafloor}
 
 
 def size_label(n_points):
@@ -80,7 +83,7 @@ def to_cloud(points):
 
 def generate(key, settings=None):
     """Create both scans of a scene. The same settings always give the same result."""
-    scene_class = SCENES[key]
+    scene_class = SCENES[key] if key in SCENES else HIDDEN_SCENES[key]
     settings = settings or ScanSettings(n_points=scene_class.default_points)
 
     if scene_class is OriginalWall:
