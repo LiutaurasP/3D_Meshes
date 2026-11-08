@@ -288,3 +288,74 @@ class ReportDetailsDialog(QDialog):
         values = {key: field.text().strip() for key, field in self.inputs.items()}
         values["remarks"] = self.remarks.toPlainText().strip()
         return values
+
+
+# Display Mode
+
+
+class DisplayModeDialog(QDialog):
+    """How the display turns and what it shows. OK starts it right away."""
+
+    def __init__(self, parent=None, saved_views=0):
+        super().__init__(parent)
+        styled(self)
+        self.setWindowTitle("Display Mode")
+        self.setMinimumWidth(480)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+        card = Card("Movement")
+        form = Form()
+        from PySide6.QtWidgets import QComboBox
+
+        from viewer.display_mode import SPEEDS
+
+        self.speed = QComboBox()
+        self.speed.addItems(list(SPEEDS))
+        self.speed.setCurrentText(prefs.get("display_speed"))
+        form.row("Speed", self.speed)
+        self.direction = QComboBox()
+        self.direction.addItems(["Counter-clockwise", "Clockwise"])
+        self.direction.setCurrentText(prefs.get("display_direction"))
+        form.row("Direction", self.direction)
+        card.add(form)
+        self.tour = QCheckBox(f"Fly between the saved views ({saved_views} saved)" if saved_views
+                              else "Fly between the saved views (save some views first)")
+        self.tour.setChecked(prefs.get("display_tour"))
+        self.tour.setEnabled(saved_views > 1)
+        card.add(self.tour)
+        layout.addWidget(card)
+
+        card = Card("Shown")
+        self.changes = QCheckBox("Change highlights and area boxes")
+        self.changes.setChecked(prefs.get("display_changes"))
+        card.add(self.changes)
+        self.notes = QCheckBox("Notes")
+        self.notes.setChecked(prefs.get("display_notes"))
+        card.add(self.notes)
+        self.fullscreen = QCheckBox("Full screen")
+        self.fullscreen.setChecked(prefs.get("display_fullscreen"))
+        card.add(self.fullscreen)
+        form = Form()
+        self.caption = QLineEdit(prefs.get("display_caption"))
+        self.caption.setPlaceholderText("Optional, for example: Quay 4 · survey May 2026")
+        form.row("Caption", self.caption)
+        card.add(form)
+        card.add(hint("Any key or click ends the display. The screen stays on while it runs."))
+        layout.addWidget(card)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Start")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def accept(self):
+        prefs.set("display_speed", self.speed.currentText())
+        prefs.set("display_direction", self.direction.currentText())
+        prefs.set("display_tour", self.tour.isChecked())
+        prefs.set("display_changes", self.changes.isChecked())
+        prefs.set("display_notes", self.notes.isChecked())
+        prefs.set("display_fullscreen", self.fullscreen.isChecked())
+        prefs.set("display_caption", self.caption.text().strip())
+        super().accept()

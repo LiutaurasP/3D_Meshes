@@ -1000,6 +1000,32 @@ def workflow_checks():
     window.export_aligned_scan(str(folder / "b.laz"))
     exported = read_scan(folder / "b.laz")
     check("aligned scan B exports as LAZ", len(exported.points) == len(window.clouds[window.source_name].points))
+    display_checks()
+
+
+def display_checks():
+    """Display Mode: turns by itself, hides the panel, any key ends it and restores everything."""
+    scene = window.scene
+    scene.look_from("Iso", animate=False)
+    state["display_before"] = scene.current_view()
+    state["dock_before"] = window.dock.isVisible()
+    window.start_display_mode(fullscreen=False)
+    check("display mode hides the side panel", window.display_mode.active and not window.dock.isVisible())
+    then(1500, display_running)
+
+
+def display_running():
+    moved = np.linalg.norm(np.subtract(window.scene.current_view()["position"], state["display_before"]["position"]))
+    check("display mode turns the camera by itself", moved > 0.1)
+    check("the logo and title are drawn", len(window.display_mode._props) >= 2)
+    QTest.keyClick(window, Qt.Key_Space)
+    then(1500, display_ended)
+
+
+def display_ended():
+    check("any key ends display mode", not window.display_mode.active and window.dock.isVisible() == state["dock_before"])
+    check("the screen may sleep again afterwards", window.display_mode.keep_awake.process is None)
+    check("the overlay is removed", not window.display_mode._props)
     finish()
 
 

@@ -738,6 +738,21 @@ class MainWindow(QMainWindow):
         self.sidebar.show_series(None)
         self.history.clear()
 
+    # Display Mode
+
+    def start_display_mode(self, fullscreen=None):
+        from viewer.display_mode import DisplayMode
+
+        if getattr(self, "display_mode", None) is None:
+            self.display_mode = DisplayMode(self)
+        self.display_mode.start(fullscreen)
+
+    def display_mode_settings(self):
+        from viewer.dialogs import DisplayModeDialog
+
+        if DisplayModeDialog(self, len(self.saved_views)).exec():
+            self.start_display_mode()
+
     # Height difference map
 
     def height_map_data(self):

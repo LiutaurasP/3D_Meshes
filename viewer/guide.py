@@ -81,6 +81,7 @@ CHAPTERS = [
         (key("B"), "before / after swipe"),
         (key("X"), "cross section"),
         (key("H"), "height difference map"),
+        (key("Cmd") + " " + key("Shift") + " " + key("P"), "Display Mode (slowly turning, full screen)"),
         (key("T"), "measure a distance"),
         (key("N"), "pin a note in 3D"),
         (key("L") + " / " + key("Shift") + " " + key("L"), "delete points / keep only points with a lasso"),
@@ -214,6 +215,15 @@ CHAPTERS = [
         ("<b>Tag</b>", "debris, scour, sediment, damage, structure, marine growth or false alarm"),
         ("<b>Status</b>", "open, checked or resolved, plus a comment, all saved and listed in the report"),
         ("<b>Detect again</b>", "areas at the same place keep their tag, status and comment"),
+    ]), False),
+
+    ("Display Mode", P + "For presentations and trade fair stands: the scan turns slowly on its own, full "
+     "screen, with the Subdron logo and a caption.</p>" + keys_table([
+        ("<b>Start</b> " + key("Cmd") + " " + key("Shift") + " " + key("P"), "View → Display Mode"),
+        ("<b>Stop</b>", "any key or click; everything is put back as it was"),
+        ("<b>Settings</b>", "View → Display Mode Settings: speed, direction, caption, what is shown"),
+        ("<b>Tour</b>", "with two or more saved views it flies from one to the next"),
+        ("<b>Screen</b>", "stays on while the display runs"),
     ]), False),
 
     ("Sharing results", keys_table([

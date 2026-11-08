@@ -10,6 +10,14 @@ DEFAULTS = {
     "display_limit_millions": 8.0,  # above this many points, draw an evenly spread part of them
     "restore_last_layout": True,
     "inspector_name": "",  # filled into new change reports
+    # Display Mode
+    "display_speed": "Normal",
+    "display_direction": "Counter-clockwise",
+    "display_changes": True,  # show change highlights and area boxes
+    "display_notes": True,
+    "display_tour": True,  # fly between the saved views, if there are any
+    "display_fullscreen": True,
+    "display_caption": "",
 }
 
 
