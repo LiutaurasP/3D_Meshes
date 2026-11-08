@@ -80,6 +80,7 @@ CHAPTERS = [
         (key("Cmd") + " " + key("K"), "command palette: type to find any command"),
         (key("B"), "before / after swipe"),
         (key("X"), "cross section"),
+        (key("H"), "height difference map"),
         (key("T"), "measure a distance"),
         (key("N"), "pin a note in 3D"),
         (key("L") + " / " + key("Shift") + " " + key("L"), "delete points / keep only points with a lasso"),
@@ -157,6 +158,10 @@ CHAPTERS = [
          ("<b>Smallest area</b>", "smaller groups of changed points are ignored as noise"),
          ("<b>+ added</b>", "something new: an object, sediment, a bulge"),
          ("<b>&minus; removed</b>", "something gone: scour, a hole, a missing rock"),
+         ("<b>Volume</b>", "m³ added or removed per area, with its error margin (± m³)"),
+         ("<b>Level of detection</b>", "the smallest difference that is real with 95 % certainty, from the "
+                                       "sonar noise; areas close to it are marked \"likely\" or \"uncertain\""),
+         ("<b>Height map</b> " + key("H"), "the site from above, red where B is higher, blue where it is lower"),
      ]) + '<p style="margin:8px 0 0 0;">' + dim(
          "Always align first, otherwise the misalignment itself looks like change. "
          "For example scenes the panel also says how much of the true change was found.") + "</p>",

@@ -52,11 +52,12 @@ class ChangeWorker(QThread):
 
     def run(self):
         from change_detection import detect_changes
+        from volumes import measure_areas
 
-        self.done.emit(detect_changes(
-            self.cloud_a, self.aligned_b,
-            threshold=self.threshold, min_area_points=self.min_area_points,
-        ))
+        result = detect_changes(self.cloud_a, self.aligned_b,
+                                threshold=self.threshold, min_area_points=self.min_area_points)
+        measure_areas(result, self.cloud_a.points, self.aligned_b.points)  # volumes and confidence
+        self.done.emit(result)
 
 
 class DataWorker(QThread):

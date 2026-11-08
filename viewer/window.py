@@ -576,6 +576,34 @@ class MainWindow(QMainWindow):
             return
         super().keyPressEvent(event)
 
+    # Height difference map
+
+    def height_map_data(self):
+        """(grid, extent, cell) of B minus A seen from above, in real coordinates."""
+        from viewer.heightmap import compute_map
+
+        points_a = np.asarray(self.clouds[self.target_name].points)
+        matrix = np.asarray(self.scene.matrices[self.source_name])
+        points_b = np.asarray(self.clouds[self.source_name].points) @ matrix[:3, :3].T + matrix[:3, 3]
+        lod = self.change_result.lod if self.change_result is not None else None
+        return compute_map(points_a, points_b, self.inspections.offset, lod)
+
+    def show_height_map(self):
+        from viewer.heightmap import HeightMapWindow
+
+        if self.align_steps is None:
+            self.notify("Scan B is not aligned", "The map would mostly show the misalignment. Align first.", "warning")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            grid, extent, cell = self.height_map_data()
+        finally:
+            QApplication.restoreOverrideCursor()
+        if getattr(self, "height_map_window", None) is None:
+            self.height_map_window = HeightMapWindow(self)
+        areas = self.change_result.areas if self.change_result is not None else []
+        lod = self.change_result.lod if self.change_result is not None else None
+        self.height_map_window.show_map(grid, extent, cell, areas, self.inspections.offset, lod)
+
     # Before / after swipe
 
     def set_swipe(self, enabled):
@@ -1055,6 +1083,14 @@ class MainWindow(QMainWindow):
             summary = "<b>No changes found</b>"
         summary += f"<br>Threshold {result.threshold * 100:.1f} cm"
         summary += " (auto)" if self.settings.data.auto_threshold else ""
+        if result.lod is not None:
+            from volumes import format_volume
+
+            added = sum(a.volume_added or 0 for a in result.areas)
+            removed = sum(a.volume_removed or 0 for a in result.areas)
+            summary += f" · level of detection {result.lod * 100:.1f} cm"
+            if result.areas:
+                summary += f"<br>Volume: <b>+{format_volume(added)}</b> added, <b>−{format_volume(removed)}</b> removed"
 
         truth = self.inspections.truth
         if truth:
@@ -1072,12 +1108,21 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _area_text(area):
+        from volumes import area_volume_text
+
         length, width, height = area.size
-        return f"{area.kind}, {length:.1f} × {width:.1f} × {height:.1f} m, up to {area.peak:+.2f} m, {area.n_points:,} points"
+        volume = area_volume_text(area)
+        volume = f", {volume}" if volume else ""
+        sure = f" ({area.confidence})" if area.confidence and area.confidence != "clear" else ""
+        return (f"{area.kind}{sure}, {length:.1f} × {width:.1f} × {height:.1f} m, up to {area.peak:+.2f} m"
+                f"{volume}, {area.n_points:,} points")
 
     @staticmethod
     def _area_label(number, area):
-        return f"{number}: {area.kind} {area.peak:+.2f} m"
+        from volumes import area_volume_text
+
+        volume = area_volume_text(area).split(" ±")[0]
+        return f"{number}: {area.kind} {area.peak:+.2f} m" + (f" · {volume}" if volume else "")
 
     def _area_labels(self, areas, limit=10):
         """Labels for the biggest areas only (the list is sorted by size), the rest get just a box."""

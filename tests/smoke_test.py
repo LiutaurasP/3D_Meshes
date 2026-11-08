@@ -280,6 +280,22 @@ def after_detection():
     check("area boxes are drawn", len(window.scene.area_actors) == len(result.areas) + labelled)
     check("areas are listed", window.sidebar.area_list.count() == len(result.areas))
     check("score against the true change is shown", "found" in window.sidebar.change_info.text())
+    scour = result.areas[0]
+    check("the scour volume is measured", scour.volume_removed is not None and 2.0 < scour.volume_removed < 9.0)
+    check("level of detection and confidence are given", result.lod and 0 < result.lod < 0.2
+          and scour.confidence == "clear" and "level of detection" in window.sidebar.change_info.text())
+    window.show_height_map()
+    check("height difference map opens", window.height_map_window.isVisible())
+    grid = window.height_map_window.last[0]
+    check("the map shows the scour as lower", np.nanmin(grid) < -0.3)
+    window.height_map_window.close()
+    import tempfile
+    from viewer import project as project_file
+    path = Path(tempfile.mkdtemp()) / "volumes.subdron"
+    window.write_project(path)
+    loaded = project_file.load(path)[2]
+    check("volumes are stored in the project", abs(loaded.areas[0].volume_removed - scour.volume_removed) < 1e-6
+          and loaded.lod == result.lod)
     window.sidebar.area_list.setCurrentRow(0)
     window.sidebar.color_mode.setCurrentText("Change")
     check("change colours are used", "Change (m): - removed / + added" in window.scene.plotter.scalar_bars.keys())

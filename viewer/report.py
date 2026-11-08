@@ -58,6 +58,9 @@ def collect(window):
             "areas": len(result.areas),
             "changed": int(result.n_changed),
             "share": float(result.share_changed),
+            "lod": result.lod,
+            "added": sum(a.volume_added or 0 for a in result.areas),
+            "removed": sum(a.volume_removed or 0 for a in result.areas),
         }
         for number, area in enumerate(result.areas, start=1):
             info["areas"].append({
@@ -67,6 +70,9 @@ def collect(window):
                 "size": [float(v) for v in area.size],
                 "center": [float(v) for v in np.asarray(area.center) + offset],
                 "points": int(area.n_points),
+                "volume": area.volume,
+                "volume_error": area.volume_error,
+                "confidence": area.confidence,
             })
     return info
 
@@ -191,8 +197,8 @@ def facts_table(pages, rows):
 
 
 def areas_table(pages, areas, names):
-    columns = [("#", 24), ("Change", 64), ("Biggest", 62), ("Size x × y × z (m)", 108),
-               ("Centre x, y (m)", 126), ("Depth", 50), ("Points", 0)]
+    columns = [("#", 20), ("Change", 56), ("Biggest", 48), ("Volume (m³)", 84), ("Size x × y × z (m)", 92),
+               ("Centre x, y (m)", 122), ("Depth", 0)]
     widths = [w for _, w in columns]
     widths[-1] = PAGE_W - 2 * MARGIN - sum(widths[:-1])
 
@@ -216,11 +222,20 @@ def areas_table(pages, areas, names):
         sx, sy, sz = area["size"]
         cx, cy, cz = area["center"]
         kind = "added" if area["kind"] == "added" else "removed"
-        values = [str(area["number"]), kind, f"{area['peak'] * 100:+.0f} cm", f"{sx:.1f} × {sy:.1f} × {sz:.1f}",
-                  f"{cx:.1f}, {cy:.1f}", f"{-cz:.1f} m", f"{area['points']:,}"]
+        volume = ""
+        if area.get("volume") is not None:
+            from volumes import format_volume
+
+            volume = ("+" if area["volume"] >= 0 else "−") + format_volume(area["volume"]).replace(" m³", "")
+            if area.get("volume_error"):
+                volume += f" ± {format_volume(area['volume_error']).replace(' m³', '')}"
+        if area.get("confidence") and area["confidence"] != "clear":
+            kind = f"{kind}?"
+        values = [str(area["number"]), kind, f"{area['peak'] * 100:+.0f} cm", volume,
+                  f"{sx:.1f} × {sy:.1f} × {sz:.1f}", f"{cx:.1f}, {cy:.1f}", f"{-cz:.1f} m"]
         x = MARGIN
         for index, (value, width) in enumerate(zip(values, widths)):
-            color = (ADDED if kind == "added" else REMOVED) if index == 1 else INK
+            color = (ADDED if kind.startswith("added") else REMOVED) if index == 1 else INK
             pages.font(9, bold=index == 1, color=color)
             pages.painter.drawText(QRectF(x, pages.y, width, 15), Qt.AlignLeft | Qt.AlignVCenter, value)
             x += width
@@ -230,7 +245,7 @@ def areas_table(pages, areas, names):
         pages.y += 1
 
 
-def write_pdf(path, info, overview, close_ups):
+def write_pdf(path, info, overview, close_ups, height_map=None):
     pages = Pages(path, f"Change report – {info['title']}")
     painter = pages.painter
 
@@ -263,6 +278,13 @@ def write_pdf(path, info, overview, close_ups):
         rows.append(("Threshold", f"{detection['threshold'] * 100:.1f} cm" + (" (automatic)" if detection["auto"] else "")))
         rows.append(("Result", f"{detection['areas']} changed area{'s' if detection['areas'] != 1 else ''}, "
                                f"{detection['changed']:,} changed points ({detection['share']:.1%})"))
+        if detection.get("lod") is not None:
+            from volumes import format_volume
+
+            rows.append(("Volume", f"+{format_volume(detection['added'])} added, "
+                                   f"−{format_volume(detection['removed'])} removed"))
+            rows.append(("Level of detection", f"{detection['lod'] * 100:.1f} cm (95 %): smaller differences "
+                                               f"cannot be told apart from the sonar noise"))
     else:
         rows.append(("Result", "Changes were not detected yet"))
     facts_table(pages, rows)
@@ -281,6 +303,18 @@ def write_pdf(path, info, overview, close_ups):
                    "removed means material that is gone (scour, a hole, a missing block). "
                    "Depth is below the water surface.", 9, color=DIM, gap=8)
         areas_table(pages, info["areas"], info["names"])
+        if any(a.get("confidence") not in (None, "clear") for a in info["areas"]):
+            pages.y += 4
+            pages.text("? = the change is close to the level of detection: worth checking again.", 8.5, color=DIM)
+
+    if height_map is not None:
+        height = (PAGE_W - 2 * MARGIN) * height_map.height() / max(height_map.width(), 1)
+        pages.heading("Height difference map", keep=height + 20)
+        pages.image(height_map, MARGIN, PAGE_W - 2 * MARGIN, height)
+        pages.y += height + 4
+        pages.text("Seen from above: red where scan B is higher (material added), blue where it is lower "
+                   "(removed). Numbers are the changed areas. Vertical walls only show as a thin line from above.", 8.5,
+                   color=DIM)
 
     if close_ups:
         width = (PAGE_W - 2 * MARGIN - 14) / 2
@@ -318,4 +352,10 @@ def export_report(window, path):
     """Make the report for the window's current state; returns the number of pages."""
     info = collect(window)
     overview, close_ups = pictures(window)
-    return write_pdf(path, info, overview, close_ups)
+    height_map = None
+    if window.change_result is not None:
+        from viewer.heightmap import map_image
+
+        grid, extent, cell = window.height_map_data()
+        height_map = map_image(grid, extent, cell, window.change_result.areas, window.inspections.offset)
+    return write_pdf(path, info, overview, close_ups, height_map)

@@ -40,6 +40,21 @@ class ChangeArea:
     high: np.ndarray
     peak: float  # largest signed distance in metres (+ added, - removed)
     n_points: int
+    # Filled in by volumes.measure_areas
+    volume_added: float = None  # m³
+    volume_removed: float = None
+    volume_error: float = None  # ± m³
+    footprint: float = None  # m², the part that changed more than the level of detection
+    cell: float = None
+    lod: float = None
+    confidence: str = None  # "clear", "likely" or "uncertain"
+
+    @property
+    def volume(self):
+        """Net volume in m³ (+ added, - removed), None if it could not be measured."""
+        if self.volume_added is None:
+            return None
+        return self.volume_added - self.volume_removed
 
     @property
     def size(self):
@@ -63,6 +78,8 @@ class ChangeResult:
     threshold: float
     spacing: float  # typical distance between neighbouring points
     areas: list = field(default_factory=list)
+    noise: float = None  # noise of the unchanged surface (metres, 1 sigma), see volumes.py
+    lod: float = None  # level of detection (95 %), see volumes.py
 
     @property
     def n_changed(self):

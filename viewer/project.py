@@ -46,6 +46,9 @@ def steps_from_json(data):
     return [AlignStep(np.array(s["matrix"], dtype=float).reshape(4, 4), s["fitness"], s["rmse"]) for s in data]
 
 
+AREA_MEASUREMENTS = ("volume_added", "volume_removed", "volume_error", "footprint", "cell", "lod", "confidence")
+
+
 def changes_to_files(result):
     """ChangeResult -> (json summary, arrays for the npz)."""
     arrays = {
@@ -59,18 +62,21 @@ def changes_to_files(result):
         arrays[f"area{i}_a"] = area.index_a
         arrays[f"area{i}_b"] = area.index_b
         areas.append({"low": area.low.tolist(), "high": area.high.tolist(),
-                      "peak": area.peak, "n_points": area.n_points})
-    summary = {"threshold": result.threshold, "spacing": result.spacing, "areas": areas}
+                      "peak": area.peak, "n_points": area.n_points,
+                      **{key: getattr(area, key) for key in AREA_MEASUREMENTS}})
+    summary = {"threshold": result.threshold, "spacing": result.spacing, "areas": areas,
+               "noise": result.noise, "lod": result.lod}
     return summary, arrays
 
 
 def changes_from_files(summary, arrays):
     areas = [ChangeArea(arrays[f"area{i}_a"], arrays[f"area{i}_b"], np.array(a["low"]), np.array(a["high"]),
-                        a["peak"], a["n_points"]) for i, a in enumerate(summary["areas"])]
+                        a["peak"], a["n_points"], **{key: a.get(key) for key in AREA_MEASUREMENTS})
+             for i, a in enumerate(summary["areas"])]
     return ChangeResult(
         arrays["distance_a"].astype(float), arrays["distance_b"].astype(float),
         arrays["changed_a"].astype(bool), arrays["changed_b"].astype(bool),
-        summary["threshold"], summary["spacing"], areas,
+        summary["threshold"], summary["spacing"], areas, summary.get("noise"), summary.get("lod"),
     )
 
 
