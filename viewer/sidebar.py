@@ -767,13 +767,14 @@ class Sidebar(QWidget):
             card = Card(title, expanded=expanded)
             if title == "Quick start":
                 card.add(self._tutorial_row())
-                card.add(self._tutorial_row(advanced=True))
             text = QLabel(html)
             text.setObjectName("guideText")
             text.setWordWrap(True)
             text.setTextFormat(Qt.RichText)
             text.setTextInteractionFlags(Qt.TextSelectableByMouse)
             card.add(text)
+            if title == "Quick start":
+                card.add(self._tutorial_row(advanced=True))  # after the steps: for when the basics are known
             layout.addWidget(card)
         layout.addStretch()
         return page
@@ -796,7 +797,9 @@ class Sidebar(QWidget):
                           "minutes.</span>")
         text.setWordWrap(True)
         layout.addWidget(text, 1)
-        start = button("Advanced Tutorial" if advanced else "Start Tutorial", primary=not advanced)
+        start = button("Advanced Tutorial" if advanced else "Start Tutorial", primary=True)
+        if advanced:  # blue as well, a deeper shade, so the two don't look like the same button
+            start.setStyleSheet("QPushButton { background: #4a5fe0; } QPushButton:hover { background: #5c70ea; }")
         start.clicked.connect(lambda: self.callbacks["advanced_tutorial" if advanced else "tutorial"]())
         layout.addWidget(start, 0, Qt.AlignVCenter)
         if advanced:

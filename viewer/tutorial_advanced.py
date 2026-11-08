@@ -60,7 +60,7 @@ def summary_card(number, learned, items):
         f"<td style='padding:5px 0; color:#9a9da7;'>{meaning}</td></tr>"
         for what, meaning in items)
     return dict(eyebrow=f"Chapter {number} of 6  ·  what you learned", heading=f"Chapter {number} complete.",
-                body=f"{learned}<br><br><table cellspacing='0'>{rows}</table>",
+                body=f"<p style='margin:0 0 4px 0;'>{learned}</p><table cellspacing='0'>{rows}</table>",
                 button="Next chapter" if number < 6 else "Finish")
 
 
@@ -91,6 +91,7 @@ class AdvancedTutorial(TutorialBase):
         self.visited = set()
         self.waiting_for = None  # (older, newer): comparison that has to be aligned and detected first
         self.targets = []  # points the user is asked to click (chapter 4)
+        self.looking = set()  # steps that are done and wait for Continue (time to look)
         self.target_actors = []
 
     # Start and end
@@ -140,7 +141,20 @@ class AdvancedTutorial(TutorialBase):
                 window.leave_series()
             window.open_default_scene()
 
+    def done_look_around(self):
+        """The task of this step is done: celebrate, show Continue and let the user look as long as they like."""
+        if self.step in self.looking:
+            return
+        self.looking.add(self.step)
+        self._busy = False
+        self.card.celebrate()
+        self.card.set_task(None)
+        self.card.show_button("Continue")
+
     def on_continue(self):
+        if self.step in self.looking and not self.confirming:
+            self.advance()
+            return
         if getattr(self, "_shown_waiting", False):
             return  # the scans are still being aligned and compared
         if self.step == "c4_heightmap" and not getattr(self, "_map_opened", False):
@@ -757,8 +771,9 @@ class AdvancedTutorial(TutorialBase):
             self.advance(delay=900)
             return
         if step == "c1_detect" and self._busy and window.change_result is not None:
-            self._busy = False
-            self.advance(delay=1600)  # a moment to look at the ring before moving on
+            self.done_look_around()  # time to look at the ring
+            return
+        if step in self.looking:
             return
         if self._busy and step not in ("c1_animation", "c6_display"):
             return
@@ -779,11 +794,10 @@ class AdvancedTutorial(TutorialBase):
             if seen == 2 and back:
                 self.waiting_for = (SPRING, AFTER)
                 if self.ready():
-                    self.advance(delay=700)
+                    self.done_look_around()
         elif step == "c1_animation" and self._animated:
             if not window.change_animation.active:
-                self._busy = False
-                self.advance(delay=500)
+                self.done_look_around()
         elif step == "c2_lasso" and self.fish_before:
             left = self.fish_count() / self.fish_before
             self.card.set_task(1 - left)
@@ -805,16 +819,16 @@ class AdvancedTutorial(TutorialBase):
             window.sidebar.show_changes.setChecked(False)  # the yellow highlight would hide the colours
             self.card.mark("colours", "done")
             self.card.mark("change", "done")
-            self.advance(delay=900)
+            self.done_look_around()
         elif step == "c3_swipe" and self.scene.swipe:
             moved = abs(self.scene.swipe["fraction"] - 0.5)
             self.card.set_task(moved / 0.2)
             if moved >= 0.2:
-                self.advance(delay=900)
+                self.done_look_around()  # keep swiping as long as you like
         elif step == "c3_minimap" and self.scene.minimap is not None:
             start = getattr(self, "_minimap_view", None)
             if start is not None and np.linalg.norm(np.subtract(view["focal_point"], start["focal_point"])) > 2.0:
-                self.advance(delay=1400)
+                self.done_look_around()
         elif step in ("c4_section", "c4_measure"):
             picked = len(window._pick["points"]) if window._pick is not None else 0
             if picked >= 1:

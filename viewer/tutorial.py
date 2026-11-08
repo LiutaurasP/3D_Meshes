@@ -110,8 +110,8 @@ class TutorialCard(QWidget):
         self._typed = 0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(34, 26, 34, 24)
-        layout.setSpacing(10)
+        layout.setContentsMargins(32, 18, 32, 16)
+        layout.setSpacing(6)
         self.eyebrow = QLabel()
         layout.addWidget(self.eyebrow)
         self.heading = QLabel()
@@ -121,7 +121,7 @@ class TutorialCard(QWidget):
         self.body.setWordWrap(True)
         self.body.setTextFormat(Qt.RichText)
         layout.addWidget(self.body)
-        layout.addSpacing(4)
+        layout.addSpacing(2)
 
         self.keys_row = QHBoxLayout()
         self.keys_row.setSpacing(5)
@@ -132,7 +132,7 @@ class TutorialCard(QWidget):
         layout.addWidget(self.hint)
 
         footer = QHBoxLayout()
-        footer.setContentsMargins(0, 8, 0, 0)
+        footer.setContentsMargins(0, 2, 0, 0)
         self.leave = QPushButton("Esc  ·  leave tutorial")
         self.leave.setCursor(Qt.PointingHandCursor)
         self.leave.setStyleSheet(f"QPushButton {{ background: none; border: none; color: {TEXT_FAINT}; font-size: 12px; }}"
@@ -170,8 +170,8 @@ class TutorialCard(QWidget):
         """step: dict with eyebrow, heading, body, keys [(label, id)], button, position, big."""
         big = step.get("big", False)
         self.position = step.get("position", "bottom")
-        self.setFixedWidth(660 if big else 580)
-        inner = self.width() - 68  # minus the margins: wrapped text needs its real width to know its height
+        self.setFixedWidth(820 if big else 760)  # wide and flat: covers as little of the scans as possible
+        inner = self.width() - 64  # minus the margins: wrapped text needs its real width to know its height
         for label in (self.heading, self.body, self.hint):
             label.setFixedWidth(inner)
         self.eyebrow.setText(step.get("eyebrow", "").upper())
@@ -224,13 +224,13 @@ class TutorialCard(QWidget):
         margins = layout.contentsMargins()
         inner = self.width() - margins.left() - margins.right()
         parts = [self.eyebrow.sizeHint().height(), self.heading.heightForWidth(inner),
-                 self.body.heightForWidth(inner), 4]
+                 self.body.heightForWidth(inner), 2]
         if self.chips or self.keys_row.count() > 1:
             parts.append(max(widget.sizeHint().height() for widget in self.findChildren(QLabel)
                              if self.keys_row.indexOf(widget) >= 0))
         if not self.hint.isHidden():
             parts.append(self.hint.heightForWidth(inner))
-        parts.append(8 + max(self.next.sizeHint().height(), self.leave.sizeHint().height()))
+        parts.append(2 + max(self.next.sizeHint().height(), self.leave.sizeHint().height()))
         height = margins.top() + margins.bottom() + sum(parts) + layout.spacing() * (len(parts) - 1)
         layout.activate()
         self.setFixedHeight(max(height, layout.totalHeightForWidth(self.width())))
@@ -245,6 +245,15 @@ class TutorialCard(QWidget):
     def set_hint(self, text):
         self.hint.setText(text)
         self.hint.setVisible(bool(text))
+        self.fit_height()
+        self.place()
+
+    def show_button(self, text="Continue"):
+        """Show the card's button now (the task is done: move on when you're ready)."""
+        if self.next.isVisible():
+            return
+        self.next.setText(f"{text}  ↵")
+        self.next.setVisible(True)
         self.fit_height()
         self.place()
 
@@ -276,7 +285,7 @@ class TutorialCard(QWidget):
         if self.position == "center":
             y = corner.y() + (view.height() - self.height()) // 2
         else:
-            y = corner.y() + view.height() - self.height() - 46
+            y = corner.y() + view.height() - self.height() - 14  # close to the bottom edge
         target = QPoint(x, y)
         if animate:
             self.slide.stop()

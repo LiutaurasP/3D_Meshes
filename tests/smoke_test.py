@@ -1266,6 +1266,13 @@ def tutorial_done():
 # Advanced tutorial: six chapters on the wind turbine foundation
 
 
+def looked_at(name):
+    """A look-around step is done and waits for Continue: press Enter, like a user would."""
+    return [("until", lambda: window.in_tutorial() and name in window.tutorial.looking),
+            (lambda: check(f"{name} waits for Continue instead of moving on", window.tutorial.step == name), 50),
+            (lambda: key(Qt.Key_Return), 400)]
+
+
 def ready_at(name):
     return lambda: at(name)() and not getattr(window.tutorial, "_shown_waiting", False)
 
@@ -1314,15 +1321,16 @@ def advanced_tutorial_checks():
                            not window.is_aligned() and window.change_result is None), 50),
             (lambda: key(Qt.Key_L, Qt.ControlModifier), 300), ("until", at("c1_detect")),
             (lambda: check("…the user aligns the scans", window.is_aligned()), 50),
-            (lambda: key(Qt.Key_D, Qt.ControlModifier), 300), ("until", at("c1_timeline")),
+            (lambda: key(Qt.Key_D, Qt.ControlModifier), 300)] + looked_at("c1_detect") + [("until", at("c1_timeline")),
             (lambda: check("…and finds the changes", window.change_result is not None
                            and window.sidebar.timeline_auto.isChecked()), 50)]
     for newer in (1, 2):
         plan += [(lambda n=newer: window.sidebar.timeline.setValue(n), 300),
                  ("until", lambda: window.is_aligned() and window.change_result is not None)]
-    plan += [(lambda: window.sidebar.timeline.setValue(3), 300), ("until", ready_at("c1_animation")),
+    plan += [(lambda: window.sidebar.timeline.setValue(3), 300)] + looked_at("c1_timeline") + [
+             ("until", ready_at("c1_animation")),
              (lambda: check("scrubbing the Timeline moves the tutorial on", True), 50),
-             (lambda: key(Qt.Key_P), 300), ("until", at("c1_done")),
+             (lambda: key(Qt.Key_P), 300)] + looked_at("c1_animation") + [("until", at("c1_done")),
              (lambda: check("the change animation played", not window.change_animation.active), 50),
              (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c2")), (lambda: key(Qt.Key_Return), 400),
              ("until", ready_at("c2_fish")),
@@ -1340,12 +1348,14 @@ def advanced_tutorial_checks():
                             window.history.stack.text(window.history.stack.index() - 1) == "Remove Stray Points"), 50),
              (lambda: key(Qt.Key_Return), 400), ("until", at("c2_done")), (lambda: key(Qt.Key_Return), 400),
              ("until", ready_at("c3")), (lambda: key(Qt.Key_Return), 400), ("until", at("c3_colours")),
-             (lambda: window.sidebar.color_mode.setCurrentText("Change"), 300), ("until", at("c3_swipe")),
-             (lambda: key(Qt.Key_B), 300), (lambda: window.scene.set_swipe_fraction(0.8), 300),
+             (lambda: window.sidebar.color_mode.setCurrentText("Change"), 300)] + looked_at("c3_colours") + [
+             ("until", at("c3_swipe")),
+             (lambda: key(Qt.Key_B), 300), (lambda: window.scene.set_swipe_fraction(0.8), 300)] + looked_at("c3_swipe") + [
              ("until", at("c3_minimap")),
              (lambda: check("the swipe is put away after its step", not window.scene.swipe), 50),
              (lambda: key(Qt.Key_M, Qt.ShiftModifier), 300),
-             (lambda: window.scene.look_at_xy(np.array([12.0, 12.0])), 300), ("until", at("c3_done")),
+             (lambda: window.scene.look_at_xy(np.array([12.0, 12.0])), 300)] + looked_at("c3_minimap") + [
+             ("until", at("c3_done")),
              (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c4")), (lambda: key(Qt.Key_Return), 400),
              ("until", at("c4_explain")),
              (lambda: check("chapter 4 marks where to click", len(window.tutorial.targets) == 2), 50),
