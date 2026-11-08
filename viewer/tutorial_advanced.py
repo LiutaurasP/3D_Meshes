@@ -532,7 +532,7 @@ class AdvancedTutorial(TutorialBase):
                 body=body("Timeline, cleaning, comparing, measuring, judging and reporting: you've used all of it.",
                           "Everything is unlocked now. Stay at the wind farm and explore, or press Esc to go back "
                           "to the harbour quay."),
-                button="Keep exploring", leave_text="Esc  ·  back to the harbour quay"),
+                button="Keep exploring", leave_text="Back to the harbour quay    Esc"),
         }
 
     # Entering a step: set the scene up for it

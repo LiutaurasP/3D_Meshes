@@ -117,36 +117,43 @@ class TutorialCard(QWidget):
         self._typed = 0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 18, 32, 16)
+        layout.setContentsMargins(32, 16, 24, 16)
         layout.setSpacing(6)
+
+        # The blue line, with a quiet "Leave tutorial  Esc" in the top-right corner, and the title right under it
+        header = QHBoxLayout()
+        header.setSpacing(12)
         self.eyebrow = QLabel()
-        layout.addWidget(self.eyebrow)
+        header.addWidget(self.eyebrow, 1)
+        self.leave = QPushButton()
+        self.leave.setCursor(Qt.PointingHandCursor)
+        self.leave.setStyleSheet(
+            f"QPushButton {{ background: none; color: {TEXT_DIM}; border: 1px solid rgba(255, 255, 255, 0.13);"
+            f" border-radius: 7px; padding: 3px 9px; font-size: 12px; }}"
+            f"QPushButton:hover {{ color: {TEXT}; border-color: rgba(255, 255, 255, 0.32); }}")
+        self.leave.clicked.connect(on_leave)
+        header.addWidget(self.leave, 0, Qt.AlignTop)
+        layout.addLayout(header)
         self.heading = QLabel()
         self.heading.setWordWrap(True)
+        self.heading.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.heading)
+        layout.addSpacing(-4)  # the title sits close under the blue line
         self.body = QLabel()
         self.body.setWordWrap(True)
         self.body.setTextFormat(Qt.RichText)
         layout.addWidget(self.body)
         layout.addSpacing(2)
 
+        # Keys on the left, the button on the right, in one row
         self.keys_row = QHBoxLayout()
         self.keys_row.setSpacing(5)
         layout.addLayout(self.keys_row)
         self.hint = QLabel()
-        self.hint.setStyleSheet(f"color: {WARNING}; font-size: 13px;")
+        self.hint.setStyleSheet(f"color: {WARNING}; font-size: 14px;")
         self.hint.hide()
         layout.addWidget(self.hint)
 
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 2, 0, 0)
-        self.leave = QPushButton("Esc  ·  leave tutorial")
-        self.leave.setCursor(Qt.PointingHandCursor)
-        self.leave.setStyleSheet(f"QPushButton {{ background: none; border: none; color: {TEXT_FAINT}; font-size: 12px; }}"
-                                 f"QPushButton:hover {{ color: {TEXT_DIM}; }}")
-        self.leave.clicked.connect(on_leave)
-        footer.addWidget(self.leave)
-        footer.addStretch()
         self.next = QPushButton("Continue")
         self.next.setCursor(Qt.PointingHandCursor)
         self.next.setStyleSheet(
@@ -154,8 +161,6 @@ class TutorialCard(QWidget):
             f" padding: 8px 18px; font-size: 14px; font-weight: 600; }}"
             f"QPushButton:hover {{ background: #5590f7; }}")
         self.next.clicked.connect(on_continue)
-        footer.addWidget(self.next)
-        layout.addLayout(footer)
 
         self.chips = {}
         self.fade = QPropertyAnimation(self, b"windowOpacity", self)
@@ -178,18 +183,17 @@ class TutorialCard(QWidget):
         big = step.get("big", False)
         self.position = step.get("position", "bottom")
         self.setFixedWidth(820 if big else 760)  # wide and flat: covers as little of the scans as possible
-        inner = self.width() - 64  # minus the margins: wrapped text needs its real width to know its height
+        inner = self.width() - 56  # minus the margins: wrapped text needs its real width to know its height
         for label in (self.heading, self.body, self.hint):
             label.setFixedWidth(inner)
         self.eyebrow.setText(step.get("eyebrow", "").upper())
         self.eyebrow.setStyleSheet(f"color: {ACCENT}; font-size: 11px; font-weight: 700; letter-spacing: 2px;")
-        size = 38 if big else 25
-        self.heading.setStyleSheet(f"color: {TEXT}; font-size: {size}px; font-weight: 700;")
+        self.heading.setStyleSheet(f"color: {TEXT}; font-size: 30px; font-weight: 700;")  # one size on every card
         text = step.get("body", "")
         if not text.lstrip().startswith("<p"):
             text = body(text)  # a single paragraph: the same spacing as all the others
         self.body.setText(f"<div style='line-height: 125%;'>{text}</div>")
-        self.body.setStyleSheet(f"color: {TEXT_DIM}; font-size: {16 if big else 15}px;")
+        self.body.setStyleSheet(f"color: {TEXT_DIM}; font-size: 16px;")
         self.hint.hide()
         self.task = None
         self._fill = 0.0
@@ -197,7 +201,7 @@ class TutorialCard(QWidget):
 
         while self.keys_row.count():
             item = self.keys_row.takeAt(0)
-            if item.widget():
+            if item.widget() is not None and item.widget() is not self.next:
                 item.widget().deleteLater()
         self.chips = {}
         for label, name in step.get("keys", []):
@@ -214,12 +218,13 @@ class TutorialCard(QWidget):
             self.chips[name] = chip
             self.keys_row.addWidget(chip)
         self.keys_row.addStretch()
+        self.keys_row.addWidget(self.next)
 
         button = step.get("button")
         self.next.setVisible(bool(button))
         self.next.setText(f"{button}  ↵" if button else "")
         self.leave.setVisible(step.get("leave", True))
-        self.leave.setText(step.get("leave_text", "Esc  ·  leave tutorial"))
+        self.leave.setText(step.get("leave_text", "Leave tutorial    Esc"))
 
         self._full_heading = step.get("heading", "")
         self.heading.setText(self._full_heading)  # full text first, so the size is right
@@ -235,15 +240,17 @@ class TutorialCard(QWidget):
         layout = self.layout()
         margins = layout.contentsMargins()
         inner = self.width() - margins.left() - margins.right()
-        parts = [self.eyebrow.sizeHint().height(), self.heading.heightForWidth(inner),
-                 self.body.heightForWidth(inner), 2]
-        if self.chips or self.keys_row.count() > 1:
-            parts.append(max(widget.sizeHint().height() for widget in self.findChildren(QLabel)
-                             if self.keys_row.indexOf(widget) >= 0))
+        gap = layout.spacing()
+        header = max(self.eyebrow.sizeHint().height(), self.leave.sizeHint().height() if self.leave.isVisibleTo(self) else 0)
+        height = margins.top() + header + gap + self.heading.heightForWidth(inner) + gap - 4
+        height += self.body.heightForWidth(inner) + gap + 2
+        row = [self.keys_row.itemAt(i).widget() for i in range(self.keys_row.count())]
+        row = [widget for widget in row if widget is not None and not widget.isHidden()]
+        if row:
+            height += gap + max(widget.sizeHint().height() for widget in row)
         if not self.hint.isHidden():
-            parts.append(self.hint.heightForWidth(inner))
-        parts.append(2 + max(self.next.sizeHint().height(), self.leave.sizeHint().height()))
-        height = margins.top() + margins.bottom() + sum(parts) + layout.spacing() * (len(parts) - 1)
+            height += gap + self.hint.heightForWidth(inner)
+        height += margins.bottom()
         layout.activate()
         self.setFixedHeight(max(height, layout.totalHeightForWidth(self.width())))
 
