@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
                 "scan_visible": self.set_scan_visible,
                 "compare_all": self.align_compare_all,
                 "scan_date": self.set_scan_date,
+                "series_scene": self.open_example_series,
                 "show_track": self.show_track,
                 "area_edit": self.edit_area,
                 "tutorial": self.start_tutorial,

@@ -43,6 +43,9 @@ SETTINGS_PAGE, AREAS_PAGE, GUIDE_PAGE, HISTORY_PAGE = range(4)
 
 
 def scene_label(scene):
+    names = getattr(scene, "scan_names", None)
+    if names:  # a scene made of several scans opens as a scan series
+        return f"{len(names)} scans · {scene.title} · {short_count(scene.default_points)} points each"
     return f"{size_label(scene.default_points)} · {scene.title} · {short_count(scene.default_points)} points"
 
 
@@ -301,6 +304,9 @@ class Sidebar(QWidget):
         self.icp_method.setCurrentIndex(self.icp_method.findData(scene.icp_method))
         self.icp_method.blockSignals(False)
         self._show_scene_info(key)
+        if getattr(scene, "scan_names", None):
+            self.callbacks["series_scene"](key)  # all its scans, with the Timeline and the Scans card
+            return
         self.callbacks["generate"]()
 
     def _data_widgets(self):

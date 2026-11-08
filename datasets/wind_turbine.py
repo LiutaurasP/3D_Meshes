@@ -8,7 +8,7 @@ Spring, summer, autumn and the next spring after the storm season:
   * after the storms, a lost anchor with its chain lies on the seabed, caught on the foundation,
     and one of the rock bags of the protection has slipped into the scour hole
 
-Used by the advanced tutorial and listed as an example scan series.
+Used by the advanced tutorial, listed as an example scan series and as a scene (spring and the next spring).
 """
 
 import numpy as np
