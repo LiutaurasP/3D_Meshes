@@ -47,7 +47,7 @@ def chapter_card(number, story):
 
 def keycaps(*keys):
     """Keys written like small key caps inside the text (for reading, not pressing)."""
-    cap = ("<span style='background-color:#262a36; color:#e6e7eb; font-weight:600; font-size:13px;'>"
+    cap = ("<span style='background-color:#262a36; color:#e6e7eb; font-weight:600; font-size:18px;'>"
            "&nbsp;{}&nbsp;</span>")
     return " <span style='color:#62656e;'>+</span> ".join(cap.format(key) for key in keys)
 
