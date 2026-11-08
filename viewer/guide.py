@@ -184,6 +184,17 @@ CHAPTERS = [
         ("<b>History</b>", "the History tab lists every step; click one to jump back to it"),
     ]), False),
 
+    ("Timeline: more than two surveys", keys_table([
+        ("<b>Load</b>", "File → Import Survey Series: select all surveys of one place at once (oldest first: "
+                        "start the file names with the date). Try File → Example Scenes → Survey Series"),
+        ("<b>Slider</b>", "picks the later survey; Compare with: the first survey (change so far) or the "
+                          "survey before (change since last time)"),
+        ("<b>Automatic</b>", "every new comparison is aligned and checked for changes by itself"),
+        ("<b>Instant</b>", "each comparison keeps its alignment and results; " + key("Cmd") + " " + key("Z")
+                           + " goes back to the previous one"),
+        ("<b>Saved</b>", "a project keeps all surveys and every comparison's alignment"),
+    ]), False),
+
     ("Cleaning scans", keys_table([
         ("<b>Delete points</b> " + key("L"), "draw around fish, bubbles or anything else that does not belong; "
                                              "everything inside the outline is removed, at every depth"),

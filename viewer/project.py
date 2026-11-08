@@ -89,13 +89,14 @@ def _npz_bytes(arrays):
 # Saving and opening
 
 
-def save(path, state, scan_points=None, changes=None, intensity=None):
+def save(path, state, scan_points=None, changes=None, intensity=None, series=None):
     """Write a project file.
 
     state:        dict with everything that is plain data (see MainWindow.project_state)
     scan_points:  {"Scan A": array, "Scan B": array} to embed, or None for example scenes
     changes:      ChangeResult or None
     intensity:    {"Scan A": array, ...} sonar return strength of embedded scans, if they have it
+    series:       (list of point arrays, {survey index: intensity}) for a survey series (Timeline)
     """
     state = dict(state)
     state["format"] = FORMAT
@@ -112,6 +113,12 @@ def save(path, state, scan_points=None, changes=None, intensity=None):
                 if intensity and name in intensity:
                     arrays[f"intensity{i}"] = np.asarray(intensity[name], dtype=np.float32)
             archive.writestr("scans.npz", _npz_bytes(arrays))
+        if series is not None:
+            points, strengths = series
+            arrays = {f"survey{i}": np.asarray(p, dtype=np.float32) for i, p in enumerate(points)}
+            arrays.update({f"survey_intensity{i}": np.asarray(v, dtype=np.float32) for i, v in strengths.items()})
+            state["series"]["embedded"] = len(points)
+            archive.writestr("series.npz", _npz_bytes(arrays))
         if changes is not None:
             summary, arrays = changes_to_files(changes)
             state["detection"]["result"] = summary
@@ -120,7 +127,11 @@ def save(path, state, scan_points=None, changes=None, intensity=None):
 
 
 def load(path):
-    """Read a project file. Returns (state, scan_points or None, ChangeResult or None, intensity dict)."""
+    """Read a project file.
+
+    Returns (state, scan_points or None, ChangeResult or None, intensity dict, series or None),
+    series being (list of point arrays, {survey index: intensity}).
+    """
     try:
         with zipfile.ZipFile(path) as archive:
             state = json.loads(archive.read("project.json"))
@@ -137,6 +148,14 @@ def load(path):
                     intensity = {name: arrays[f"intensity{i}"] for i, name in enumerate(names)
                                  if f"intensity{i}" in arrays.files}
 
+            series = None
+            count = (state.get("series") or {}).get("embedded")
+            if count:
+                with np.load(io.BytesIO(archive.read("series.npz"))) as arrays:
+                    series = ([arrays[f"survey{i}"].astype(float) for i in range(count)],
+                              {i: arrays[f"survey_intensity{i}"] for i in range(count)
+                               if f"survey_intensity{i}" in arrays.files})
+
             changes = None
             summary = state.get("detection", {}).get("result")
             if summary is not None:
@@ -144,4 +163,4 @@ def load(path):
                     changes = changes_from_files(summary, {key: arrays[key] for key in arrays.files})
     except (zipfile.BadZipFile, KeyError, json.JSONDecodeError) as error:
         raise ProjectError(f"The project file is damaged or incomplete ({error}).") from error
-    return state, scan_points, changes, intensity
+    return state, scan_points, changes, intensity, series

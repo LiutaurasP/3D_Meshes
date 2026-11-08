@@ -87,6 +87,7 @@ class Sidebar(QWidget):
         settings, settings_layout = page_layout()
         self.cards = {}
         for card in (
+            self._timeline_card(),
             self._scene_card(data_settings),
             self._offset_card(data_settings),
             self._clouds_card(cloud_names, colors, view_settings),
@@ -271,8 +272,8 @@ class Sidebar(QWidget):
         for widget in self._data_widgets():
             widget.setEnabled(not scene.fixed_points)
 
-    def show_loaded_files(self, title, n_points):
-        self.scene_info.setText(f"Loaded from files: <b>{title}</b><br>{n_points:,} points, no known change.")
+    def show_loaded_files(self, title, n_points, source="Loaded from files"):
+        self.scene_info.setText(f"{source}: <b>{title}</b><br>{n_points:,} points.")
         for widget in self._data_widgets():
             widget.setEnabled(False)
 
@@ -679,6 +680,66 @@ class Sidebar(QWidget):
         item.setEnabled(available)
         if not available and combo.currentText() == "Intensity":
             combo.setCurrentText("Per scan")
+
+    # Timeline (several surveys of the same place)
+
+    def _timeline_card(self):
+        card = Card("Timeline")
+        self.timeline_card = card
+        self.timeline_title = QLabel()
+        self.timeline_title.setWordWrap(True)
+        card.add(self.timeline_title)
+        self.timeline = guard_wheel(QSlider(Qt.Horizontal))
+        self.timeline.setTracking(False)  # compare when the slider is let go, not on every step
+        self.timeline.setTickPosition(QSlider.TicksBelow)
+        self.timeline.setTickInterval(1)
+        self.timeline.setPageStep(1)
+        self.timeline.valueChanged.connect(lambda value: self._timeline_changed())
+        card.add(self.timeline)
+        ends = QHBoxLayout()
+        self.timeline_first, self.timeline_last = hint(), hint()
+        self.timeline_last.setAlignment(Qt.AlignRight)
+        ends.addWidget(self.timeline_first)
+        ends.addWidget(self.timeline_last)
+        card.add(ends)
+        form = Form()
+        self.timeline_mode = guard_wheel(QComboBox())
+        self.timeline_mode.addItem("The first survey", "first")
+        self.timeline_mode.addItem("The survey before", "previous")
+        self.timeline_mode.currentIndexChanged.connect(lambda index: self._timeline_changed())
+        form.row("Compare with", self.timeline_mode)
+        card.add(form)
+        self.timeline_auto = QCheckBox("Align and detect changes automatically")
+        self.timeline_auto.setChecked(True)
+        card.add(self.timeline_auto)
+        card.add(hint("Each comparison keeps its own alignment and results, going back to one is instant."))
+        card.setVisible(False)
+        return card
+
+    def _timeline_changed(self):
+        self.callbacks["series_pair"](self.timeline.value(), self.timeline_mode.currentData())
+
+    def show_series(self, names):
+        """Show the Timeline card for a survey series (None hides it)."""
+        if not names:
+            self.timeline_card.setVisible(False)
+            return
+        self.series_names = list(names)
+        self.timeline.blockSignals(True)
+        self.timeline.setRange(1, len(names) - 1)
+        self.timeline.blockSignals(False)
+        self.timeline_first.setText(names[0])
+        self.timeline_last.setText(names[-1])
+        self.timeline_card.setVisible(True)
+
+    def set_series_pair(self, older, newer, mode):
+        for widget, value in ((self.timeline, newer), (self.timeline_mode, self.timeline_mode.findData(mode))):
+            widget.blockSignals(True)
+            widget.setValue(value) if widget is self.timeline else widget.setCurrentIndex(value)
+            widget.blockSignals(False)
+        names = self.series_names
+        self.timeline_title.setText(f"<b>{names[newer]}</b><br><span style='color:#9a9da7'>compared with "
+                                    f"{names[older]} · survey {newer + 1} of {len(names)}</span>")
 
     # Compare
 

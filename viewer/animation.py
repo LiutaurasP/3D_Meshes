@@ -82,6 +82,30 @@ class DataWorker(QThread):
             self.failed.emit(str(error))
 
 
+class SeriesWorker(QThread):
+    """Loads a survey series (several files, or the example) off the GUI thread."""
+
+    done = Signal(object)  # Series
+    failed = Signal(str)
+
+    def __init__(self, paths=None, options=None, n_points=30_000):
+        super().__init__()
+        self.paths = paths
+        self.options = options
+        self.n_points = n_points
+
+    def run(self):
+        from viewer.pipeline import example_series, load_series
+
+        try:
+            if self.paths:
+                self.done.emit(load_series(self.paths, self.options))
+            else:
+                self.done.emit(example_series(self.n_points))
+        except Exception as error:  # shown to the user instead of crashing the thread
+            self.failed.emit(str(error))
+
+
 class AlignmentAnimation(QObject):
     """Plays the ICP iterations back as a smooth movement.
 

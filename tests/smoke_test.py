@@ -899,6 +899,47 @@ def cleaning_checks():
     prefs.set("display_limit_millions", 8.0)
     scene.refresh_points(window.inspections.intensity, window.inspections.truth)
     check("…and fully again under the limit", scene.shown_count()[0] == scene.shown_count()[1])
+    window.open_example_series()
+    wait_until(lambda: window.series is not None and data_ready() and window.change_result is not None
+               and not window._detect_after_align, series_checks, limit_ms=120000)
+
+
+def series_checks():
+    """Timeline: four surveys of a growing scour."""
+    import tempfile
+
+    series = window.series
+    check("a survey series loads with all surveys", len(series.names) == 4 and window.sidebar.timeline_card.isVisible())
+    check("the first comparison is aligned and detected automatically",
+          window.series_pair == (0, 3) and window.is_aligned() and window.change_result.areas)
+    full = window.change_result.areas[0].volume_removed
+    window.sidebar.timeline.setValue(1)  # survey 2 compared with the first one
+    state["series_full"] = full
+    wait_until(lambda: window.series_pair == (0, 1) and window.change_result is not None
+               and not window._detect_after_align and window.is_aligned(), after_series_step, limit_ms=120000)
+
+
+def after_series_step():
+    import tempfile
+
+    full = state["series_full"]
+    early = window.change_result.areas[0].volume_removed if window.change_result.areas else 0.0
+    check("the scour grows over the surveys", early < full)
+    check("switching the comparison can be undone", "Compare" in window.history.stack.undoText()
+          or window.history.stack.count() > 0)
+    while window.history.stack.canUndo() and window.series_pair != (0, 3):
+        window.actions["undo"].trigger()
+    check("undo goes back to the earlier comparison instantly",
+          window.series_pair == (0, 3) and window.change_result is not None
+          and abs(window.change_result.areas[0].volume_removed - full) < 1e-9)
+    folder = Path(tempfile.mkdtemp())
+    window.write_project(folder / "series.subdron")
+    window.new_project()
+    check("leaving the series hides the timeline", window.series is None and not window.sidebar.timeline_card.isVisible())
+    window.open_project(str(folder / "series.subdron"), ask=False)
+    check("a project keeps the whole survey series", window.series is not None and len(window.series.clouds) == 4
+          and window.series_pair == (0, 3) and window.change_result is not None)
+    check("…with each comparison's alignment", (0, 1) in window.series_cache)
     finish()
 
 

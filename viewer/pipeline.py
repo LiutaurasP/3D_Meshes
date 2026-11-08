@@ -120,6 +120,64 @@ def load_inspections(path_a, path_b, options=None):
                        kinds={name: scan.kind for name, scan in scans.items()}, notes=notes)
 
 
+@dataclass
+class Series:
+    """The same place surveyed several times (oldest first). Any two of them can be compared."""
+
+    title: str
+    names: list  # file or survey names
+    clouds: list  # Open3D point clouds, all shifted by the same offset
+    intensity: dict = field(default_factory=dict)  # survey index -> intensity per point
+    offset: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    kinds: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
+    paths: list = field(default_factory=list)  # files they came from ([] for the example)
+
+    def pair(self, older, newer):
+        """Inspections comparing two surveys: older is scan A, newer is scan B."""
+        intensity = {name: self.intensity[index] for name, index in (("Scan A", older), ("Scan B", newer))
+                     if index in self.intensity}
+        kinds = {name: self.kinds[index] for name, index in (("Scan A", older), ("Scan B", newer))
+                 if index < len(self.kinds)}
+        return Inspections(title=f"{self.names[older]} → {self.names[newer]}", change="",
+                           clouds={"Scan A": self.clouds[older], "Scan B": self.clouds[newer]},
+                           intensity=intensity, offset=self.offset, kinds=kinds)
+
+
+def load_series(paths, options=None):
+    """Read several surveys of the same place. options: one ImportOptions for all, or a list."""
+    from scan_formats import ImportOptions, guess_depth_down, read_scan
+
+    if not isinstance(options, (list, tuple)):
+        options = [options] * len(paths)
+    scans, notes = [], []
+    for path, chosen in zip(paths, options):
+        chosen = chosen or ImportOptions(depth_down=None)
+        raw = ImportOptions(**{**chosen.to_json(), "depth_down": bool(chosen.depth_down)})
+        scan = read_scan(path, raw)
+        scans.append(scan)
+        notes += [f"{Path(path).name}: {note}" for note in scan.notes]
+    automatic = (options[0] or ImportOptions(depth_down=None)).depth_down is None
+    if automatic and guess_depth_down(scans[0].points):
+        for scan in scans:
+            scan.points[:, 2] *= -1
+        notes.append("Depth values were positive, so they were turned into heights below the surface")
+    offset = big_coordinate_offset(scans[0].points)
+    clouds = [o3d.geometry.PointCloud(o3d.utility.Vector3dVector(scan.points - offset)) for scan in scans]
+    intensity = {i: scan.intensity for i, scan in enumerate(scans) if scan.intensity is not None}
+    title = f"{Path(paths[0]).stem} … {Path(paths[-1]).stem} ({len(paths)} surveys)"
+    return Series(title, [Path(p).name for p in paths], clouds, intensity, offset,
+                  [scan.kind for scan in scans], notes, [str(p) for p in paths])
+
+
+def example_series(n_points=30_000):
+    from datasets import generate_series
+    from datasets.sonar import ScanSettings
+
+    example = generate_series(settings=ScanSettings(n_points=n_points))
+    return Series(example.title, example.names, example.clouds, kinds=["Example survey"] * len(example.clouds))
+
+
 def thin_out(cloud, max_points, seed=0):
     """Random subset of at most max_points points (the cloud itself if it is small enough)."""
     n = len(cloud.points)

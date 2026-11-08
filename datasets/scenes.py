@@ -181,6 +181,7 @@ class HarbourWallScour(HarbourWall):
         "70 cm deep, which also exposes more of the wall."
     )
     change = "scour hole at the foot of the wall"
+    growth = 1.0  # how far the scour has developed (survey series: 0 = not yet, 1 = full)
 
     def build_world(self, rng):
         super().build_world(rng)
@@ -189,7 +190,7 @@ class HarbourWallScour(HarbourWall):
     def change_depth(self, x, y):
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
-        return 0.7 * np.exp(-((x - self.scour_x) / 2.5) ** 2) * np.exp(-(np.maximum(y, 0) / 2.2) ** 2)
+        return self.growth * 0.7 * np.exp(-((x - self.scour_x) / 2.5) ** 2) * np.exp(-(np.maximum(y, 0) / 2.2) ** 2)
 
 
 class QuayWallDroppedObject(HarbourWall):
