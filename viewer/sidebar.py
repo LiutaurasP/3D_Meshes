@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -764,6 +765,8 @@ class Sidebar(QWidget):
         page, layout = page_layout()
         for title, html, expanded in CHAPTERS:
             card = Card(title, expanded=expanded)
+            if title == "Quick start":
+                card.add(self._tutorial_row())
             text = QLabel(html)
             text.setObjectName("guideText")
             text.setWordWrap(True)
@@ -773,6 +776,24 @@ class Sidebar(QWidget):
             layout.addWidget(card)
         layout.addStretch()
         return page
+
+    def _tutorial_row(self):
+        """A small invitation to the tutorial at the top of the Quick start chapter."""
+        row = QFrame()
+        row.setObjectName("tutorialRow")
+        row.setStyleSheet("#tutorialRow { border: 1px solid rgba(61, 127, 245, 0.45); border-radius: 8px;"
+                          " background: rgba(61, 127, 245, 0.08); } #tutorialRow QLabel { background: transparent; }")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(12, 10, 10, 10)
+        layout.setSpacing(10)
+        text = QLabel("<b>New here?</b><br><span style='color:#9a9da7'>Everything step by step in about 5 minutes.</span>")
+        text.setWordWrap(True)
+        layout.addWidget(text, 1)
+        start = button("Start Tutorial", primary=True)
+        start.clicked.connect(lambda: self.callbacks["tutorial"]())
+        layout.addWidget(start, 0, Qt.AlignVCenter)
+        self.tutorial_button = start
+        return row
 
     # Keep widgets in sync when something changes from the keyboard or menu
 

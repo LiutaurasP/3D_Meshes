@@ -44,7 +44,6 @@ CHAPTERS = [
      True),
 
     ("Quick start", steps([
-        "New here? <b>Help → Tutorial</b> walks you through everything step by step in about 5 minutes.",
         "Pick a scene under <b>Scene</b>, for example <i>Quay wall – dropped object</i>.",
         "Press <b>Align B to A</b> and watch scan B slide onto scan A.",
         "Press <b>Detect changes</b>. Changed points light up and every changed area gets a box.",

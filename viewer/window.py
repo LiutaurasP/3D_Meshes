@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
                 "plotly": self.open_in_plotly,
                 "series_pair": self.on_timeline,
                 "area_edit": self.edit_area,
+                "tutorial": self.start_tutorial,
             },
         )
         self.saved_views = []  # [{"name": ..., "view": camera view}]

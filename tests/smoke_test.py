@@ -1195,8 +1195,10 @@ def tutorial_checks():
     screen.deleteLater()
 
     window.dock.show()
-    tutorial = window.start_tutorial()
+    window.sidebar.tutorial_button.click()  # the button in the Guide's Quick start
+    tutorial = window.tutorial
     state["tutorial"] = tutorial
+    check("the Guide's button starts the tutorial", tutorial is not None and tutorial.active)
     check("the tutorial starts with everything switched off", tutorial is not None and tutorial.active
           and not window.dock.isVisible() and not any(window.scene.visible.values())
           and not any(item.isEnabled() for item in window.menuBar().actions()))
