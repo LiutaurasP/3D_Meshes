@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import open3d as o3d
 
+from datasets.big_scenes import BIG_SCENES
 from datasets.more_scenes import MORE_SCENES
 from datasets.scenes import SIMPLE_SCENES, QuayWallDroppedObject, Scene
 from datasets.sonar import ScanSettings, scan
@@ -47,7 +48,7 @@ class OriginalWall(Scene):
 
 
 # Order in the app's dropdown: the dropped container first (the default scene)
-_ORDER = [QuayWallDroppedObject] + [s for s in SIMPLE_SCENES if s is not QuayWallDroppedObject] + MORE_SCENES
+_ORDER = [QuayWallDroppedObject] + [s for s in SIMPLE_SCENES if s is not QuayWallDroppedObject] + MORE_SCENES + BIG_SCENES
 SCENES = {scene.key: scene for scene in _ORDER + [OriginalWall]}
 DEFAULT_SCENE = QuayWallDroppedObject.key
 
@@ -84,14 +85,13 @@ def generate(key, settings=None):
 
     scene = scene_class()
     scene.build_world(np.random.default_rng(settings.seed))
-    scanner = np.asarray(scene.scanner, dtype=float)
 
     scans = {}
     for number, state in enumerate(("a", "b"), start=1):
         rng = np.random.default_rng([settings.seed, number])
         scans[state] = scan(
             lambda r, n, s=state: scene.sample(r, n, s),
-            scanner, settings, rng, track_axis=scene.track_axis,
+            scene.sonar_positions, settings, rng, track_axis=scene.track_axis,
         )
 
     # Centre the scene horizontally so rotations (misalignment) happen around

@@ -24,7 +24,8 @@ class Scene:
     default_points = 20_000
     fixed_points = False  # True if the point count can't be changed
     scanner = (0.0, 0.0, 0.0)  # position of the sonar (on the boat or underwater drone)
-    track_axis = 0  # direction the vessel sails in (0 = x, 1 = y)
+    track_axis = 0  # direction the boat sails in (0 = x, 1 = y)
+    icp_method = "point-to-point"  # alignment method that works best for this scene
 
     def build_world(self, rng):
         """Create everything that is the same in both scans."""
@@ -32,6 +33,10 @@ class Scene:
     def sample(self, rng, n, state):
         """Return about n points on the surface in state "a" or "b" plus the change mask."""
         raise NotImplementedError
+
+    def sonar_positions(self, points):
+        """Where the sonar was when it measured each point (a fixed spot by default)."""
+        return np.asarray(self.scanner, dtype=float)
 
 
 def split(rng, n, areas):

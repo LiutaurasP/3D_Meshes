@@ -39,6 +39,7 @@ class DataSettings:
     max_correspondence_distance: float = 0.5
     max_iterations: int = 300
     max_icp_points: int = 50_000  # bigger scans are thinned out for ICP
+    icp_method: str = "point-to-point"  # or "point-to-plane"
     animate_alignment: bool = True
 
     # Change detection

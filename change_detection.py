@@ -73,12 +73,13 @@ class ChangeResult:
         return self.n_changed / max(len(self.changed_a) + len(self.changed_b), 1)
 
 
-def estimate_spacing(points, sample=5000, seed=0):
+def estimate_spacing(points, sample=5000, seed=0, tree=None):
     """Typical distance between a point and its nearest neighbour."""
     points = np.asarray(points)
     rng = np.random.default_rng(seed)
     probe = points[rng.choice(len(points), min(sample, len(points)), replace=False)]
-    distances, _ = cKDTree(points).query(probe, k=2)
+    tree = tree if tree is not None else cKDTree(points)
+    distances, _ = tree.query(probe, k=2, workers=-1)
     return float(np.median(distances[:, 1]))
 
 
@@ -92,7 +93,7 @@ def surface_normals(points, spacing, viewpoint):
 
 def signed_surface_distance(query, target, target_normals, tree, spacing):
     """Distance from each query point to the target surface, measured along the target normals."""
-    nearest, index = tree.query(query)
+    nearest, index = tree.query(query, workers=-1)  # all CPU cores
     offset = query - target[index]
     along_normal = np.einsum("ij,ij->i", offset, target_normals[index])
 
@@ -112,6 +113,8 @@ def auto_threshold(distances, factor=3.5, minimum=0.02):
     The threshold is factor x the remaining noise.
     """
     values = np.asarray(distances)
+    if len(values) > 200_000:  # a random sample is plenty to estimate the noise
+        values = np.random.default_rng(0).choice(values, 200_000, replace=False)
     sigma = 0.0
     for _ in range(10):
         center = np.median(values)
@@ -139,12 +142,12 @@ def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoi
     """Compare two aligned inspections. threshold in metres (None = automatic)."""
     a = np.asarray(cloud_a.points)
     b = np.asarray(cloud_b.points)
-    spacing = max(estimate_spacing(a), estimate_spacing(b))
+    tree_a, tree_b = cKDTree(a), cKDTree(b)
+    spacing = max(estimate_spacing(a, tree=tree_a), estimate_spacing(b, tree=tree_b))
     viewpoint = default_viewpoint(a) if viewpoint is None else np.asarray(viewpoint)
 
     normals_a = surface_normals(a, spacing, viewpoint)
     normals_b = surface_normals(b, spacing, viewpoint)
-    tree_a, tree_b = cKDTree(a), cKDTree(b)
 
     # B against A's surface: + means B sticks out in front of A (added)
     distance_b = signed_surface_distance(b, a, normals_a, tree_a, spacing)
@@ -181,6 +184,7 @@ def group_into_areas(a, b, changed_a, changed_b, distance_a, distance_b, spacing
     if len(points) < min_points:
         return []
 
+    # Changed points within 5 point spacings of each other belong to the same area
     cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
     labels = np.asarray(cloud.cluster_dbscan(eps=5 * spacing, min_points=4))
     from_a = np.arange(len(points)) < len(index_a)
@@ -190,18 +194,29 @@ def group_into_areas(a, b, changed_a, changed_b, distance_a, distance_b, spacing
         members = labels == label
         if members.sum() < min_points:
             continue
-        member_distances = distances[members]
         areas.append(ChangeArea(
             index_a[np.flatnonzero(members & from_a)],
             index_b[np.flatnonzero(members & ~from_a) - len(index_a)],
             np.percentile(points[members], 2, axis=0),
             np.percentile(points[members], 98, axis=0),
-            float(member_distances[np.argmax(np.abs(member_distances))]),
+            robust_peak(distances[members]),
             int(members.sum()),
         ))
 
     areas.sort(key=lambda area: area.n_points, reverse=True)
     return areas
+
+
+def robust_peak(distances):
+    """Biggest change of an area, ignoring a few stray points.
+
+    The median decides whether the area is added (+) or removed (-), the
+    peak is the 98th percentile in that direction. A single stray point
+    (a fish in the water) can't flip or inflate it.
+    """
+    if np.median(distances) >= 0:
+        return float(np.percentile(distances, 98))
+    return float(np.percentile(distances, 2))
 
 
 @dataclass

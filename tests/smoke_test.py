@@ -271,7 +271,8 @@ def after_detection():
     result = window.change_result
     check("change detection finds the scour", len(result.areas) >= 1 and result.areas[0].kind == "removed")
     check("changed points are highlighted", bool(window.scene.highlight_actors["changes"]))
-    check("area boxes are drawn", len(window.scene.area_actors) == 2 * len(result.areas))
+    labelled = min(len(result.areas), 10)
+    check("area boxes are drawn", len(window.scene.area_actors) == len(result.areas) + labelled)
     check("areas are listed", window.sidebar.area_list.count() == len(result.areas))
     check("score against the true change is shown", "found" in window.sidebar.change_info.text())
     window.sidebar.area_list.setCurrentRow(0)

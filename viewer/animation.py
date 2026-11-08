@@ -33,6 +33,7 @@ class AlignWorker(QThread):
             max_iterations=self.data.max_iterations,
             max_points=self.data.max_icp_points,
             on_step=self.progress.emit,
+            method=self.data.icp_method,
         )
         self.done.emit(steps)
 

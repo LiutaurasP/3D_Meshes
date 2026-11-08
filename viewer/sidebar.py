@@ -32,6 +32,7 @@ from viewer.widgets import (
 )
 
 FROM_FILES = "files"
+ICP_METHODS = (("Point to point", "point-to-point"), ("Point to plane", "point-to-plane"))
 PAGES = ("Settings", "Guide")
 
 
@@ -131,7 +132,7 @@ class Sidebar(QWidget):
         card.add(divider())
 
         form = Form()
-        self.n_points = form.row("Size", spin(1_000, 200_000, data.n_points, 5_000, suffix=" points"),
+        self.n_points = form.row("Size", spin(1_000, 5_000_000, data.n_points, 5_000, suffix=" points"),
                                  "Number of points in each scan")
         self.n_points.setGroupSeparatorShown(True)
         self.noise = form.row("Sensor noise", spin(0.0, 10.0, data.noise * 100, 0.5, decimals=1, suffix=" cm"),
@@ -159,7 +160,7 @@ class Sidebar(QWidget):
         return card
 
     def _offset_card(self, data):
-        card = Card("Scan B position")
+        card = Card("Scan B position", expanded=False)
         card.add(hint(
             "Scan B is made from a slightly different position than A, "
             "so it starts turned and shifted. <b>Align B to A</b> has to undo this."))
@@ -235,6 +236,7 @@ class Sidebar(QWidget):
         self.n_points.blockSignals(True)
         self.n_points.setValue(scene.default_points)
         self.n_points.blockSignals(False)
+        self.icp_method.setCurrentIndex(self.icp_method.findData(scene.icp_method))
         self._show_scene_info(key)
         self.callbacks["generate"]()
 
@@ -267,6 +269,7 @@ class Sidebar(QWidget):
         data.translation = tuple(box.value() for box in self.translation)
         data.max_correspondence_distance = self.max_distance.value()
         data.max_iterations = self.max_iterations.value()
+        data.icp_method = self.icp_method.currentData()
         data.auto_threshold = self.auto_threshold.isChecked()
         data.change_threshold = self.threshold.value() / 100
         data.min_area_points = self.min_area_points.value()
@@ -323,6 +326,13 @@ class Sidebar(QWidget):
         card = Card("Alignment (ICP)")
 
         form = Form()
+        self.icp_method = QComboBox()
+        for label, value in ICP_METHODS:
+            self.icp_method.addItem(label, value)
+        self.icp_method.setCurrentIndex(self.icp_method.findData(data.icp_method))
+        form.row("Method", self.icp_method,
+                 "Point to point works best for walls, point to plane for open seabed and tunnels. "
+                 "Each scene picks the one that suits it.")
         self.max_distance = form.row(
             "Match distance", spin(0.05, 5.0, data.max_correspondence_distance, 0.05, decimals=2, suffix=" m"),
             "Points further apart than this are not paired up")

@@ -21,6 +21,7 @@ DEPTH_LABEL = "Depth below surface (m)"
 CHANGE_COLORMAP = "coolwarm"  # blue = material removed, white = unchanged, red = added
 CHANGE_LABEL = "Change (m): - removed / + added"
 HIGHLIGHTS = ("truth", "changes")
+SPHERES_UP_TO = 1_500_000  # total points; above this, points are drawn as plain squares
 
 
 def cloud_to_polydata(cloud):
@@ -94,9 +95,13 @@ class SceneView:
             mode = "Per scan"  # nothing detected yet
         depth_range = self._depth_range() if mode == "Depth" else None
 
+        # Round "sphere" points look nicer, plain points draw ~3x faster on huge scans
+        total = sum(len(cloud.points) for cloud in self.geometries.values())
+        spheres = total <= SPHERES_UP_TO
+
         for index, (name, cloud) in enumerate(self.geometries.items()):
             data = cloud_to_polydata(cloud)
-            style = dict(point_size=self._screen_point_size(), render_points_as_spheres=True,
+            style = dict(point_size=self._screen_point_size(), render_points_as_spheres=spheres,
                          name=name, reset_camera=False)
             bar = {"color": "white"}
             if mode == "Depth":
@@ -178,13 +183,36 @@ class SceneView:
         self.masks["changes"] = dict(changed)
         self.change_values = dict(values)
         self.change_limit = max(float(limit), 1e-3)
-        self._rebuild()
+        if self.settings.color_mode == "Change":
+            self._rebuild()  # the clouds themselves get new colours
+        else:
+            self._rebuild_highlights("changes")  # only the highlight layer is new (fast for big scans)
 
     def clear_changes(self):
         self.masks["changes"] = {}
         self.change_values = {}
         self.clear_areas()
-        self._rebuild()
+        if self.settings.color_mode == "Change":
+            self._rebuild()
+        else:
+            self._rebuild_highlights("changes")
+
+    def _rebuild_highlights(self, kind):
+        """Recreate one highlight layer without touching the (possibly huge) clouds."""
+        for actor in self.highlight_actors[kind].values():
+            self.plotter.remove_actor(actor, render=False)
+        self.highlight_actors[kind] = {}
+        for name, cloud in self.geometries.items():
+            mask = self.masks[kind].get(name)
+            if mask is not None and mask.any():
+                self.highlight_actors[kind][name] = self.plotter.add_points(
+                    pv.PolyData(np.asarray(cloud.points)[mask]),
+                    color=self._highlight_color(kind)[:3],
+                    point_size=self._highlight_point_size(),
+                    render_points_as_spheres=True, name=f"{name} ({kind})", reset_camera=False)
+        for name in self.geometries:
+            self._apply(name)
+        self.plotter.render()
 
     def set_changes_visible(self, visible):
         self.settings.show_changes = visible
@@ -206,6 +234,8 @@ class SceneView:
             box = pv.Box(bounds=(low[0] - pad, high[0] + pad, low[1] - pad, high[1] + pad, low[2] - pad, high[2] + pad))
             self.area_actors.append(self.plotter.add_mesh(
                 box.outline(), color=color, line_width=2 * self.widget.devicePixelRatioF(), reset_camera=False))
+            if not label:
+                continue  # small areas get a box but no label, so many areas don't clutter the view
             top = np.array([(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, high[2] + pad])
             self.area_actors.append(self.plotter.add_point_labels(
                 [top], [label], font_size=14, text_color="white", shape_color=(0.15, 0.15, 0.18),

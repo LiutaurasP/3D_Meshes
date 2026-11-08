@@ -176,6 +176,7 @@ class BreakwaterRocks(Scene):
 
 
 class FloodedTunnelSettlement(Scene):
+    icp_method = "point-to-plane"  # measured: much better than point-to-point here
     key = "flooded_tunnel_settlement"
     title = "Flooded tunnel – settled segment"
     description = (

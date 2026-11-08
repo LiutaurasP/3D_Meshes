@@ -19,7 +19,10 @@ WITH_CHANGE = [key for key in SYNTHETIC if key != "harbour_wall_unchanged"]
 # In the tunnel the whole segment sinks: its side walls slide along themselves,
 # so the plain nearest point distance used below hardly changes there. The
 # change detection tests (which measure along the surface) cover this scene.
-NEAREST_POINT_VISIBLE = [key for key in WITH_CHANGE if key != "flooded_tunnel_settlement"]
+# The port approach is so big that at test size the points are ~60 cm apart,
+# more than the changes themselves, so this simple check can't see them.
+NEAREST_POINT_VISIBLE = [key for key in WITH_CHANGE
+                         if key not in ("flooded_tunnel_settlement", "port_approach_survey")]
 
 
 def points(cloud):
@@ -31,14 +34,18 @@ def nearest_distance(source, target):
     return np.asarray(source.compute_point_cloud_distance(target))
 
 
+# Big scenes are tested smaller so the tests stay quick (and one test below uses full size)
+TEST_SIZE_LIMIT = {"port_approach_survey": 300_000}
+
+
 def make(key, n=None, seed=3):
-    n = n or SCENES[key].default_points
+    n = n or min(SCENES[key].default_points, TEST_SIZE_LIMIT.get(key, 100_000))
     return generate(key, ScanSettings(n_points=n, seed=seed, outliers=0.0))
 
 
 @pytest.mark.parametrize("key", list(SCENES))
 def test_point_counts_and_masks_match(key):
-    pair = generate(key)
+    pair = make(key) if not SCENES[key].fixed_points else generate(key)
     assert len(pair.changed_a) == len(points(pair.a))
     assert len(pair.changed_b) == len(points(pair.b))
     assert pair.changed_a.dtype == bool and pair.changed_b.dtype == bool
@@ -134,3 +141,15 @@ def test_progress_is_reported():
     calls = []
     steps = icp_steps(pair.b, pair.a, max_iterations=50, on_step=lambda i, total: calls.append(i))
     assert calls == list(range(1, len(steps)))
+
+
+def test_huge_scene_at_full_size():
+    """2.5 million points per scan, built in reasonable time."""
+    import time
+
+    start = time.time()
+    pair = generate("port_approach_survey")
+    seconds = time.time() - start
+    assert len(points(pair.a)) == len(points(pair.b)) == 2_500_000
+    assert pair.changed_a.any() and pair.changed_b.any()
+    assert seconds < 30

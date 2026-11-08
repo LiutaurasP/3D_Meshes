@@ -18,7 +18,12 @@ from datasets import generate
 from datasets.sonar import ScanSettings
 
 
+# Big scenes are compared at a smaller size so the tests stay quick
+TEST_SIZE = {"harbour_quay_section": 150_000, "port_approach_survey": 600_000}
+
+
 def detect(key, n=None, seed=1):
+    n = n or TEST_SIZE.get(key)
     pair = generate(key, ScanSettings(n_points=n, seed=seed) if n else None)
     result = detect_changes(pair.a, pair.b)
     return pair, result, score(result, pair.changed_a, pair.changed_b)
@@ -38,6 +43,8 @@ EXPECTED = {
     "jetty_broken_pile": 0.8,
     "flooded_tunnel_settlement": 0.6,
     "quay_wall_bulge": 0.5,
+    "harbour_quay_section": 0.6,
+    "port_approach_survey": 0.4,
 }
 
 # Scenes with one connected change (the others have several separate ones)
@@ -121,3 +128,28 @@ def test_breakwater_finds_the_moved_rocks():
     _, result, result_score = detect("breakwater_displaced_rocks")
     assert len(result.areas) >= 4  # three moved rocks (old + new place) and the missing one
     assert result_score.false_alarms < 0.05
+
+
+def test_quay_section_finds_each_change_separately():
+    # scour, container, wall bulge and four tyres
+    _, result, _ = detect("harbour_quay_section")
+    assert len(result.areas) == 7
+    kinds = sorted(area.kind for area in result.areas)
+    assert kinds.count("removed") == 1 and kinds.count("added") == 6
+
+
+def test_port_approach_change_types():
+    """Mud is added, the anchor scar is removed, the sunken boat sticks out."""
+    _, result, result_score = detect("port_approach_survey")
+    assert result_score.false_alarms < 0.02
+    biggest = result.areas[0]
+    assert biggest.kind == "added" and 0.3 < biggest.peak < 0.6  # the mud, up to 45 cm
+    assert any(area.kind == "removed" and -0.5 < area.peak < -0.2 for area in result.areas)  # anchor scar
+    assert any(area.peak > 1.2 for area in result.areas)  # the boat
+
+
+def test_one_stray_point_does_not_flip_an_area():
+    from change_detection import robust_peak
+
+    mostly_added = np.concatenate([np.full(500, 0.4), [-0.9]])
+    assert robust_peak(mostly_added) > 0

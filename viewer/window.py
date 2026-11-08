@@ -384,8 +384,7 @@ class MainWindow(QMainWindow):
             dict(zip(names, (result.distance_a, result.distance_b))),
             limit,
         )
-        labels = [self._area_label(i, area) for i, area in enumerate(result.areas, start=1)]
-        self.scene.set_areas(result.areas, labels)
+        self.scene.set_areas(result.areas, self._area_labels(result.areas))
 
         if result.areas:
             summary = (f"<b>{len(result.areas)} changed area{'s' if len(result.areas) > 1 else ''}</b>, "
@@ -418,6 +417,10 @@ class MainWindow(QMainWindow):
     def _area_label(number, area):
         return f"{number}: {area.kind} {area.peak:+.2f} m"
 
+    def _area_labels(self, areas, limit=10):
+        """Labels for the biggest areas only (the list is sorted by size), the rest get just a box."""
+        return [self._area_label(i, area) if i <= limit else "" for i, area in enumerate(areas, start=1)]
+
     def focus_area(self, row):
         if self.change_result and 0 <= row < len(self.change_result.areas):
             area = self.change_result.areas[row]
@@ -426,8 +429,7 @@ class MainWindow(QMainWindow):
     def set_changes_color(self, rgba):
         self.scene.set_changes_color(rgba)
         if self.change_result:
-            labels = [self._area_label(i, a) for i, a in enumerate(self.change_result.areas, start=1)]
-            self.scene.set_areas(self.change_result.areas, labels)
+            self.scene.set_areas(self.change_result.areas, self._area_labels(self.change_result.areas))
 
     def _clear_changes(self):
         if self.change_result is not None:

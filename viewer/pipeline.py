@@ -83,8 +83,12 @@ def thin_out(cloud, max_points, seed=0):
     return cloud.select_by_index(np.sort(index))
 
 
+POINT_TO_POINT = "point-to-point"
+POINT_TO_PLANE = "point-to-plane"
+
+
 def icp_steps(source, target, max_distance=0.5, max_iterations=30, tolerance=1e-6,
-              max_points=None, on_step=None):
+              max_points=None, on_step=None, method=POINT_TO_POINT):
     """Point-to-point ICP that keeps the result of every iteration.
 
     Same method as register_point_clouds in registration.py, but it runs
@@ -95,12 +99,21 @@ def icp_steps(source, target, max_distance=0.5, max_iterations=30, tolerance=1e-
     max_points: run ICP on a random subset of both clouds (much faster for
     big scans, the resulting transform is applied to the full cloud).
     on_step(iteration, max_iterations): called after every iteration.
+    method: point-to-point (as in registration.py) works best for walls;
+    point-to-plane measures to the surface instead of the nearest point
+    and works much better for open seabed and tunnels.
     """
     source = thin_out(source, max_points, seed=1)
     target = thin_out(target, max_points, seed=2)
 
     registration = o3d.pipelines.registration
-    estimation = registration.TransformationEstimationPointToPoint()
+    if method == POINT_TO_PLANE:
+        target = o3d.geometry.PointCloud(target)
+        spacing = float(np.median(np.asarray(target.compute_nearest_neighbor_distance())))
+        target.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=max(6 * spacing, 0.3), max_nn=30))
+        estimation = registration.TransformationEstimationPointToPlane()
+    else:
+        estimation = registration.TransformationEstimationPointToPoint()
     one_iteration = registration.ICPConvergenceCriteria(max_iteration=1)
 
     current = np.eye(4)
@@ -117,9 +130,15 @@ def icp_steps(source, target, max_distance=0.5, max_iterations=30, tolerance=1e-
         if on_step:
             on_step(iteration, max_iterations)
 
-        # Same stopping rule as Open3D: fitness and RMSE stop changing
-        if (abs(result.fitness - previous.fitness) < tolerance
-                and abs(result.inlier_rmse - previous.inlier_rmse) < tolerance):
+        # Stop when fitness and RMSE stop changing (Open3D's rule)
+        settled = (abs(result.fitness - previous.fitness) < tolerance
+                   and abs(result.inlier_rmse - previous.inlier_rmse) < tolerance)
+        # ... or when it has stopped getting better: on big thinned scans ICP can end up
+        # jittering back and forth by a fraction of a millimetre forever
+        step = current @ np.linalg.inv(previous.transformation)
+        barely_moving = np.abs(step[:3, 3]).max() < 1e-3 and np.abs(step[:3, :3] - np.eye(3)).max() < 1e-4
+        no_progress = len(steps) > 11 and steps[-11].inlier_rmse - result.inlier_rmse < 1e-5
+        if settled or (barely_moving and no_progress):
             break
 
     return steps

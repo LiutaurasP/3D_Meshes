@@ -101,9 +101,12 @@ CHAPTERS = [
          ("<b>Max rounds</b>", "ICP stops earlier when nothing changes any more"),
          ("<b>RMSE</b>", "average distance of the pairs, lower is better"),
          ("<b>Fitness</b>", "share of points that found a partner"),
+         ("<b>Point to point</b>", "pairs points with points, best for walls"),
+         ("<b>Point to plane</b>", "measures to the surface, best for open seabed and tunnels"),
      ]) + '<p style="margin:8px 0 0 0;">' + dim(
-         "Long flat walls need many rounds (about 200), there is little to hold on to along the wall. "
-         "Big changes can pull the alignment a few centimetres off.") + "</p>",
+         "Each scene picks the method that suits it. Long flat walls need many rounds (about 200), "
+         "there is little to hold on to along the wall. Big changes can pull the alignment a few "
+         "centimetres off.") + "</p>",
      False),
 
     ("Finding changes", P +
@@ -138,7 +141,8 @@ CHAPTERS = [
     ("Tips and troubleshooting", keys_table([
         ("<b>Everything is changed</b>", "align first, or the threshold is too low"),
         ("<b>Nothing is found</b>", "the change may be smaller than the noise: lower the threshold"),
-        ("<b>Alignment looks off</b>", "raise Max rounds, or try a bigger Match distance"),
+        ("<b>Alignment looks off</b>", "try the other Method, raise Max rounds or the Match distance"),
+        ("<b>Lots of tiny areas</b>", "raise Smallest area, big scans find many small fringe pieces"),
         ("<b>Too slow</b>", "use fewer points; ICP already thins big scans to 50k points"),
         ("<b>Lost in the scene</b>", "press " + key("R") + " to reset the view"),
     ]), False),
