@@ -888,41 +888,52 @@ class SceneView:
         self.plotter.renderer.ResetCameraClippingRange()
         return point
 
+    PIVOT_RADIUS_PX = 7  # size of the orbit ball on screen
+
     def show_pivot(self, point):
-        """A small white dot on the point the camera turns around.
+        """A small white ball on the point the camera turns around.
 
-        The camera turns around its focal point, which is always in the exact middle of the view, so the
-        dot is drawn flat in the middle of the screen: it can't drift while turning and is never hidden
-        behind scan points.
+        A real ball in 3D, lit like the scans. Before every frame it is put back on the line from the
+        camera (where it is now) to that point, just in front of the surface: the camera turns around
+        this point, so the ball stays exactly in the middle of the view and never sinks between points.
         """
-        from viewer.vtk_classes import vtk
-
         self.hide_pivot(render=False)
         if point is None:
             return
-        ratio = self.widget.devicePixelRatioF()
-        self.pivot_actor = []
-        for radius, color in ((7.5, (0.05, 0.06, 0.09)), (5.5, (0.97, 0.98, 1.0))):  # dark ring, white dot
-            disk = vtk.vtkRegularPolygonSource()
-            disk.SetNumberOfSides(32)
-            disk.SetRadius(radius * ratio)
-            disk.SetCenter(0, 0, 0)
-            mapper = vtk.vtkPolyDataMapper2D()
-            mapper.SetInputConnection(disk.GetOutputPort())
-            actor = vtk.vtkActor2D()
-            actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(*color)
-            actor.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
-            actor.GetPositionCoordinate().SetValue(0.5, 0.5)
-            self.plotter.renderer.AddViewProp(actor)
-            self.pivot_actor.append(actor)
+        actor = self.plotter.add_mesh(pv.Sphere(radius=1.0, theta_resolution=32, phi_resolution=32),
+                                      color=(0.97, 0.98, 1.0), smooth_shading=True, ambient=0.35, specular=0.6,
+                                      specular_power=30, reset_camera=False, name="orbit pivot", pickable=False)
+        observer = self.plotter.renderer.AddObserver("StartEvent", lambda *_: self._place_pivot())
+        self.pivot_actor = [actor]
+        self._pivot = {"point": np.asarray(point, dtype=float), "observer": observer}
+        self._place_pivot()
         self.plotter.render()
+
+    def _place_pivot(self):
+        pivot = getattr(self, "_pivot", None)
+        if pivot is None or self.pivot_actor is None:
+            return
+        camera = self.plotter.camera
+        position = np.array(camera.position, dtype=float)
+        towards_camera = position - pivot["point"]
+        distance = float(np.linalg.norm(towards_camera)) or 1.0
+        height = max(self.widget.height(), 1)
+        # World size of PIVOT_RADIUS_PX pixels at that distance
+        radius = distance * np.tan(np.radians(camera.view_angle) / 2) * self.PIVOT_RADIUS_PX / (height / 2)
+        center = pivot["point"] + towards_camera / distance * radius  # resting on the surface, facing the camera
+        actor = self.pivot_actor[0]
+        actor.SetScale(radius, radius, radius)
+        actor.SetPosition(*center)
 
     def hide_pivot(self, render=True):
         if self.pivot_actor is None:
             return
         for actor in self.pivot_actor:
-            self.plotter.renderer.RemoveViewProp(actor)
+            self.plotter.remove_actor(actor, render=False)
+        pivot = getattr(self, "_pivot", None)
+        if pivot is not None:
+            self.plotter.renderer.RemoveObserver(pivot["observer"])
+            self._pivot = None
         self.pivot_actor = None
         if render:
             self.plotter.render()
