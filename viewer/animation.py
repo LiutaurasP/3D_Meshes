@@ -88,11 +88,12 @@ class SeriesWorker(QThread):
     done = Signal(object)  # Series
     failed = Signal(str)
 
-    def __init__(self, paths=None, options=None, n_points=30_000):
+    def __init__(self, paths=None, options=None, n_points=30_000, key="harbour_wall_scour"):
         super().__init__()
         self.paths = paths
         self.options = options
         self.n_points = n_points
+        self.key = key
 
     def run(self):
         from viewer.pipeline import example_series, load_series
@@ -101,7 +102,7 @@ class SeriesWorker(QThread):
             if self.paths:
                 self.done.emit(load_series(self.paths, self.options))
             else:
-                self.done.emit(example_series(self.n_points))
+                self.done.emit(example_series(self.n_points, self.key))
         except Exception as error:  # shown to the user instead of crashing the thread
             self.failed.emit(str(error))
 

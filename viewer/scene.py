@@ -475,11 +475,36 @@ class SceneView:
         ratio = self.widget.devicePixelRatioF()
         px, py = int(x * ratio), int((self.widget.height() - y) * ratio)
         renderer = self.plotter.renderer
-        if renderer.GetZ(px, py) >= 0.999999:  # nothing drawn there
-            return None
+        if renderer.GetZ(px, py) >= 0.999999:  # nothing drawn exactly there: maybe between two points
+            near = self._nearest_drawn_pixel(px, py, int(6 * ratio))
+            if near is None:
+                return None
+            px, py = near
         picker = vtk.vtkWorldPointPicker()
         picker.Pick(px, py, 0, renderer)
         return np.array(picker.GetPickPosition())
+
+    def _nearest_drawn_pixel(self, px, py, radius):
+        """Closest pixel around (px, py) where something is drawn, so a click between points still counts."""
+        window = self.plotter.ren_win
+        width, height = window.GetSize()
+        x0, y0 = max(px - radius, 0), max(py - radius, 0)
+        x1, y1 = min(px + radius, width - 1), min(py + radius, height - 1)
+        if x1 < x0 or y1 < y0:
+            return None
+        from vtkmodules.vtkCommonCore import vtkFloatArray
+
+        values = vtkFloatArray()
+        window.GetZbufferData(x0, y0, x1, y1, values)
+        count = (y1 - y0 + 1) * (x1 - x0 + 1)
+        if values.GetNumberOfValues() < count:
+            return None
+        depth = np.array([values.GetValue(i) for i in range(count)]).reshape(y1 - y0 + 1, x1 - x0 + 1)
+        rows, cols = np.nonzero(depth < 0.999999)
+        if not len(rows):
+            return None
+        best = np.argmin((cols + x0 - px) ** 2 + (rows + y0 - py) ** 2)
+        return int(cols[best] + x0), int(rows[best] + y0)
 
     def set_background(self, rgba):
         self.settings.background = tuple(rgba)

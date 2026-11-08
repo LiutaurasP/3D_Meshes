@@ -203,6 +203,7 @@ class TutorialCard(QWidget):
         self.next.setVisible(bool(button))
         self.next.setText(f"{button}  ↵" if button else "")
         self.leave.setVisible(step.get("leave", True))
+        self.leave.setText(step.get("leave_text", "Esc  ·  leave tutorial"))
 
         self._full_heading = step.get("heading", "")
         self.heading.setText(self._full_heading)  # full text first, so the size is right
@@ -448,10 +449,20 @@ def body(*paragraphs):
     return "<br><br>".join(paragraphs)
 
 
-class Tutorial(QObject):
-    """Takes the window over, gives its parts back one by one, and hands it back at the end."""
+class TutorialBase(QObject):
+    """Takes the window over, gives its parts back one by one, and hands it back at the end.
 
-    STEP_COUNT = 12  # numbered steps (without the welcome and the end)
+    The steps are defined by a subclass: steps() with the texts, ORDER, and the hooks setup(),
+    enter(), handle_key() and tick(). This class does everything they have in common: the card,
+    locking the keys and the mouse, moving from step to step, leaving early and giving it all back.
+    """
+
+    STEP_COUNT = 0  # numbered steps (without the welcome and the end)
+    ORDER = []
+    CONTINUE = set()  # steps that Enter or the card's button move on from
+    TAB_STEPS = []  # steps that explain the side panel's tabs, in tab order
+    HIDE_PANEL = True  # start with the side panel closed
+    MENU_PATH = "Help → Tutorial"
 
     def __init__(self, window):
         super().__init__(window)
@@ -466,6 +477,7 @@ class Tutorial(QObject):
         self.confirming = False
         self.allow = set()  # what the user may do right now: "fly", "rotate", "pan", "panel", "tabs"
         self.unlocked = set()  # mouse and keys stay allowed once their step is done
+        self.clickable = []  # widgets of the side panel that may be used in this step
         self._busy = False  # an animation or calculation is running: ignore the keys meanwhile
         self._leaving = None
         self._mouse_down = False
@@ -475,18 +487,32 @@ class Tutorial(QObject):
         self.ping = None
         self.finished_callback = None
 
+    # Hooks for the subclasses
+
+    def setup(self):
+        """Load the tutorial's data once everything is locked."""
+
+    def enter(self, name):
+        """A step starts (after its card is shown)."""
+
+    def handle_key(self, step, key, command, event):
+        """True: the key was used, False: let it through, None: not for this step (it stays locked)."""
+        return None
+
+    def tick(self, step, before, view):
+        """Called 25 times a second: check whether the step is done."""
+
+    def after_finish(self, completed):
+        """Everything is unlocked again: what to show now."""
+
     # Start and end
 
     def start(self):
-        from viewer.pipeline import build_inspections
         from viewer.scene import NAVIGATION_MODES
-        from viewer.settings import DataSettings
 
         window = self.window
         self.active = True
         window.cancel_tool()
-        if window.series is not None:
-            window.leave_series()
         self.saved = {
             "dock": window.dock.isVisible(),
             "status": window.statusBar().isVisible(),
@@ -497,7 +523,7 @@ class Tutorial(QObject):
             "menus": [(item, item.isEnabled()) for item in window.menuBar().actions()],
         }
         window._autosave_timer.stop()
-        window.dock.hide()
+        window.dock.setVisible(not self.HIDE_PANEL)
         window.statusBar().hide()
         if self.saved["minimap"]:
             self.scene.set_minimap(False)
@@ -506,6 +532,295 @@ class Tutorial(QObject):
         for item, _ in self.saved["menus"]:
             item.setEnabled(False)
         window.set_navigation(NAVIGATION_MODES[0])
+        self.setup()
+        QApplication.instance().installEventFilter(self)
+        self.timer.start()
+        QTimer.singleShot(120, lambda: self.active and self.go(self.ORDER[0]))  # once the view has its new size
+
+    def finish(self, completed):
+        """Give everything back."""
+        if not self.active:
+            return
+        window = self.window
+        self.active = False
+        self.timer.stop()
+        if self.ping is not None:
+            self.ping.finish()
+        QApplication.instance().removeEventFilter(self)
+        self.card.hide()
+        self.card.deleteLater()
+        window.cancel_tool()
+        for item, enabled in self.saved["menus"]:
+            item.setEnabled(enabled)
+        window.statusBar().setVisible(self.saved["status"])
+        if self.saved["axes"]:
+            self.scene.set_axes_visible(True)
+        if self.saved["minimap"] != (self.scene.minimap is not None):
+            self.scene.set_minimap(self.saved["minimap"])
+        window.sidebar.icp_method.blockSignals(True)
+        window.sidebar.icp_method.setCurrentIndex(self.saved["icp"])
+        window.sidebar.icp_method.blockSignals(False)
+        for button in window.sidebar.switch.buttons:
+            button.setStyleSheet("")
+        window.sidebar.show_page(0)
+        window.restart_autosave()
+        self.after_finish(completed)
+        if self.finished_callback is not None:
+            self.finished_callback(completed)
+        window.tutorial = None
+
+    # Steps
+
+    def steps(self):
+        return {}
+
+    def go(self, name):
+        self.step = name
+        self._leaving = None  # set by advance(), so a step can only be left once
+        self.confirming = False
+        self.used = set()
+        self._busy = False
+        self._camera = self.scene.current_view()
+        self.travel = 0.0
+        self.clickable = []
+        content = self.steps()[name]
+        number = content.get("number")
+        if number:
+            content["eyebrow"] = f"Step {number} of {self.STEP_COUNT}  ·  {content['eyebrow']}"
+        self.card.progress = self.ORDER.index(name) / (len(self.ORDER) - 1)
+        self.card.show_step(content)
+        self.allow = set(self.unlocked)
+        if name in self.TAB_STEPS:
+            self.allow |= {"tabs"}
+            self._show_tab(self.TAB_STEPS.index(name))
+        self.enter(name)
+
+    def advance(self, delay=0, to=None):
+        """Celebrate briefly, then go to the next step (only once, however often this is called)."""
+        current = self.step
+        if self._leaving == current:
+            return
+        self._leaving = current
+        following = to or self.ORDER[self.ORDER.index(current) + 1]
+        self._busy = True
+        if delay:
+            self.card.celebrate()
+            QTimer.singleShot(delay, lambda: self.active and self.step == current and self.go(following))
+        else:
+            self.go(following)
+
+    def on_continue(self):
+        if self.confirming or self._busy:
+            return
+        if self.step == self.ORDER[-1]:
+            self.finish(completed=True)
+        elif self.step in self.CONTINUE or self.step in self.TAB_STEPS:
+            self.advance()
+
+    # Leaving early
+
+    def ask_leave(self):
+        if self.step == self.ORDER[-1]:
+            self.finish(completed=True)
+            return
+        self.confirming = True
+        self.card.show_step(dict(
+            position=self.card.position, eyebrow="Leave the tutorial?", heading="Surfacing already?",
+            body=f"You can start the tutorial again any time from {self.MENU_PATH}.",
+            keys=[("Enter", "enter"), ("leave", None), ("Esc", "esc"), ("stay", None)], leave=False))
+
+    def stay(self):
+        self.confirming = False
+        self.go(self.step)
+
+    # Input
+
+    def eventFilter(self, obj, event):
+        if not self.active:
+            return False
+        modal = QApplication.activeModalWidget()
+        if modal is not None and modal is not self.window:
+            return False  # a dialog the tutorial opened (command palette, ...) works normally
+        kind = event.type()
+        if kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and event.key() == Qt.Key_Q \
+                and event.modifiers() & Qt.ControlModifier:
+            return False  # quitting the app always works
+        if kind == QEvent.ShortcutOverride:
+            event.accept()  # no menu shortcut fires during the tutorial, the keys come here instead
+            return True
+        if kind == QEvent.KeyPress:
+            return self._key(event)
+        if kind == QEvent.KeyRelease:
+            if not event.isAutoRepeat():
+                self.held.discard(event.key())
+            if event.key() == Qt.Key_Shift:
+                self.card.mark("shift", "done" if "shift" in self.used else "idle")
+            return False  # releases always go through, so held movement keys stop
+        if kind in (QEvent.Move, QEvent.Resize) and obj in (self.window, self.window.centralWidget()):
+            QTimer.singleShot(0, self.card.place)
+            return False
+        if kind in (QEvent.DragEnter, QEvent.Drop):
+            return True  # no dropped files during the tutorial
+        if kind == QEvent.Wheel:
+            return not self._wheel_allowed(obj)
+        if obj is self.scene.widget and kind in MOUSE_EVENTS:
+            return self._mouse(event)
+        if kind in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick) and isinstance(obj, QWidget):
+            if obj.window() is self.window and obj is not self.window:
+                return not self._allowed_click(obj)
+        return False
+
+    def _wheel_allowed(self, widget):
+        """Zooming stays off, but lists and pages that may be used can scroll."""
+        return isinstance(widget, QWidget) and self._in_clickable(widget)
+
+    def _in_clickable(self, widget):
+        return any(widget is allowed or allowed.isAncestorOf(widget) for allowed in self.clickable)
+
+    def _allowed_click(self, widget):
+        """Outside the 3D view only what the current step uses can be clicked."""
+        if self._busy or self.confirming:
+            return False
+        if "tabs" in self.allow:
+            for index, button in enumerate(self.window.sidebar.switch.buttons):
+                if widget is button:
+                    QTimer.singleShot(0, lambda i=index: self._jump_to_tab(i))
+                    return True
+        return self._in_clickable(widget)
+
+    def _jump_to_tab(self, index):
+        if self.active and self.step in self.TAB_STEPS and index < len(self.TAB_STEPS):
+            self.go(self.TAB_STEPS[index])
+
+    def _mouse(self, event):
+        kind = event.type()
+        if kind == QEvent.MouseButtonPress:
+            if not self.allow & {"rotate", "pan", "click"} or self._busy:
+                return True
+            self._mouse_down = True
+            self.card.mark("drag", "pressed")
+            return False
+        if kind == QEvent.MouseButtonRelease:
+            was_down = self._mouse_down
+            self._mouse_down = False
+            if "drag" in self.card.chips and self.step in ("rotate", "pan"):
+                self.card.mark("drag", "idle")
+            return not was_down
+        if kind == QEvent.MouseMove and event.buttons() != Qt.NoButton:
+            if not self._mouse_down:
+                return True
+            if event.modifiers() & Qt.ShiftModifier and "pan" not in self.allow:
+                return True  # sliding comes in its own step
+            if not self.allow & {"rotate", "pan"} and self.window._pick is None:
+                return True  # clicks only: no turning the view yet
+        return False
+
+    def _key(self, event):
+        key = event.key()
+        modifiers = event.modifiers()
+        command = bool(modifiers & Qt.ControlModifier)
+        if event.isAutoRepeat():
+            return not ("fly" in self.allow and key in FLY_KEYS)
+        if key == Qt.Key_Escape:
+            if self._busy and not self.confirming:
+                return True  # wait for the animation or calculation to finish
+            if self.confirming:
+                self.stay()
+            elif self.window._pick is not None:
+                self.window.cancel_tool()
+            else:
+                self.ask_leave()
+            return True
+        if self.confirming:
+            if key in ENTER_KEYS:
+                self.finish(completed=False)
+            return True
+        if self._busy:
+            return True
+        step = self.step
+
+        if key in ENTER_KEYS:
+            self.on_continue()
+            return True
+        if key == Qt.Key_Shift:
+            if "pan" in self.allow or "fly" in self.allow:
+                self.used.add("shift")
+                self.card.mark("shift", "pressed")
+            return False
+        if key in FLY_KEYS and "fly" in self.allow and not command:
+            self.held.add(key)
+            letter = FLY_KEYS[key]
+            if step == "fly":
+                self.used.add(letter)
+                self.card.mark(letter, "done")
+            return False  # the movement itself is done by the fly controller
+        if key == Qt.Key_Space and "panel" in self.allow:
+            self.window.toggle_settings_panel()
+            if step == "panel" and self.window.dock.isVisible():
+                self.card.mark("space", "done")
+                self.allow.discard("panel")
+                self.advance(delay=500)
+            return True
+        handled = self.handle_key(step, key, command, event)
+        if handled is not None:
+            return handled
+        if key in (Qt.Key_Control, Qt.Key_Meta):
+            if "command" in self.card.chips:
+                self.card.mark("command", "pressed")
+            return True
+        return True  # everything else is still locked
+
+    def _reveal(self, name, turn, then):
+        self._busy = True
+        color = self.window.colors[name]
+
+        def done():
+            self.ping = None
+            self.window.set_visible(name, True)
+            QTimer.singleShot(250, then)
+
+        self.ping = PingReveal(self.scene, name, color, turn=turn, on_done=done)
+        self.ping.start()
+
+    def _show_tab(self, index, highlight=True):
+        sidebar = self.window.sidebar
+        sidebar.show_page(index)
+        for i, button in enumerate(sidebar.switch.buttons):
+            button.setStyleSheet(f"#segmentButton {{ border: 1px solid {ACCENT}; }}" if highlight and i == index else "")
+
+    # Watching what happens
+
+    def _tick(self):
+        if not self.active or self.confirming:
+            return
+        view = self.scene.current_view()
+        before, self._camera = self._camera, view
+        if before is None:
+            return
+        self.tick(self.step, before, view)
+
+    def watch_turning(self, before, view, degrees, then):
+        """Progress of a "turn the view" task: True when done."""
+        if self._mouse_down:
+            self.travel += angle_between(direction(before), direction(view))
+        self.card.set_task(self.travel / degrees)
+        return self.travel >= degrees
+
+
+class Tutorial(TutorialBase):
+    """The first tutorial: the basics on a container that fell to the seafloor."""
+
+    STEP_COUNT = 12
+    CONTINUE = {"scan_a", "difference", "aligned", "found"}
+    TAB_STEPS = ["tab_settings", "tab_areas", "tab_guide", "tab_history"]
+
+    def setup(self):
+        from viewer.pipeline import build_inspections
+        from viewer.settings import DataSettings
+
+        window = self.window
+        if window.series is not None:
+            window.leave_series()
         method = window.sidebar.icp_method.findData("point-to-plane")
         window.sidebar.icp_method.blockSignals(True)
         window.sidebar.icp_method.setCurrentIndex(method)
@@ -526,49 +841,15 @@ class Tutorial(QObject):
         self.scene.plotter.render()
         self.home = self.scene.current_view()
 
-        QApplication.instance().installEventFilter(self)
-        self.timer.start()
-        QTimer.singleShot(120, lambda: self.active and self.go("welcome"))  # once the view has its new size
-
-    def finish(self, completed):
-        """Give everything back and open the default scene."""
-        if not self.active:
-            return
+    def after_finish(self, completed):
         from viewer import prefs
 
-        window = self.window
-        self.active = False
-        self.timer.stop()
-        if self.ping is not None:
-            self.ping.finish()
-        QApplication.instance().removeEventFilter(self)
-        self.card.hide()
-        self.card.deleteLater()
-        for item, enabled in self.saved["menus"]:
-            item.setEnabled(enabled)
-        window.statusBar().setVisible(self.saved["status"])
-        if self.saved["axes"]:
-            self.scene.set_axes_visible(True)
-        if self.saved["minimap"]:
-            self.scene.set_minimap(True)
-        window.sidebar.icp_method.blockSignals(True)
-        window.sidebar.icp_method.setCurrentIndex(self.saved["icp"])
-        window.sidebar.icp_method.blockSignals(False)
-        for button in window.sidebar.switch.buttons:
-            button.setStyleSheet("")
-        window.sidebar.show_page(0)
         if completed:
             prefs.set("tutorial_done", True)
-            window.dock.show()  # they know Space now
+            self.window.dock.show()  # they know Space now
         else:
-            window.dock.setVisible(self.saved["dock"])
-        window.restart_autosave()
-        window.open_default_scene()
-        if self.finished_callback is not None:
-            self.finished_callback(completed)
-        window.tutorial = None
-
-    # Steps
+            self.window.dock.setVisible(self.saved["dock"])
+        self.window.open_default_scene()
 
     def steps(self):
         aligned = getattr(self, "fit_text", "")
@@ -671,186 +952,13 @@ class Tutorial(QObject):
     ORDER = ["welcome", "scan_a", "rotate", "pan", "fly", "reset", "scan_b", "difference", "toggle", "align",
              "aligned", "detect", "found", "panel", "tab_settings", "tab_areas", "tab_guide", "tab_history", "end"]
 
-    def go(self, name):
-        self.step = name
-        self._leaving = None  # set by advance(), so a step can only be left once
-        self.confirming = False
-        self.used = set()
-        self._busy = False
-        self._camera = self.scene.current_view()
-        self.travel = 0.0
-        content = self.steps()[name]
-        number = content.get("number")
-        if number:
-            content["eyebrow"] = f"Step {number} of {self.STEP_COUNT}  ·  {content['eyebrow']}"
-        self.card.progress = self.ORDER.index(name) / (len(self.ORDER) - 1)
-        self.card.show_step(content)
-        self.allow = set(self.unlocked)
+    def enter(self, name):
         self.allow |= {"rotate": {"rotate"}, "pan": {"rotate", "pan"}, "fly": {"fly"},
                        "panel": {"panel"}}.get(name, set())
-        if name.startswith("tab_"):
-            self.allow |= {"tabs"}
-            pages = {"tab_settings": 0, "tab_areas": 1, "tab_guide": 2, "tab_history": 3}
-            self._show_tab(pages[name])
-        if name == "rotate":
-            self.card.set_task(0.0)
-        if name in ("pan", "fly"):
+        if name in ("rotate", "pan", "fly"):
             self.card.set_task(0.0)
 
-    def advance(self, delay=0):
-        """Celebrate briefly, then go to the next step (only once, however often this is called)."""
-        current = self.step
-        if self._leaving == current:
-            return
-        self._leaving = current
-        following = self.ORDER[self.ORDER.index(current) + 1]
-        self._busy = True
-        if delay:
-            self.card.celebrate()
-            QTimer.singleShot(delay, lambda: self.active and self.step == current and self.go(following))
-        else:
-            self.go(following)
-
-    def on_continue(self):
-        if self.confirming:
-            return
-        if self.step == "end":
-            self.finish(completed=True)
-        elif self.step in ("scan_a", "difference", "aligned", "found") or self.step.startswith("tab_"):
-            self.advance()
-
-    # Leaving early
-
-    def ask_leave(self):
-        if self.step == "end":
-            self.finish(completed=True)
-            return
-        self.confirming = True
-        self._before_confirm = self.step
-        self.card.show_step(dict(
-            position=self.card.position, eyebrow="Leave the tutorial?", heading="Surfacing already?",
-            body="You can start the tutorial again any time from Help → Tutorial.",
-            keys=[("Enter", "enter"), ("leave", None), ("Esc", "esc"), ("stay", None)], leave=False))
-
-    def stay(self):
-        self.confirming = False
-        step = self.step
-        self.go(step)
-
-    # Input
-
-    def eventFilter(self, obj, event):
-        if not self.active:
-            return False
-        kind = event.type()
-        if kind in (QEvent.ShortcutOverride, QEvent.KeyPress) and event.key() == Qt.Key_Q \
-                and event.modifiers() & Qt.ControlModifier:
-            return False  # quitting the app always works
-        if kind == QEvent.ShortcutOverride:
-            event.accept()  # no menu shortcut fires during the tutorial, the keys come here instead
-            return True
-        if kind == QEvent.KeyPress:
-            return self._key(event)
-        if kind == QEvent.KeyRelease:
-            if not event.isAutoRepeat():
-                self.held.discard(event.key())
-            if event.key() == Qt.Key_Shift:
-                self.card.mark("shift", "done" if "shift" in self.used else "idle")
-            return False  # releases always go through, so held movement keys stop
-        if kind in (QEvent.Move, QEvent.Resize) and obj in (self.window, self.window.centralWidget()):
-            QTimer.singleShot(0, self.card.place)
-            return False
-        if kind in (QEvent.DragEnter, QEvent.Drop):
-            return True  # no dropped files during the tutorial
-        if kind == QEvent.Wheel:
-            return True  # zooming stays off: scrolling isn't smooth enough to start with
-        if obj is self.scene.widget and kind in MOUSE_EVENTS:
-            return self._mouse(event)
-        if kind in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick) and isinstance(obj, QWidget):
-            if obj.window() is self.window and obj is not self.window:
-                return not self._allowed_click(obj)
-        return False
-
-    def _allowed_click(self, widget):
-        """Outside the 3D view only the tab buttons can be clicked, while the tabs are explained."""
-        if "tabs" not in self.allow or self._busy or self.confirming:
-            return False
-        for index, button in enumerate(self.window.sidebar.switch.buttons):
-            if widget is button:
-                QTimer.singleShot(0, lambda i=index: self._jump_to_tab(i))
-                return True
-        return False
-
-    def _jump_to_tab(self, index):
-        names = ["tab_settings", "tab_areas", "tab_guide", "tab_history"]
-        if self.active and self.step in names:
-            self.go(names[index])
-
-    def _mouse(self, event):
-        kind = event.type()
-        if kind == QEvent.MouseButtonPress:
-            if not self.allow & {"rotate", "pan"} or self._busy:
-                return True
-            self._mouse_down = True
-            self.card.mark("drag", "pressed")
-            return False
-        if kind == QEvent.MouseButtonRelease:
-            was_down = self._mouse_down
-            self._mouse_down = False
-            if self.step in ("rotate", "pan") and "drag" in self.card.chips:
-                self.card.mark("drag", "idle")
-            return not was_down
-        if kind == QEvent.MouseMove and event.buttons() != Qt.NoButton:
-            if not self._mouse_down:
-                return True
-            if event.modifiers() & Qt.ShiftModifier and "pan" not in self.allow:
-                return True  # sliding comes in its own step
-        return False
-
-    def _key(self, event):
-        key = event.key()
-        modifiers = event.modifiers()
-        command = bool(modifiers & Qt.ControlModifier)
-        if event.isAutoRepeat():
-            return not ("fly" in self.allow and key in FLY_KEYS)
-        if key == Qt.Key_Escape:
-            if self._busy and not self.confirming:
-                return True  # wait for the animation or calculation to finish
-            if self.confirming:
-                self.stay()
-            else:
-                self.ask_leave()
-            return True
-        if self.confirming:
-            if key in ENTER_KEYS:
-                self.finish(completed=False)
-            return True
-        if self._busy:
-            return True
-        step = self.step
-
-        if key in ENTER_KEYS:
-            self.on_continue()
-            return True
-        if key == Qt.Key_Shift:
-            if "pan" in self.allow or "fly" in self.allow:
-                self.used.add("shift")
-                self.card.mark("shift", "pressed")
-            return False
-        if key in FLY_KEYS and "fly" in self.allow and not command:
-            self.held.add(key)
-            letter = FLY_KEYS[key]
-            if step == "fly":
-                self.used.add(letter)
-                self.card.mark(letter, "done")
-            return False  # the movement itself is done by the fly controller
-        if key == Qt.Key_Space and "panel" in self.allow:
-            self.window.toggle_settings_panel()
-            if step == "panel" and self.window.dock.isVisible():
-                self.card.mark("space", "done")
-                self.allow.discard("panel")
-                self.advance(delay=500)
-            return True
+    def handle_key(self, step, key, command, event):
         if key == Qt.Key_1 and step == "welcome":
             self.card.mark("1", "done")
             self.card._fade_to(0.0, 450)
@@ -865,7 +973,7 @@ class Tutorial(QObject):
             self.window.set_visible(name, not self.scene.is_visible(name))
             label = "1" if key == Qt.Key_1 else "2"
             self.used.add(label)
-            self.card.mark(label, "done" if label in self.used else "idle")
+            self.card.mark(label, "done")
             self._check_toggle()
             return True
         if key == Qt.Key_R and step == "reset":
@@ -885,11 +993,7 @@ class Tutorial(QObject):
             self._busy = True
             self.window.detect_changes()
             return True
-        if key == Qt.Key_Control or key == Qt.Key_Meta:
-            if "command" in self.card.chips:
-                self.card.mark("command", "pressed")
-            return True
-        return True  # everything else is still locked
+        return None
 
     def _check_toggle(self):
         both_used = {"1", "2"} <= self.used
@@ -900,41 +1004,9 @@ class Tutorial(QObject):
         elif both_used:
             self.card.set_hint("Now bring both scans back to carry on.")
 
-    def _reveal(self, name, turn, then):
-        self._busy = True
-        color = self.window.colors[name]
-
-        def done():
-            self.ping = None
-            self.window.set_visible(name, True)
-            QTimer.singleShot(250, then)
-
-        self.ping = PingReveal(self.scene, name, color, turn=turn, on_done=done)
-        self.ping.start()
-
-    def _show_tab(self, index):
-        sidebar = self.window.sidebar
-        sidebar.show_page(index)
-        for i, button in enumerate(sidebar.switch.buttons):
-            button.setStyleSheet(f"#segmentButton {{ border: 1px solid {ACCENT}; }}" if i == index else "")
-
-    # Watching what happens
-
-    def _tick(self):
-        if not self.active or self.confirming:
-            return
-        step = self.step
-        view = self.scene.current_view()
-        before, self._camera = self._camera, view
-        if before is None:
-            return
-
+    def tick(self, step, before, view):
         if step == "rotate" and not self._busy:
-            turned = angle_between(direction(before), direction(view))
-            if self._mouse_down:
-                self.travel += turned
-            self.card.set_task(self.travel / 100.0)
-            if self.travel >= 100.0:
+            if self.watch_turning(before, view, 100.0, None):
                 self.unlocked.add("rotate")
                 self.advance(delay=700)
         elif step == "pan" and not self._busy:

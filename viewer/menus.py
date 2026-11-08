@@ -77,6 +77,8 @@ def build_menus(window):
         examples.addAction(action(window, scene.title, lambda _=False, k=key: window.pick_scene(k)))
     examples.addSeparator()
     examples.addAction(action(window, "Scan Series: Scour Growing Over a Year", lambda: window.open_example_series()))
+    examples.addAction(action(window, "Scan Series: Wind Turbine Through a Stormy Year",
+                              lambda: window.open_example_series("wind_turbine_storm")))
     export = file_menu.addMenu("Export")
     export.addAction(action(window, "Screenshot…", window.export_screenshot, "Ctrl+Shift+E"))
     export.addAction(action(window, "Change Report (PDF)…", lambda: window.export_report(), "Ctrl+Shift+R"))
@@ -207,7 +209,8 @@ def build_menus(window):
 
     # Help
     help_menu = bar.addMenu("&Help")
-    help_menu.addAction(action(window, "Tutorial", window.start_tutorial))
+    help_menu.addAction(action(window, "Tutorial", lambda: window.start_tutorial()))
+    help_menu.addAction(action(window, "Advanced Tutorial", lambda: window.start_tutorial(advanced=True)))
     help_menu.addSeparator()
     help_menu.addAction(action(window, "Show Log File", window.show_log_folder))
     help_menu.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(GUIDE_PAGE))))

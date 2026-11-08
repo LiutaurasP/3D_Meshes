@@ -94,6 +94,9 @@ class DisplayMode(QObject):
             for markers in window._note_markers:
                 for actor in markers:
                     actor.SetVisibility(False)
+        self._bars = [bar for bar in scene.plotter.scalar_bars.values() if bar.GetVisibility()]
+        for bar in self._bars:
+            bar.SetVisibility(False)  # the bottom edge belongs to the logo and the title
         if prefs.get("display_fullscreen") if fullscreen is None else fullscreen:
             window.showFullScreen()
         self._add_overlay()
@@ -127,6 +130,9 @@ class DisplayMode(QObject):
         scene.set_areas_visible(saved["boxes"])
         scene.set_axes_visible(saved["axes"])
         scene.set_minimap(self._minimap)
+        for bar in getattr(self, "_bars", []):
+            bar.SetVisibility(True)
+        self._bars = []
         for markers, visible in zip(window._note_markers, saved["notes"]):
             for actor in markers:
                 actor.SetVisibility(visible)
@@ -194,9 +200,16 @@ class DisplayMode(QObject):
             self._props.append(logo)
         title = self.window.inspections.title
         site = (self.window.report_details or {}).get("site", "")
-        self.title = self._text(site or title, 22 * ratio, (0.98, 0.04), bold=True)
         caption = prefs.get("display_caption") or (title if site else "")
-        self.caption = self._text(caption, 15 * ratio, (0.98, 0.09 if site or caption else 0.04), dim=True)
+        caption = caption.replace(" → ", " to ")  # VTK's font has no arrow
+        title = title.replace(" → ", " to ")
+        # Placed by the real text height, so the two lines never run into each other in a small window
+        height = max(renderer.GetSize()[1], 1)
+        bottom = 0.04
+        dpi_scale = self.window.scene.plotter.ren_win.GetDPI() / 72.0  # VTK scales fonts by the screen's DPI
+        title_lines = 22 * ratio * dpi_scale * 1.25 / height
+        self.title = self._text(site or title, 22 * ratio, (0.98, bottom), bold=True)
+        self.caption = self._text(caption, 15 * ratio, (0.98, bottom + title_lines + 4 * ratio / height), dim=True)
         for actor in (self.title, self.caption):
             renderer.AddViewProp(actor)
             self._props.append(actor)

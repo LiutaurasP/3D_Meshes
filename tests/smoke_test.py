@@ -27,7 +27,7 @@ from viewer.style import apply_theme
 
 from viewer.scene import cloud_to_polydata
 from viewer.settings import Settings
-from datasets import SCENES
+from datasets import DEFAULT_SCENE, SCENES
 from scan_formats import ImportOptions
 from viewer.window import MainWindow
 
@@ -1245,7 +1245,6 @@ def tutorial_checks():
 
 
 def tutorial_done():
-    from datasets import DEFAULT_SCENE, SCENES
 
     check("after the tutorial everything is unlocked", all(item.isEnabled() for item in window.menuBar().actions())
           and window.dock.isVisible() and window.statusBar().isVisible())
@@ -1261,6 +1260,130 @@ def tutorial_done():
             (lambda: check("…Enter leaves it and gives everything back",
                            all(item.isEnabled() for item in window.menuBar().actions())
                            and window.inspections.title == SCENES[DEFAULT_SCENE].title), 50)]
+    run_plan(plan, advanced_tutorial_checks)
+
+
+# Advanced tutorial: six chapters on the wind turbine foundation
+
+
+def ready_at(name):
+    return lambda: at(name)() and not getattr(window.tutorial, "_shown_waiting", False)
+
+
+def advanced_tutorial_checks():
+    import viewer.tutorial_advanced as adv
+    from viewer import prefs
+
+    state["minimap_pref"] = prefs.get("show_minimap")
+    window.sidebar.advanced_tutorial_button.click()
+    tutorial = window.tutorial
+    tutorial.open_files = False  # no PDF viewer popping up during the test
+    tutorial.display_fullscreen = False
+    check("the Guide's second button starts the advanced tutorial",
+          tutorial is not None and tutorial.active and type(tutorial).__name__ == "AdvancedTutorial")
+    check("…on the wind turbine series", window.series is not None and len(window.series.names) == 4)
+
+    def lasso_the_fish():
+        xy, front = window.scene.project_to_widget("Scan B")
+        cloud = window.clouds["Scan B"]
+        matrix = window.scene.matrices["Scan B"]
+        points = np.asarray(cloud.points) @ matrix[:3, :3].T + matrix[:3, 3]
+        fish = (np.hypot(points[:, 0] - adv.FISH[0], points[:, 1] - adv.FISH[1]) < 6) & (points[:, 2] > -26) \
+            & (np.hypot(points[:, 0], points[:, 1]) > 3.8) & front
+        (x0, y0), (x1, y1) = np.percentile(xy[fish], 3, axis=0), np.percentile(xy[fish], 97, axis=0)
+        cx, cy, rx, ry = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) * 0.75 + 8, (y1 - y0) * 0.75 + 8
+        window.cancel_tool()
+        window.apply_lasso([(cx + rx * np.cos(a), cy + ry * np.sin(a)) for a in np.linspace(0, 2 * np.pi, 40)])
+
+    def tag_areas():
+        t = window.tutorial
+        scour, anchor = t.scour_area(), t.anchor_area()
+        window.edit_area(t.area_index(scour), "tag", "Scour")
+        window.edit_area(t.area_index(scour), "status", "Open")
+        window.edit_area(t.area_index(anchor), "tag", "Debris")
+
+    def pick(point):
+        window.pick_at(np.asarray(point, dtype=float))
+
+    seabed = np.array([0, 0, -28.0])
+    plan = [(lambda: None, 300), ("until", at("welcome")), (lambda: key(Qt.Key_Return), 500), ("until", at("c1")),
+            (lambda: key(Qt.Key_Return), 500), ("until", at("c1_scans")), (lambda: key(Qt.Key_1), 2800),
+            (lambda: key(Qt.Key_2), 300), ("until", at("c1_timeline"))]
+    for newer in (1, 2):
+        plan += [(lambda n=newer: window.sidebar.timeline.setValue(n), 300),
+                 ("until", lambda: window.is_aligned() and window.change_result is not None)]
+    plan += [(lambda: window.sidebar.timeline.setValue(3), 300), ("until", ready_at("c1_animation")),
+             (lambda: check("scrubbing the Timeline moves the tutorial on", True), 50),
+             (lambda: key(Qt.Key_P), 300), ("until", at("c1_done")),
+             (lambda: check("the change animation played", not window.change_animation.active), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c2")), (lambda: key(Qt.Key_Return), 400),
+             ("until", ready_at("c2_fish")),
+             (lambda: check("chapter 2 shows summer against autumn", window.series_pair == (1, 2)), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", at("c2_lasso")),
+             (lambda: state.update(fish=window.tutorial.fish_count()), 50),
+             (lambda: key(Qt.Key_L), 200), (lasso_the_fish, 300), ("until", at("c2_undo")),
+             (lambda: check("the lasso takes the fish out", window.tutorial.fish_count() < 0.15 * state["fish"]), 50),
+             (lambda: key(Qt.Key_Z, Qt.ControlModifier), 300), ("until", at("c2_redo")),
+             (lambda: check("undo brings the fish back", window.tutorial.fish_count() >= 0.9 * state["fish"]), 50),
+             (lambda: key(Qt.Key_Z, Qt.ControlModifier | Qt.ShiftModifier), 300), ("until", at("c2_palette")),
+             # The palette is a window of its own (no windows in this test): run its command directly
+             (lambda: window.remove_stray_points(), 300), ("until", at("c2_history")),
+             (lambda: check("the tutorial sees the stray points removed",
+                            window.history.stack.text(window.history.stack.index() - 1) == "Remove Stray Points"), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", at("c2_done")), (lambda: key(Qt.Key_Return), 400),
+             ("until", ready_at("c3")), (lambda: key(Qt.Key_Return), 400), ("until", at("c3_colours")),
+             (lambda: window.sidebar.color_mode.setCurrentText("Change"), 300), ("until", at("c3_swipe")),
+             (lambda: key(Qt.Key_B), 300), (lambda: window.scene.set_swipe_fraction(0.8), 300),
+             ("until", at("c3_minimap")),
+             (lambda: check("the swipe is put away after its step", not window.scene.swipe), 50),
+             (lambda: key(Qt.Key_M, Qt.ShiftModifier), 300),
+             (lambda: window.scene.look_at_xy(np.array([12.0, 12.0])), 300), ("until", at("c3_done")),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c4")), (lambda: key(Qt.Key_Return), 400),
+             ("until", at("c4_section")),
+             (lambda: check("chapter 4 is back to the normal colours", window.scene.settings.color_mode == "Per scan"), 50),
+             (lambda: key(Qt.Key_X), 200), (lambda: pick(adv.CURRENT * 7 + seabed), 100),
+             (lambda: pick(adv.CURRENT * 16 + seabed), 300), ("until", at("c4_section_read")),
+             (lambda: check("the cross section opens across the scour", window.section_window.isVisible()
+                            and window.last_section["length"] > 5), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", at("c4_measure")), (lambda: key(Qt.Key_T), 200),
+             (lambda: pick(adv.CURRENT * 16 + seabed), 100), (lambda: pick(adv.SCOUR), 300),
+             ("until", at("c4_measured")), (lambda: key(Qt.Key_Return), 400), ("until", at("c4_heightmap")),
+             (lambda: key(Qt.Key_Return), 300),
+             (lambda: check("the height map step waits for the map", at("c4_heightmap")()), 50),
+             (lambda: key(Qt.Key_H), 800), (lambda: key(Qt.Key_Return), 400), ("until", at("c4_done")),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c5")), (lambda: key(Qt.Key_Return), 400),
+             ("until", at("c5_areas")), (lambda: key(Qt.Key_Return), 400), ("until", at("c5_tags")),
+             (tag_areas, 300), ("until", at("c5_note")), (lambda: key(Qt.Key_N), 200),
+             (lambda: pick(adv.ANCHOR), 300), ("until", at("c5_done")),
+             (lambda: check("the note is pinned without asking for its text",
+                            window.notes and window.notes[-1]["text"] == adv.NOTE_TEXT), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c6")), (lambda: key(Qt.Key_Return), 400),
+             ("until", at("c6_details")), (lambda: key(Qt.Key_Return), 400), ("until", at("c6_report")),
+             (lambda: key(Qt.Key_R, Qt.ControlModifier | Qt.ShiftModifier), 300), ("until", at("c6_display")),
+             (lambda: check("the tutorial writes the PDF report", window.tutorial.report_path is not None
+                            and window.tutorial.report_path.read_bytes().startswith(b"%PDF")), 50),
+             (lambda: key(Qt.Key_P, Qt.ControlModifier | Qt.ShiftModifier), 1500),
+             (lambda: check("Display Mode runs in the tutorial", window.display_mode.active), 50),
+             (lambda: QTest.keyClick(window, Qt.Key_Space), 800), ("until", at("end")),
+             (lambda: key(Qt.Key_Return), 500), ("until", lambda: not window.in_tutorial())]
+    run_plan(plan, advanced_tutorial_done)
+
+
+def advanced_tutorial_done():
+    from viewer import prefs
+
+    check("after the advanced tutorial everything is unlocked and the wind farm stays open",
+          all(item.isEnabled() for item in window.menuBar().actions()) and window.series is not None
+          and window.dock.isVisible())
+    check("…with nothing to undo", window.history.stack.count() == 0)
+    check("…and the minimap setting as it was", prefs.get("show_minimap") == state["minimap_pref"])
+    tutorial = window.start_tutorial(advanced=True)
+    plan = [(lambda: None, 400), ("until", at("welcome")), (lambda: key(Qt.Key_5), 400), ("until", ready_at("c5")),
+            (lambda: check("1–6 on the welcome card jump straight to a chapter", tutorial.step == "c5"), 50),
+            (lambda: key(Qt.Key_Escape), 400), (lambda: key(Qt.Key_Return), 300),
+            ("until", lambda: not window.in_tutorial() and data_ready()),
+            (lambda: check("leaving the advanced tutorial opens the default scene",
+                           window.series is None and window.inspections.title == SCENES[DEFAULT_SCENE].title), 50)]
     run_plan(plan, finish)
 
 

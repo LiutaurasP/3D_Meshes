@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
                 "series_pair": self.on_timeline,
                 "area_edit": self.edit_area,
                 "tutorial": self.start_tutorial,
+                "advanced_tutorial": lambda: self.start_tutorial(advanced=True),
             },
         )
         self.saved_views = []  # [{"name": ..., "view": camera view}]
@@ -166,8 +167,7 @@ class MainWindow(QMainWindow):
         self._cursor_timer.setSingleShot(True)
         self._cursor_timer.setInterval(60)
         self._cursor_timer.timeout.connect(self._update_cursor_readout)
-        self.scene.widget.setMouseTracking(True)
-        self.scene.widget.installEventFilter(self)
+        self.scene.widget.setMouseTracking(True)  # its mouse events reach eventFilter through the app-wide filter
 
         self.setAcceptDrops(True)  # drop .subdron projects or two scan files on the window
 
@@ -283,15 +283,17 @@ class MainWindow(QMainWindow):
     def in_tutorial(self):
         return getattr(self, "tutorial", None) is not None and self.tutorial.active
 
-    def start_tutorial(self):
-        """Step by step introduction on a scan of a container on the seafloor (Help → Tutorial)."""
+    def start_tutorial(self, advanced=False):
+        """Step by step introduction (Help → Tutorial): the basics on a container on the seafloor, or
+        the advanced one, "The Storm Season", on a wind turbine foundation scanned four times."""
         from viewer.tutorial import Tutorial
+        from viewer.tutorial_advanced import AdvancedTutorial
 
         if self.in_tutorial() or not self.maybe_save():
             return None
         if getattr(self, "display_mode", None) is not None and self.display_mode.active:
             self.display_mode.stop()
-        self.tutorial = Tutorial(self)
+        self.tutorial = (AdvancedTutorial if advanced else Tutorial)(self)
         self.tutorial.start()
         return self.tutorial
 
@@ -388,8 +390,9 @@ class MainWindow(QMainWindow):
         tool = self._pick
         tool["points"].append(np.asarray(point, dtype=float))
         if tool["kind"] == "note":
+            text = tool.get("text")  # given by the tutorial, otherwise asked for
             self.cancel_tool()
-            self.add_note(point)
+            self.add_note(point, text)
             return
         tool["markers"].append(self.scene.add_marker_point(point))
         if len(tool["points"]) < 2:
@@ -667,8 +670,13 @@ class MainWindow(QMainWindow):
         self._start_series_worker(SeriesWorker(paths, options), f"Loading {len(paths)} scans...")
         return True
 
-    def open_example_series(self):
-        self._start_series_worker(SeriesWorker(n_points=30_000), "Building the scan series...")
+    def open_example_series(self, key="harbour_wall_scour"):
+        from datasets import HIDDEN_SCENES, SCENES
+
+        points = (SCENES.get(key) or HIDDEN_SCENES[key]).default_points
+        if key == "harbour_wall_scour":
+            points = 30_000
+        self._start_series_worker(SeriesWorker(n_points=points, key=key), "Building the scan series...")
 
     def _start_series_worker(self, worker, message):
         if not self.maybe_save():
@@ -717,6 +725,9 @@ class MainWindow(QMainWindow):
 
     def _show_series_pair(self, older, newer, first=False):
         if self.series_pair is not None:
+            if self._animation is not None and self._animation.is_running() and self.align_steps:
+                # Leaving during the alignment animation: remember where B ends up, not where it is right now
+                self.scene.set_transform(self.source_name, self.align_steps[-1].transformation)
             self.series_cache[self.series_pair] = self.pose_state()
         self._stop_animation()
         self.series_pair = (older, newer)
@@ -731,9 +742,12 @@ class MainWindow(QMainWindow):
         mode = "first" if older == 0 else "previous"
         self.sidebar.set_series_pair(older, newer, mode)
         cached = self.series_cache.get((older, newer))
-        if cached is not None:
+        automatic = self.sidebar.timeline_auto.isChecked() and not self.history.applying
+        if cached is not None and cached["steps"] is not None:
             self.apply_pose(cached)
-        elif self.sidebar.timeline_auto.isChecked() and not self.history.applying:
+            if cached["changes"] is None and automatic:
+                QTimer.singleShot(0, self.detect_changes)  # it was left before its changes were found
+        elif automatic:
             self._detect_after_align = True
             QTimer.singleShot(0, self.align)
 
@@ -1208,6 +1222,7 @@ class MainWindow(QMainWindow):
         if self._worker is not None and self._worker.isRunning():
             return
         self._align_before = self.pose_state()
+        self._align_pair = self.series_pair
         self._stop_animation()
         self._clear_changes()
         self.sidebar.read_data_settings(self.settings.data)
@@ -1221,6 +1236,12 @@ class MainWindow(QMainWindow):
         self._worker.start()
 
     def _on_aligned(self, steps):
+        if self.series is not None and getattr(self, "_align_pair", None) != self.series_pair:
+            # Finished for a comparison that is no longer shown: start over for the one that is
+            self.sidebar.set_aligning(False)
+            if self._detect_after_align:
+                QTimer.singleShot(0, self.align)
+            return
         self.align_steps = steps
         rounds = len(steps) - 1
         seconds = self._clock.elapsed() / 1000
@@ -1297,6 +1318,7 @@ class MainWindow(QMainWindow):
         if busy or animating:
             return
         self._detect_before = self.pose_state()
+        self._detect_pair = self.series_pair
         self.sidebar.read_data_settings(self.settings.data)
         data = self.settings.data
 
@@ -1316,6 +1338,12 @@ class MainWindow(QMainWindow):
         self._change_worker.start()
 
     def _on_changes(self, result):
+        if self.series is not None and getattr(self, "_detect_pair", None) != self.series_pair:
+            self.sidebar.set_detecting(False)  # found for a comparison that is no longer shown
+            if self.series_pair is not None and self.is_aligned() and self.change_result is None \
+                    and self.sidebar.timeline_auto.isChecked():
+                QTimer.singleShot(0, self.detect_changes)
+            return
         previous = (self._detect_before or {}).get("changes")
         if previous is not None:
             carry_over_tags(previous.areas, result.areas)

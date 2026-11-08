@@ -27,3 +27,23 @@ def test_the_container_is_the_one_change_found():
     assert len(result.areas) == 1
     area = result.areas[0]
     assert area.kind == "added" and 25 < area.volume < 60
+
+
+def test_wind_turbine_series_tells_the_storm_story():
+    import open3d as o3d
+
+    from datasets import generate_series
+    from viewer.pipeline import icp_steps
+
+    series = generate_series("wind_turbine_storm", settings=ScanSettings(n_points=60_000))
+    assert series.names == ["Spring", "Summer", "Autumn", "Spring, after the storms"]
+    spring, after = series.clouds[0], series.clouds[3]
+    steps = icp_steps(after, spring, max_distance=0.5, max_iterations=300, max_points=50_000, method="point-to-plane")
+    aligned = o3d.geometry.PointCloud(after)
+    aligned.transform(steps[-1].transformation)
+    result = detect_changes(spring, aligned)
+    measure_areas(result, np.asarray(spring.points), np.asarray(aligned.points))
+    kinds = sorted(area.kind for area in result.areas)
+    assert kinds == ["added", "removed"]  # the anchor with its chain, and the scour
+    scour = next(a for a in result.areas if a.kind == "removed")
+    assert scour.volume < -100  # well over a hundred cubic metres of sand gone
