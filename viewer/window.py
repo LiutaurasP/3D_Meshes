@@ -245,7 +245,15 @@ class MainWindow(QMainWindow):
                 if swipe and abs(event.position().x() - swipe["fraction"] * obj.width()) < 14:
                     self._swipe_drag = True  # grab the divider instead of rotating
                     return True
+                if self.scene.navigation == "Orbit" and not event.modifiers() & Qt.ShiftModifier:
+                    # Turn around the scans in the middle of the screen, not around a point in the water
+                    self.scene.flight.stop()
+                    self._orbiting = True
+                    self.scene.show_pivot(self.scene.pivot_on_view())
             elif kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                if getattr(self, "_orbiting", False):
+                    self._orbiting = False
+                    QTimer.singleShot(350, lambda: not self._orbiting and self.scene.hide_pivot())
                 if self._swipe_drag:
                     self._swipe_drag = False
                     return True

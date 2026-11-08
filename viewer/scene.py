@@ -72,6 +72,7 @@ class SceneView:
         self.change_values = {}  # name -> signed change per point, for the "Change" colours
         self.change_limit = 0.3
         self.area_actors = []
+        self.pivot_actor = None  # marker on the point the camera turns around, while orbiting
 
     # Geometry
 
@@ -780,6 +781,82 @@ class SceneView:
     def clear_overlays(self):
         for items in list(self.overlays):
             self.remove_overlay(items)
+
+    # Orbiting: turn around what is in the middle of the screen
+
+    def surface_in_view(self, cone_deg=0.5, widest_deg=5.0, max_points=150_000):
+        """Point on the scans straight ahead of the camera, or None if there is only water.
+
+        Looks at the points inside a narrow cone around the line of sight (not at the one pixel
+        in the middle, which often falls between two points) and widens the cone until it holds
+        enough of them. The near side of the surface is used, ignoring the odd stray echo in front.
+        The result lies exactly on the line of sight, so making it the focal point doesn't move the view.
+        """
+        camera = self.plotter.camera
+        position = np.array(camera.position, dtype=float)
+        forward = np.array(camera.focal_point, dtype=float) - position
+        forward /= np.linalg.norm(forward) or 1.0
+
+        along, across = [], []
+        for name, cloud in self.geometries.items():
+            if not self.visible.get(name, False):
+                continue
+            points = np.asarray(self._shown(name, np.asarray(cloud.points)))
+            if len(points) > max_points:
+                points = points[:: int(np.ceil(len(points) / max_points))]
+            matrix = self.matrices[name]
+            relative = points @ matrix[:3, :3].T + matrix[:3, 3] - position
+            depth = relative @ forward
+            ahead = depth > 0
+            relative, depth = relative[ahead], depth[ahead]
+            offset = np.linalg.norm(relative - depth[:, None] * forward, axis=1)
+            along.append(depth)
+            across.append(offset / depth)  # tangent of the angle to the line of sight
+        if not along:
+            return None
+        along, across = np.concatenate(along), np.concatenate(across)
+
+        cone = cone_deg
+        while cone <= widest_deg:
+            inside = across < np.tan(np.radians(cone))
+            if inside.sum() >= 8:
+                depth = float(np.percentile(along[inside], 10))  # near side, past a few stray echoes
+                return position + forward * depth
+            cone *= 2
+        return None
+
+    def pivot_on_view(self):
+        """Move the point the camera turns around onto the surface straight ahead (no visible jump)."""
+        point = self.surface_in_view()
+        if point is None:
+            return None
+        camera = self.plotter.camera
+        camera.focal_point = tuple(point)
+        self.plotter.renderer.ResetCameraClippingRange()
+        return point
+
+    def show_pivot(self, point):
+        """A small white dot on the point the camera turns around (same size on screen at any distance)."""
+        self.hide_pivot(render=False)
+        if point is None:
+            return
+        # A little towards the camera along the line of sight: same place on screen, not sunk between points
+        position = np.array(self.plotter.camera.position, dtype=float)
+        shown_at = position + (np.asarray(point) - position) * 0.985
+        ratio = self.widget.devicePixelRatioF()
+        self.pivot_actor = [self.plotter.add_points(
+            pv.PolyData(np.array([shown_at])), color=(0.97, 0.98, 1.0), point_size=13 * ratio,
+            render_points_as_spheres=True, reset_camera=False, name="orbit pivot", pickable=False)]
+        self.plotter.render()
+
+    def hide_pivot(self, render=True):
+        if self.pivot_actor is None:
+            return
+        for actor in self.pivot_actor:
+            self.plotter.remove_actor(actor, render=False)
+        self.pivot_actor = None
+        if render:
+            self.plotter.render()
 
     def set_navigation(self, mode):
         self.navigation = mode

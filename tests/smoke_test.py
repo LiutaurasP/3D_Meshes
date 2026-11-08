@@ -1080,6 +1080,41 @@ def change_animation_done():
     scene.flight.stop()
     window.set_minimap(False)
     check("the minimap can be switched off", scene.minimap is None)
+    orbit_checks()
+
+
+def orbit_checks():
+    """Orbiting turns around the scans in the middle of the screen, not around a point in the water."""
+    from scipy.spatial import cKDTree
+
+    scene = window.scene
+    window.set_navigation("Orbit")
+    scene.look_from("Iso", animate=False)
+    camera = scene.plotter.camera
+    forward = np.subtract(camera.focal_point, camera.position)
+    forward /= np.linalg.norm(forward)
+    shift = forward * 0.6 * scene.size()  # like flying forward with W: the centre moves along
+    camera.position = tuple(np.add(camera.position, shift))
+    camera.focal_point = tuple(np.add(camera.focal_point, shift))
+    tree = cKDTree(np.vstack([np.asarray(c.points) for c in window.clouds.values()]))
+    drifted = tree.query(np.array(camera.focal_point))[0]
+    before = np.subtract(camera.focal_point, camera.position)
+    x, y = view.width() / 2, view.height() / 2
+    app.sendEvent(view, QMouseEvent(QEvent.MouseButtonPress, QPointF(x, y), QPointF(x, y), Qt.LeftButton,
+                                    Qt.LeftButton, Qt.NoModifier))
+    after = np.subtract(camera.focal_point, camera.position)
+    landed = tree.query(np.array(camera.focal_point))[0]
+    turned = np.degrees(np.arccos(np.clip(np.dot(before, after) / np.linalg.norm(before) / np.linalg.norm(after), -1, 1)))
+    check("orbiting turns around the scans in the middle of the screen", drifted > 1.0 and landed < 0.5)
+    check("…without the view jumping", turned < 0.01)
+    check("…and shows where it turns", scene.pivot_actor is not None)
+    app.sendEvent(view, QMouseEvent(QEvent.MouseButtonRelease, QPointF(x, y), QPointF(x, y), Qt.LeftButton,
+                                    Qt.NoButton, Qt.NoModifier))
+    then(700, orbit_released)
+
+
+def orbit_released():
+    check("the orbit marker goes away after letting go", window.scene.pivot_actor is None)
     tutorial_checks()
 
 
