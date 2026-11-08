@@ -26,8 +26,8 @@ from PySide6.QtCore import (
     QTimer,
     QVariantAnimation,
 )
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from viewer.style import ACCENT, TEXT, TEXT_DIM, TEXT_FAINT
 
@@ -48,10 +48,20 @@ MOUSE_EVENTS = (QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.Mouse
 class KeyChip(QLabel):
     """A key cap (or a mouse action) that lights up when it has been used."""
 
+    HEIGHT = 44  # every key cap has this height
+    FONT_PX = 20
+    SIDE_PADDING = 14
+
     def __init__(self, text, wide=False):
         super().__init__(text)
         self.setAlignment(Qt.AlignCenter)
-        self.setMinimumWidth(96 if wide else 48)
+        # A fixed shape: as wide as the text needs (at least square), never stretched by the row it sits in
+        font = QFont(self.font())
+        font.setPixelSize(self.FONT_PX)
+        font.setBold(True)
+        width = QFontMetrics(font).horizontalAdvance(text) + 2 * self.SIDE_PADDING + 2
+        self.setFixedSize(max(width, self.HEIGHT), self.HEIGHT)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.state = "idle"
         self._glow = 0.0
         self.pulse = QVariantAnimation(self)
@@ -91,8 +101,8 @@ class KeyChip(QLabel):
             text = TEXT
         self.setStyleSheet(
             f"QLabel {{ background: {fill}; color: {text}; border: 1px solid {border};"
-            f" border-bottom: 4px solid {border}; border-radius: 8px; padding: 7px 14px;"
-            f" font-size: 20px; font-weight: 700; }}")
+            f" border-bottom: 4px solid {border}; border-radius: 8px; padding: 0px;"
+            f" font-size: {self.FONT_PX}px; font-weight: 700; }}")
 
 
 class TutorialCard(QWidget):
@@ -117,7 +127,7 @@ class TutorialCard(QWidget):
         self._typed = 0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 16, 24, 16)
+        layout.setContentsMargins(32, 16, 24, 20)
         layout.setSpacing(6)
 
         # The blue line, with a quiet "Leave tutorial  Esc" in the top-right corner, and the title right under it
@@ -211,14 +221,14 @@ class TutorialCard(QWidget):
                     text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 17px; font-weight: 600; padding: 0;")
                 else:  # what to do: reads like an instruction
                     text.setStyleSheet(f"color: {TEXT}; font-size: 17px; font-weight: 600; padding: 0 0 0 10px;")
-                self.keys_row.addWidget(text)
+                self.keys_row.addWidget(text, 0, Qt.AlignVCenter)
                 continue
             chip = KeyChip(label, wide=len(label) > 3)
             chip.start_pulse()
             self.chips[name] = chip
-            self.keys_row.addWidget(chip)
+            self.keys_row.addWidget(chip, 0, Qt.AlignVCenter)
         self.keys_row.addStretch()
-        self.keys_row.addWidget(self.next)
+        self.keys_row.addWidget(self.next, 0, Qt.AlignVCenter)
 
         button = step.get("button")
         self.next.setVisible(bool(button))
@@ -247,7 +257,7 @@ class TutorialCard(QWidget):
         row = [self.keys_row.itemAt(i).widget() for i in range(self.keys_row.count())]
         row = [widget for widget in row if widget is not None and not widget.isHidden()]
         if row:
-            height += gap + max(widget.sizeHint().height() for widget in row)
+            height += gap + max(max(widget.sizeHint().height(), widget.minimumHeight()) for widget in row)
         if not self.hint.isHidden():
             height += gap + self.hint.heightForWidth(inner)
         height += margins.bottom()

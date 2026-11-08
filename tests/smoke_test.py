@@ -1186,8 +1186,42 @@ def at(name):
     return lambda: window.in_tutorial() and window.tutorial.step == name and not window.tutorial._busy
 
 
+def card_layout_checks():
+    """Every card of both tutorials: key caps keep their shape and nothing is cut off."""
+    from PySide6.QtCore import QCoreApplication
+
+    from viewer.tutorial import KeyChip, Tutorial, TutorialCard, body
+    from viewer.tutorial_advanced import AdvancedTutorial
+
+    class Results:
+        last_measurement = (5.2, 4.9, -1.7)
+        last_section = {"length": 9.0, "biggest": (3.8, -1.9)}
+        change_result = None
+
+    steps = list(Tutorial.steps(type("T", (), {"fit_text": body("a", "b"), "found_text": body("a", "b")})()).values())
+    steps += list(AdvancedTutorial.steps(type("A", (), {"window": Results(), "scour_area": lambda s: None,
+                                                       "anchor_area": lambda s: None})()).values())
+    distorted, clipped = 0, 0
+    for step in steps:
+        card = TutorialCard(window, lambda: None, lambda: None)
+        card.set_content(dict(step), animate=False)
+        card.show()
+        app.processEvents()
+        for chip in card.chips.values():
+            distorted += chip.height() != KeyChip.HEIGHT or chip.width() < chip.height()
+            clipped += chip.mapTo(card, chip.rect().bottomLeft()).y() > card.height() - 12
+        clipped += card.body.height() < card.body.heightForWidth(card.body.width())
+        card.hide()
+        card.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    check(f"all {len(steps)} tutorial cards keep their key caps in shape", distorted == 0)
+    check("…and nothing on them is cut off", clipped == 0)
+
+
 def tutorial_checks():
     from viewer.dialogs import StartScreen
+
+    card_layout_checks()
 
     screen = StartScreen([], window)
     screen.tutorial_button.click()
