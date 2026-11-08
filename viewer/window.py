@@ -119,10 +119,19 @@ class MainWindow(QMainWindow):
                 "truth": self.scene.set_truth_visible,
                 "axes": self.scene.set_axes_visible,
                 "depth_shading": self.scene.set_depth_shading,
+                "swipe": self.set_swipe,
+                "save_view": self.save_view,
+                "go_view": self.go_to_saved_view,
                 "plotly": self.open_in_plotly,
             },
         )
+        self.saved_views = []  # [{"name": ..., "view": camera view}]
+        self._pick = None  # active click tool: {"kind": "section" / "measure", "points": [...]}
+        self._swipe_drag = False
+        self.section_window = None
+        self.measurements = []
         self._add_dock()
+        self.sidebar.add_history_page(self.history.stack)
         self.actions = build_menus(self)
         for widget, label in self.sidebar.undoable_controls():
             self.history.watch(widget, label)
@@ -198,13 +207,31 @@ class MainWindow(QMainWindow):
         Also follows the mouse over the 3D view for the coordinate readout.
         """
         if obj is self.scene.widget:
-            if event.type() == QEvent.MouseMove:
+            kind = event.type()
+            if kind == QEvent.MouseMove:
                 self._mouse_position = event.position()
                 if not self._cursor_timer.isActive():
                     self._cursor_timer.start()
-            elif event.type() == QEvent.Leave:
+                if self._swipe_drag:
+                    self.scene.set_swipe_fraction(event.position().x() / max(obj.width(), 1))
+                    return True
+            elif kind == QEvent.Leave:
                 self._mouse_position = None
                 self.cursor_label.clear()
+            elif kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self._press_position = event.position()
+                swipe = self.scene.swipe
+                if swipe and abs(event.position().x() - swipe["fraction"] * obj.width()) < 14:
+                    self._swipe_drag = True  # grab the divider instead of rotating
+                    return True
+            elif kind == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                if self._swipe_drag:
+                    self._swipe_drag = False
+                    return True
+                press = getattr(self, "_press_position", None)
+                moved = press is None or (event.position() - press).manhattanLength() > 4
+                if self._pick is not None and not moved:
+                    self._picked(event.position())  # a click (not a drag) while a tool is active
         if (event.type() == QEvent.KeyPress and event.key() == Qt.Key_Space
                 and not event.isAutoRepeat()
                 and not event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier | Qt.AltModifier)
@@ -245,6 +272,153 @@ class MainWindow(QMainWindow):
         elif scans:
             self.notify("Drop two scan files", "Scan A (earlier) and scan B (later) together", "warning")
         event.acceptProposedAction()
+
+    # Click tools: cross section and measuring
+
+    TOOL_HINTS = {
+        "section": "Cross section: click the start point, then the end point (Esc cancels)",
+        "measure": "Measure: click the first point, then the second (Esc cancels)",
+    }
+
+    def start_tool(self, kind):
+        self.cancel_tool()
+        self._pick = {"kind": kind, "points": [], "markers": []}
+        self.scene.widget.setCursor(Qt.CrossCursor)
+        self.statusBar().showMessage(self.TOOL_HINTS[kind])
+        self.notify(self.TOOL_HINTS[kind].split(":")[0], self.TOOL_HINTS[kind].split(": ")[1])
+
+    def cancel_tool(self):
+        if self._pick is None:
+            return
+        for markers in self._pick["markers"]:
+            self.scene.remove_overlay(markers)
+        self._pick = None
+        self.scene.widget.unsetCursor()
+        self.statusBar().clearMessage()
+
+    def _picked(self, position):
+        point = self.scene.pick_point(position.x(), position.y())
+        if point is None:
+            self.statusBar().showMessage("Click on the scan, not on the background", 3000)
+            return
+        self.pick_at(point)
+
+    def pick_at(self, point):
+        """Add a picked point to the active tool (also used by tests)."""
+        tool = self._pick
+        tool["points"].append(np.asarray(point, dtype=float))
+        tool["markers"].append(self.scene.add_marker_point(point))
+        if len(tool["points"]) < 2:
+            return
+        start, end = tool["points"]
+        for markers in tool["markers"]:
+            self.scene.remove_overlay(markers)
+        kind = tool["kind"]
+        self._pick = None
+        self.scene.widget.unsetCursor()
+        self.statusBar().clearMessage()
+        if kind == "section":
+            self.show_cross_section(start, end)
+        else:
+            self.add_measurement(start, end)
+
+    def show_cross_section(self, start, end):
+        from viewer.section import SectionWindow, compute_section
+
+        if getattr(self, "_section_line", None):
+            self.scene.remove_overlay(self._section_line)
+        top = max(start[2], end[2]) + 0.3
+        self._section_line = self.scene.add_marker_line(
+            (start[0], start[1], top), (end[0], end[1], top), color=(0.95, 0.85, 0.3), label="cross section", label_at=0.0)
+        points_a = np.asarray(self.clouds[self.target_name].points)
+        matrix = np.asarray(self.scene.matrices[self.source_name])
+        points_b = np.asarray(self.clouds[self.source_name].points) @ matrix[:3, :3].T + matrix[:3, 3]
+        section = compute_section(points_a, points_b, start, end)
+        if self.section_window is None:
+            self.section_window = SectionWindow(self)
+        self.section_window.show_section(section, self.colors[self.target_name], self.colors[self.source_name])
+        self.last_section = section
+
+    def add_measurement(self, start, end):
+        distance = float(np.linalg.norm(end - start))
+        horizontal = float(np.linalg.norm(end[:2] - start[:2]))
+        vertical = float(end[2] - start[2])
+        label = f"{distance:.2f} m"
+        markers = self.scene.add_marker_line(start, end, color=(0.4, 0.9, 0.6), label=label)
+        self.measurements.append({"start": start.tolist(), "end": end.tolist(), "markers": markers})
+        self.notify(f"Distance {distance:.2f} m", f"horizontal {horizontal:.2f} m · vertical {vertical:+.2f} m", "success")
+        self.last_measurement = (distance, horizontal, vertical)
+
+    def clear_measurements(self):
+        for measurement in self.measurements:
+            self.scene.remove_overlay(measurement["markers"])
+        self.measurements = []
+        if getattr(self, "_section_line", None):
+            self.scene.remove_overlay(self._section_line)
+            self._section_line = None
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape and self._pick is not None:
+            self.cancel_tool()
+            return
+        super().keyPressEvent(event)
+
+    # Before / after swipe
+
+    def set_swipe(self, enabled):
+        self.scene.set_swipe(enabled, 0.5)
+        if enabled:
+            self.notify("Before / after", "Drag the white divider: scan A on the left, scan B on the right")
+
+    # Saved views
+
+    def save_view(self, name=None):
+        from PySide6.QtWidgets import QInputDialog
+
+        if name is None:
+            name, ok = QInputDialog.getText(self, "Save View", "Name of this view:",
+                                            text=f"View {len(self.saved_views) + 1}")
+            if not ok or not name.strip():
+                return
+        old = [dict(v) for v in self.saved_views]
+        new = old + [{"name": name.strip(), "view": self.scene.current_view()}]
+        self._set_saved_views(new)
+        self.history.push(f"Save View \"{name.strip()}\"", lambda: self._set_saved_views(new),
+                          lambda: self._set_saved_views(old))
+
+    def _set_saved_views(self, views):
+        self.saved_views = [dict(v) for v in views]
+        self.sidebar.show_saved_views([v["name"] for v in self.saved_views])
+        self.update_views_menu()
+
+    def go_to_saved_view(self, index):
+        if 0 <= index < len(self.saved_views):
+            self.scene.go_to_view(self.saved_views[index]["view"])
+
+    def update_views_menu(self):
+        menu = getattr(self, "views_menu", None)
+        if menu is None:
+            return
+        menu.clear()
+        menu.addAction("Save Current View…", self.save_view)
+        if self.saved_views:
+            menu.addSeparator()
+            for index, view in enumerate(self.saved_views):
+                action = menu.addAction(view["name"], lambda i=index: self.go_to_saved_view(i))
+                if index < 9:
+                    action.setShortcut(f"Ctrl+{index + 1}")
+            menu.addSeparator()
+            menu.addAction("Delete All Saved Views", lambda: self._delete_saved_views())
+
+    def _delete_saved_views(self):
+        old = [dict(v) for v in self.saved_views]
+        self._set_saved_views([])
+        self.history.push("Delete Saved Views", lambda: self._set_saved_views([]), lambda: self._set_saved_views(old))
+
+    def show_palette(self):
+        from viewer.palette import CommandPalette
+
+        CommandPalette(self).exec()
 
     # Autosave and recovery
 
@@ -741,6 +915,7 @@ class MainWindow(QMainWindow):
                 "up": list(camera.up), "view_angle": camera.view_angle,
             },
             "navigation": self.scene.navigation,
+            "saved_views": self.saved_views,
             "panel": {**self.sidebar.panel_state(), "visible": self.dock.isVisible()},
         }
 
@@ -869,6 +1044,11 @@ class MainWindow(QMainWindow):
                 cam.view_angle = camera.get("view_angle", cam.view_angle)
                 self.scene.plotter.renderer.ResetCameraClippingRange()
                 self.scene.plotter.render()
+
+            self._set_saved_views(state.get("saved_views", []))
+            self.clear_measurements()
+            if side.swipe.isChecked():
+                side.swipe.setChecked(False)
 
             panel = state.get("panel", {})
             side.restore_panel_state(panel)

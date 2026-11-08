@@ -34,7 +34,7 @@ from viewer.widgets import (
 
 FROM_FILES = "files"
 ICP_METHODS = (("Point to point", "point-to-point"), ("Point to plane", "point-to-plane"))
-PAGES = ("Settings", "Guide")
+PAGES = ("Settings", "Guide", "History")
 
 
 def scene_label(scene):
@@ -105,12 +105,29 @@ class Sidebar(QWidget):
         self.pages = QStackedWidget()
         self.pages.addWidget(scrolling(settings))
         self.pages.addWidget(scrolling(self._guide_page()))
+        self.history_page, self.history_layout = page_layout()  # filled by add_history_page
+        self.pages.addWidget(self.history_page)
         layout.addWidget(self.pages, 1)
         self.switch.changed.connect(self.show_page)
 
     def show_page(self, index):
         self.switch.set_index(index)
         self.pages.setCurrentIndex(index)
+
+    def add_history_page(self, stack):
+        """Every undo step in a list (like Photoshop's History); click one to go back to it."""
+        from PySide6.QtWidgets import QUndoView
+
+        card = Card("History")
+        card.add(hint("Every change you made, oldest first. Click a step to go back to it, "
+                      "click a later one to go forward again."))
+        view = QUndoView(stack)
+        view.setEmptyLabel("Start")
+        view.setMinimumHeight(420)
+        card.add(view)
+        self.history_layout.addWidget(card)
+        self.history_layout.addStretch()
+        self.history_view = view
 
     # Data
 
@@ -572,10 +589,30 @@ class Sidebar(QWidget):
             presets.addWidget(view, 1)
         card.add(presets)
 
+        row = QHBoxLayout()
+        row.setSpacing(SPACING)
         reset = button("Reset view")
         reset.clicked.connect(lambda: self.callbacks["camera"]("Iso"))
-        card.add(reset)
+        row.addWidget(reset, 1)
+        save_view = button("Save view…", tooltip="Remember this camera position under a name")
+        save_view.clicked.connect(lambda: self.callbacks["save_view"]())
+        row.addWidget(save_view, 1)
+        card.add(row)
+
+        self.views_list = QListWidget()
+        self.views_list.setToolTip("Click a saved view to fly there")
+        self.views_list.setVisible(False)
+        self.views_list.itemClicked.connect(lambda item: self.callbacks["go_view"](self.views_list.row(item)))
+        card.add(self.views_list)
         return card
+
+    def show_saved_views(self, names):
+        self.views_list.clear()
+        self.views_list.addItems(names)
+        self.views_list.setVisible(bool(names))
+        if names:
+            row_height = max(self.views_list.sizeHintForRow(0), 24)
+            self.views_list.setFixedHeight(min(len(names), 5) * row_height + 2 * self.views_list.frameWidth() + 10)
 
     # Display
 
@@ -612,6 +649,11 @@ class Sidebar(QWidget):
         self.truth.setChecked(view_settings.show_truth)
         self.truth.toggled.connect(lambda checked: self.callbacks["truth"](checked))
         card.add(self.truth)
+
+        self.swipe = QCheckBox("Before / after swipe")
+        self.swipe.setToolTip("Scan A left of a divider, scan B right of it; drag the divider (B)")
+        self.swipe.toggled.connect(lambda checked: self.callbacks["swipe"](checked))
+        card.add(self.swipe)
 
         self.depth_shading = QCheckBox("Depth shading")
         self.depth_shading.setToolTip("Eye-dome lighting: gives dense scans more relief, works best with many points")

@@ -121,12 +121,15 @@ def build_menus(window):
     for preset in CAMERA_PRESETS:
         camera.addAction(action(window, f"{preset} View", lambda _=False, p=preset: window.scene.look_from(p)))
     view.addAction(action(window, "Reset View", lambda: window.scene.look_from("Iso"), "R"))
+    window.views_menu = view.addMenu("Saved Views")
+    window.update_views_menu()
     view.addSeparator()
     view.addAction(link_checkbox(action(window, "Show Axes"), side.axes))
     view.addAction(link_checkbox(action(window, "Show True Change"), side.truth))
     view.addAction(link_checkbox(action(window, "Show Changed Points"), side.show_changes))
     view.addAction(link_checkbox(action(window, "Show Area Boxes"), side.show_areas))
     view.addAction(link_checkbox(action(window, "Depth Shading"), side.depth_shading))
+    view.addAction(link_checkbox(action(window, "Before / After Swipe", shortcut="B"), side.swipe))
     view.addSeparator()
     full = action(window, "Enter Full Screen", window.toggle_full_screen, QKeySequence.FullScreen)
     view.addAction(full)
@@ -156,10 +159,17 @@ def build_menus(window):
     analyze.addAction(action(window, "Previous Changed Area", lambda: window.step_area(-1), "["))
     analyze.addSeparator()
     analyze.addAction(link_checkbox(action(window, "Automatic Threshold"), side.auto_threshold))
+    analyze.addSeparator()
+    analyze.addAction(action(window, "Cross Section", lambda: window.start_tool("section"), "X"))
+    analyze.addAction(action(window, "Measure Distance", lambda: window.start_tool("measure"), "T"))
+    analyze.addAction(action(window, "Clear Measurements", window.clear_measurements))
     window.analyze_menu = analyze
 
     # Window
     window_menu = bar.addMenu("&Window")
+    window_menu.addAction(action(window, "Command Palette…", window.show_palette, "Ctrl+K"))
+    window_menu.addAction(action(window, "History", lambda: (window.dock.show(), side.show_page(2)), "Ctrl+Shift+H"))
+    window_menu.addSeparator()
     window_menu.addAction(action(window, "Minimize", window.showMinimized, "Ctrl+M"))
     window_menu.addAction(action(window, "Zoom", window.toggle_maximized))
     window.window_menu = window_menu

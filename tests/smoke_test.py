@@ -638,6 +638,90 @@ def after_autosave(path):
 
 def after_drop():
     check("dropped files are imported, the first name as scan A", window.inspections.title.startswith("1_before.ply"))
+    tool_checks()
+
+
+def tool_checks():
+    """Phase 3: before/after swipe, cross section, measuring, saved views, command palette, history."""
+    import tempfile
+    from viewer.palette import all_commands, matches
+
+    scene = window.scene
+    scene.look_from("Iso", animate=False)
+
+    # Before / after swipe
+    window.sidebar.swipe.setChecked(True)
+    check("swipe cuts both scans with a clipping plane",
+          scene.swipe is not None and all(a.GetMapper().GetNumberOfClippingPlanes() > 0
+                                          for a in scene._all_cloud_actors()))
+    scene.plotter.render()
+    view_widget = scene.widget
+    y = view_widget.height() / 2
+    mouse(QEvent.MouseButtonPress, view_widget.width() / 2, y, Qt.LeftButton, Qt.LeftButton)
+    mouse(QEvent.MouseMove, view_widget.width() * 0.3, y, Qt.NoButton, Qt.LeftButton)
+    mouse(QEvent.MouseButtonRelease, view_widget.width() * 0.3, y, Qt.LeftButton, Qt.NoButton)
+    check("dragging the divider moves it", abs(scene.swipe["fraction"] - 0.3) < 0.05)
+    window.sidebar.swipe.setChecked(False)
+    check("swipe off removes the clipping",
+          scene.swipe is None and all(a.GetMapper().GetNumberOfClippingPlanes() == 0
+                                      for a in scene._all_cloud_actors()))
+
+    # Cross section between two points on the scan
+    points = np.asarray(window.clouds[window.target_name].points)
+    low, high = points.min(axis=0), points.max(axis=0)
+    middle = (low + high) / 2
+    start = np.array([low[0], middle[1], middle[2]])
+    end = np.array([high[0], middle[1], middle[2]])
+    window.start_tool("section")
+    window.pick_at(start)
+    check("a tool waits for the second click", window._pick is not None and len(window._pick["points"]) == 1)
+    window.pick_at(end)
+    section = getattr(window, "last_section", None)
+    check("cross section finds points of both scans",
+          section is not None and len(section["a"][0]) > 20 and len(section["b"][0]) > 20)
+    check("cross section window opens", window.section_window is not None and window.section_window.isVisible())
+    window.section_window.close()
+
+    # Escape cancels a tool
+    window.start_tool("measure")
+    QTest.keyClick(window, Qt.Key_Escape)
+    check("Esc cancels a tool", window._pick is None)
+
+    # Measuring a known distance (3, 4, 0 -> 5 m)
+    window.start_tool("measure")
+    window.pick_at(middle)
+    window.pick_at(middle + np.array([3.0, 4.0, 0.0]))
+    distance, horizontal, vertical = window.last_measurement
+    check("measuring gives the right distance", abs(distance - 5.0) < 1e-6 and abs(vertical) < 1e-6)
+    window.clear_measurements()
+    check("measurements can be cleared", not window.measurements)
+
+    # Saved views: undoable, in the menu, and stored in the project
+    count = window.history.stack.count()
+    window.save_view("Test view")
+    check("a view can be saved", [v["name"] for v in window.saved_views] == ["Test view"])
+    check("saved views appear in the menu", any(a.text() == "Test view" for a in window.views_menu.actions()))
+    scene.look_from("Top", animate=False)
+    window.go_to_saved_view(0)
+    check("going to a saved view flies the camera", scene.flight.is_flying())
+    scene.flight.stop()
+    folder = Path(tempfile.mkdtemp())
+    window.write_project(folder / "views.subdron")
+    window.actions["undo"].trigger()
+    check("saving a view can be undone", not window.saved_views and window.history.stack.count() == count + 1)
+    window.open_project(str(folder / "views.subdron"), ask=False)
+    check("saved views are stored in the project", [v["name"] for v in window.saved_views] == ["Test view"])
+
+    # Command palette and history
+    names = [c[0] for c in all_commands(window.menuBar())]
+    check("command palette lists the menu commands", "Align B to A" in names and "Detect Changes" in names)
+    check("command palette finds commands from a few letters", matches("algn", "Align B to A"))
+    check("history panel shows the undo steps", window.sidebar.history_view.stack() is window.history.stack)
+
+    # Camera flights
+    scene.look_from("Front", animate=True)
+    check("view presets fly instead of jumping", scene.flight.is_flying())
+    scene.flight.stop()
     finish()
 
 

@@ -77,6 +77,11 @@ CHAPTERS = [
         (key("R"), "reset the view"),
         (key("Space"), "show or hide this panel"),
         (key("F1"), "open this guide"),
+        (key("Cmd") + " " + key("K"), "command palette: type to find any command"),
+        (key("B"), "before / after swipe"),
+        (key("X"), "cross section"),
+        (key("T"), "measure a distance"),
+        (key("Cmd") + " " + key("1") + " … " + key("9"), "fly to a saved view"),
         (key("Cmd") + " " + key("/"), "list of all shortcuts (searchable)"),
         (key("Cmd") + " " + key(","), "settings"),
     ]), False),
@@ -153,6 +158,21 @@ CHAPTERS = [
          "Always align first, otherwise the misalignment itself looks like change. "
          "For example scenes the panel also says how much of the true change was found.") + "</p>",
      False),
+
+    ("Comparing tools", keys_table([
+        ("<b>Before / after</b> " + key("B"), "scan A left of a divider, scan B right of it; drag the divider "
+                                              "across the view to wipe between them"),
+        ("<b>Cross section</b> " + key("X"), "click two points on the scan: a side view of A and B along that "
+                                             "line opens, red where material was added, blue where it was removed"),
+        ("<b>Measure</b> " + key("T"), "click two points: the distance appears in 3D, the status shows the "
+                                       "horizontal and vertical part"),
+        ("<b>Esc</b>", "cancels a tool before the second click"),
+        ("<b>Saved views</b>", "Camera → Save view… stores the camera; click it later to fly back "
+                               "(also " + key("Cmd") + " " + key("1") + " … " + key("9") + ", saved in the project)"),
+        ("<b>Command palette</b> " + key("Cmd") + " " + key("K"), "type a few letters, for example "
+                                                                  "\"algn\", and press Enter"),
+        ("<b>History</b>", "the History tab lists every step; click one to jump back to it"),
+    ]), False),
 
     ("Colours and highlights", keys_table([
         ("<b>Per scan</b>", "A and B in their own colour (click a swatch to change it)"),

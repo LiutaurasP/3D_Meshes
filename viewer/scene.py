@@ -2,6 +2,7 @@ import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
 
+from viewer.camera import CameraFlight
 from viewer.fly import FlyController
 
 
@@ -50,7 +51,11 @@ class SceneView:
             self.plotter.show_axes()
 
         self.fly = FlyController(self.plotter)
+        self.flight = CameraFlight(self.plotter)
         self.navigation = NAVIGATION_MODES[0]
+        self.depth_shading = False
+        self.swipe = None  # before / after split, see set_swipe
+        self.overlays = []  # lines and labels of the measuring tools
 
         self.geometries = {}
         self.colors = {}
@@ -132,6 +137,7 @@ class SceneView:
 
         for name in self.geometries:
             self._apply(name)
+        self._attach_swipe_planes()
         self.plotter.render()
 
     def _depth_range(self):
@@ -214,6 +220,7 @@ class SceneView:
                     render_points_as_spheres=True, name=f"{name} ({kind})", reset_camera=False)
         for name in self.geometries:
             self._apply(name)
+        self._attach_swipe_planes()
         self.plotter.render()
 
     def set_changes_visible(self, visible):
@@ -262,9 +269,7 @@ class SceneView:
         reach = max(float(np.linalg.norm(high - low)), 1.0) * 1.8
         direction = np.asarray(CAMERA_PRESETS["Iso"], dtype=float)
         direction /= np.linalg.norm(direction)
-        self.plotter.camera_position = [tuple(center + direction * reach), tuple(center), (0.0, 0.0, 1.0)]
-        self.plotter.renderer.ResetCameraClippingRange()
-        self.plotter.render()
+        self.flight.fly_to({"position": center + direction * reach, "focal_point": center, "up": (0.0, 0.0, 1.0)})
 
     # Style
 
@@ -348,7 +353,7 @@ class SceneView:
         low, high = self.bounds()
         return float(np.linalg.norm(high - low))
 
-    def look_from(self, preset="Iso"):
+    def look_from(self, preset="Iso", animate=True):
         low, high = self.bounds()
         center = (low + high) / 2
 
@@ -357,9 +362,178 @@ class SceneView:
         eye = center + direction * self.size()
         up = (0.0, 1.0, 0.0) if preset == "Top" else (0.0, 0.0, 1.0)
 
+        before = self.current_view()
         self.plotter.camera_position = [tuple(eye), tuple(center), up]
         self.plotter.reset_camera(bounds=[low[0], high[0], low[1], high[1], low[2], high[2]])
+        self._fly_from(before, animate)
+
+    def current_view(self):
+        from viewer.camera import camera_view
+
+        return {key: (value.tolist() if hasattr(value, "tolist") else value)
+                for key, value in camera_view(self.plotter.camera).items()}
+
+    def go_to_view(self, view, animate=True):
+        """Fly (or jump) to a stored camera view (dict with position, focal_point, up, view_angle)."""
+        if animate:
+            self.flight.fly_to(view)
+        else:
+            self.flight.stop()
+            camera = self.plotter.camera
+            camera.position, camera.focal_point, camera.up = view["position"], view["focal_point"], view["up"]
+            camera.view_angle = view.get("view_angle", camera.view_angle)
+            self.plotter.renderer.ResetCameraClippingRange()
+            self.plotter.render()
+
+    def _fly_from(self, before, animate):
+        """The camera was just set to its target: fly there from `before` instead of jumping."""
+        target = self.current_view()
+        if not animate:
+            self.plotter.render()
+            return
+        self.go_to_view(before, animate=False)
+        self.flight.fly_to(target)
+
+    # Before / after swipe
+
+    def set_swipe(self, enabled, fraction=0.5):
+        """Scan A left of a vertical divider, scan B right of it."""
+        import vtk
+
+        if enabled and self.swipe is None:
+            names = list(self.geometries)[:2]
+            planes = {name: vtk.vtkPlane() for name in names}
+            line = vtk.vtkLineSource()
+            mapper = vtk.vtkPolyDataMapper2D()
+            mapper.SetInputConnection(line.GetOutputPort())
+            coordinate = vtk.vtkCoordinate()
+            coordinate.SetCoordinateSystemToNormalizedViewport()
+            mapper.SetTransformCoordinate(coordinate)
+            divider = vtk.vtkActor2D()
+            divider.SetMapper(mapper)
+            divider.GetProperty().SetColor(1, 1, 1)
+            divider.GetProperty().SetLineWidth(2 * self.widget.devicePixelRatioF())
+            divider.GetProperty().SetOpacity(0.85)
+            self.plotter.renderer.AddViewProp(divider)
+            labels = []
+            for name, x in zip(names, (0.02, 0.98)):
+                text = vtk.vtkTextActor()
+                text.SetInput(name)
+                prop = text.GetTextProperty()
+                prop.SetFontSize(int(15 * self.widget.devicePixelRatioF()))
+                prop.SetColor(*self.colors.get(name, (1, 1, 1, 1))[:3])
+                prop.SetBold(True)
+                prop.SetJustificationToRight() if x > 0.5 else prop.SetJustificationToLeft()
+                text.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
+                text.SetPosition(x, 0.94)
+                self.plotter.renderer.AddViewProp(text)
+                labels.append(text)
+            observer = self.plotter.renderer.AddObserver("StartEvent", lambda *_: self._update_swipe())
+            self.swipe = {"fraction": fraction, "planes": planes, "names": names, "line": line,
+                          "divider": divider, "labels": labels, "observer": observer}
+            self._attach_swipe_planes()
+        elif not enabled and self.swipe is not None:
+            renderer = self.plotter.renderer
+            renderer.RemoveObserver(self.swipe["observer"])
+            renderer.RemoveViewProp(self.swipe["divider"])
+            for text in self.swipe["labels"]:
+                renderer.RemoveViewProp(text)
+            for actor in self._all_cloud_actors():
+                actor.GetMapper().RemoveAllClippingPlanes()
+            self.swipe = None
+        if self.swipe is not None:
+            self.swipe["fraction"] = min(max(fraction, 0.02), 0.98)
         self.plotter.render()
+
+    def set_swipe_fraction(self, fraction):
+        if self.swipe is not None:
+            self.swipe["fraction"] = min(max(fraction, 0.02), 0.98)
+            self.plotter.render()
+
+    def _all_cloud_actors(self):
+        actors = list(self.actors.values())
+        for layer in self.highlight_actors.values():
+            actors += list(layer.values())
+        return actors
+
+    def _attach_swipe_planes(self):
+        """Clip every actor of a cloud with that cloud's plane (again after actors were rebuilt)."""
+        if self.swipe is None:
+            return
+        for actor in self._all_cloud_actors():
+            actor.GetMapper().RemoveAllClippingPlanes()
+        for name, plane in self.swipe["planes"].items():
+            owned = [self.actors.get(name)] + [layer.get(name) for layer in self.highlight_actors.values()]
+            for actor in owned:
+                if actor is not None:
+                    actor.GetMapper().AddClippingPlane(plane)
+
+    def _update_swipe(self):
+        """Put the cutting planes through the camera and the divider (before every frame)."""
+        swipe = self.swipe
+        renderer = self.plotter.renderer
+        width, height = renderer.GetSize()
+        if width == 0 or height == 0:
+            return
+        x = swipe["fraction"] * width
+
+        def world(px, py):
+            renderer.SetDisplayPoint(px, py, 0.0)
+            renderer.DisplayToWorld()
+            point = renderer.GetWorldPoint()
+            return np.array(point[:3]) / point[3]
+
+        eye = np.array(renderer.GetActiveCamera().GetPosition())
+        bottom, top = world(x, 0.0), world(x, float(height))
+        normal = np.cross(bottom - eye, top - eye)
+        normal /= np.linalg.norm(normal) or 1.0
+        left_side = world(0.0, height / 2)
+        if np.dot(left_side - eye, normal) < 0:
+            normal = -normal  # normal points to the left half of the screen
+        name_a, name_b = swipe["names"]
+        for name, sign in ((name_a, 1.0), (name_b, -1.0)):
+            plane = swipe["planes"][name]
+            plane.SetOrigin(*eye)
+            plane.SetNormal(*(sign * normal))
+        swipe["line"].SetPoint1(swipe["fraction"], 0.0, 0.0)
+        swipe["line"].SetPoint2(swipe["fraction"], 1.0, 0.0)
+
+    # Lines and labels of the measuring tools
+
+    def add_marker_line(self, p0, p1, color=(1.0, 0.33, 0.33), label=None, label_at=0.5):
+        line = pv.Line(p0, p1)
+        actor = self.plotter.add_mesh(line, color=color, line_width=3 * self.widget.devicePixelRatioF(),
+                                      reset_camera=False, render_lines_as_tubes=False)
+        dots = self.plotter.add_points(np.array([p0, p1]), color=color, point_size=10 * self.widget.devicePixelRatioF(),
+                                       render_points_as_spheres=True, reset_camera=False)
+        items = [actor, dots]
+        if label:
+            # label_at: 0 = at the start, 0.5 = in the middle, 1 = at the end
+            middle = (1 - label_at) * np.asarray(p0, dtype=float) + label_at * np.asarray(p1, dtype=float)
+            items.append(self.plotter.add_point_labels(
+                [middle], [label], font_size=14, text_color="white", shape_color=(0.15, 0.15, 0.18),
+                shape_opacity=0.85, show_points=False, always_visible=True, reset_camera=False))
+        self.overlays.append(items)
+        self.plotter.render()
+        return items
+
+    def add_marker_point(self, point, color=(1.0, 0.33, 0.33)):
+        dot = self.plotter.add_points(np.array([point]), color=color, point_size=10 * self.widget.devicePixelRatioF(),
+                                      render_points_as_spheres=True, reset_camera=False)
+        self.overlays.append([dot])
+        self.plotter.render()
+        return [dot]
+
+    def remove_overlay(self, items):
+        for actor in items:
+            self.plotter.remove_actor(actor, render=False)
+        if items in self.overlays:
+            self.overlays.remove(items)
+        self.plotter.render()
+
+    def clear_overlays(self):
+        for items in list(self.overlays):
+            self.remove_overlay(items)
 
     def set_navigation(self, mode):
         self.navigation = mode
