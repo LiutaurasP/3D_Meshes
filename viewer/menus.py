@@ -128,9 +128,19 @@ def build_menus(window):
     view.addAction(panel)
     view.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(GUIDE_PAGE)), "F1"))
     view.addSeparator()
+    window.ab_actions = []
     for number, (name, checkbox) in enumerate(side.checkboxes.items(), start=1):
         item = action(window, f"Show {name}", shortcut=str(number))
         view.addAction(link_checkbox(item, checkbox))
+        window.ab_actions.append(item)
+    # In "Show all" (scan series) the number keys show / hide each scan of the series instead
+    scans = view.addMenu("Show Scan of the Series")
+    window.scan_actions = []
+    for k in range(9):
+        item = action(window, f"Scan {k + 1}", lambda _=False, k=k: window.toggle_scan(k), str(k + 1))
+        item.setEnabled(False)
+        scans.addAction(item)
+        window.scan_actions.append(item)
     view.addSeparator()
     navigation = view.addMenu("Navigation")
     link_combobox(navigation, window, side.navigation, NAVIGATION_MODES)

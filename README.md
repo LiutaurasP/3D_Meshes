@@ -20,6 +20,13 @@ notes pinned in 3D (N), saved camera views, command palette (Cmd/Ctrl+K),
 History tab. File > Export makes a PDF change report, a turntable GIF or a
 screenshot. The Guide tab in the side panel explains everything.
 
+More than two scans of one place (File > Import Scan Series, or drop 3+ files on
+the window; they are ordered by the date in their names): the Timeline compares
+any two, the Scans card shows all of them at once (keys 1-9), "Align and compare
+all" follows every changed area through time (Areas tab: trend, rate per month,
+chart), Colours > When changed shows in which scan each spot first changed, and
+the PDF report gets a "Change over time" chapter.
+
 Command line (no window), for many scans at once:
     python sonar_cli.py compare before.laz after.laz --out results --report --csv --geojson
     python sonar_cli.py series scans_folder --out results

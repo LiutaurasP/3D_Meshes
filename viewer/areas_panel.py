@@ -38,10 +38,11 @@ class NumberItem(QTableWidgetItem):
 
 
 class AreasPanel(QWidget):
-    def __init__(self, on_select, on_edit):
-        """on_select(area index), on_edit(area index, field, value)"""
+    def __init__(self, on_select, on_edit, on_track=None):
+        """on_select(area index), on_edit(area index, field, value), on_track(track number)"""
         super().__init__()
-        self.on_select, self.on_edit = on_select, on_edit
+        self.on_select, self.on_edit, self.on_track = on_select, on_edit, on_track
+        self.tracks = []
         self.areas = []
         self.current = None
         layout = QVBoxLayout(self)
@@ -99,6 +100,26 @@ class AreasPanel(QWidget):
                                   "Areas tagged False alarm are left out of the volume totals."))
         self.detail_card.setVisible(False)
         layout.addWidget(self.detail_card)
+
+        # A scan series compared with its first scan: the same area in every scan
+        self.time_card = Card("Through time")
+        self.time_summary = hint()
+        self.time_card.add(self.time_summary)
+        self.time_table = QTableWidget(0, 4)
+        self.time_table.setHorizontalHeaderLabels(["#", "Trend", "Now", "Rate"])
+        self.time_table.verticalHeader().hide()
+        self.time_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.time_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.time_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.time_table.setShowGrid(False)
+        header = self.time_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.time_table.cellClicked.connect(self._track_clicked)
+        self.time_card.add(self.time_table)
+        self.time_card.add(hint("Click an area for its chart: volume and depth in every scan."))
+        self.time_card.setVisible(False)
+        layout.addWidget(self.time_card)
         layout.addStretch()
 
     # Filling
@@ -171,6 +192,42 @@ class AreasPanel(QWidget):
         self.status.setCurrentIndex(STATUSES.index(area.status) if area.status in STATUSES else 0)
         self.comment.setText(area.comment)
         self.detail_card.setVisible(True)
+
+    # Through time
+
+    def show_tracks(self, tracks, names, dates):
+        """Areas followed through a scan series (empty hides the card)."""
+        from viewer.trend import Sparkline, rate_text, track_color
+        from volumes import format_volume
+
+        self.tracks = list(tracks) if names else []
+        self.time_card.setVisible(bool(self.tracks))
+        self.time_table.setRowCount(0)
+        if not self.tracks:
+            return
+        count = len(names)
+        growing = sum(1 for t in self.tracks if abs(t.volumes(count)[-1]) > abs(t.volumes(count)[max(count - 2, 0)]))
+        self.time_summary.setText(f"{len(self.tracks)} areas followed through all {count} scans"
+                                  f" (compared with {names[0]}) · {growing} still growing")
+        for row, track in enumerate(self.tracks):
+            self.time_table.insertRow(row)
+            volumes = track.volumes(count)
+            number = QTableWidgetItem(str(track.number))
+            number.setData(Qt.UserRole, track.number)
+            number.setForeground(QColor(track_color(track)))
+            now = volumes[-1]
+            self.time_table.setItem(row, 0, number)
+            self.time_table.setItem(row, 1, QTableWidgetItem(""))
+            self.time_table.setCellWidget(row, 1, Sparkline(volumes, track_color(track)))
+            self.time_table.setItem(row, 2, QTableWidgetItem(f"{'+' if now >= 0 else '−'}{format_volume(abs(now))}"))
+            self.time_table.setItem(row, 3, QTableWidgetItem(rate_text(track, count, dates) or "–"))
+        rows = sum(self.time_table.rowHeight(r) for r in range(self.time_table.rowCount()))
+        self.time_table.setFixedHeight(self.time_table.horizontalHeader().height() + rows + 6)
+
+    def _track_clicked(self, row, column):
+        item = self.time_table.item(row, 0)
+        if item is not None and self.on_track is not None:
+            self.on_track(item.data(Qt.UserRole))
 
     def _edit(self, field, value):
         if self.current is None or getattr(self.areas[self.current], field) == value:
