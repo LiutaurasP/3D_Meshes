@@ -226,7 +226,7 @@ class StartScreen(QDialog):
 
         right.addWidget(QLabel("<b style='font-size:14px'>Start from an example</b>"))
         examples = QListWidget()
-        for key in ("quay_wall_dropped_object", "seabed_debris_field", "harbour_quay_section", "port_approach_scan"):
+        for key in ("harbour_quay_section", "quay_wall_dropped_object", "seabed_debris_field", "port_approach_scan"):
             item = QListWidgetItem(SCENES[key].title)
             item.setData(Qt.UserRole, key)
             examples.addItem(item)

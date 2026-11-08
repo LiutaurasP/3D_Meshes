@@ -27,6 +27,7 @@ from viewer.style import apply_theme
 
 from viewer.scene import cloud_to_polydata
 from viewer.settings import Settings
+from datasets import SCENES
 from scan_formats import ImportOptions
 from viewer.window import MainWindow
 
@@ -47,7 +48,7 @@ app.setOrganizationName("SubdronTests")  # own settings store: never touch the u
 app.setApplicationName("Sonar Studio Tests")
 apply_theme(app)
 
-# The default scene is the dropped container; the checks below use the scour scene
+# The default scene is the harbour quay section; the checks below use the scour scene
 default_settings = Settings()
 settings = Settings()
 settings.data.scene = "harbour_wall_scour"
@@ -168,7 +169,8 @@ def offscreen_render():
 
 
 def start():
-    check("default scene is the dropped container", default_settings.data.scene == "quay_wall_dropped_object")
+    check("default scene is the harbour quay section", default_settings.data.scene == "harbour_quay_section"
+          and default_settings.data.n_points == SCENES["harbour_quay_section"].default_points)
     global READS_WINDOW
     image = window.scene.plotter.screenshot(return_img=True)
     READS_WINDOW = renders(image)

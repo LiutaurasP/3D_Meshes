@@ -24,8 +24,8 @@ class ViewSettings:
 class DataSettings:
     """Which data is shown and how it is made."""
 
-    scene: str = "quay_wall_dropped_object"
-    n_points: int = 25_000
+    scene: str = "harbour_quay_section"  # the 60 m harbour quay (medium size)
+    n_points: int = 300_000
     noise: float = 0.01  # metres
     outliers: float = 0.002  # share of stray points
     stripes: bool = True
