@@ -46,6 +46,7 @@ settings = Settings()
 settings.data.scene = "harbour_wall_scour"
 settings.data.n_points = 30_000
 window = MainWindow(settings)
+window.skip_save_prompt = True  # closing at the end must not wait for a "save changes?" answer
 window.show()
 
 view = window.scene.widget
@@ -422,6 +423,145 @@ def after_color():
     check(f"the guide has all {len(CHAPTERS)} chapters", len(guide_cards) == len(CHAPTERS) >= 10)
     window.sidebar.switch.buttons[0].click()
     check("the switch goes back to the settings", window.sidebar.pages.currentIndex() == 0)
+
+    undo_checks()
+
+
+def undo_checks():
+    """Undo / redo for the different kinds of actions."""
+    stack = window.history.stack
+    undo, redo = window.actions["undo"], window.actions["redo"]
+
+    size = window.sidebar.point_size
+    start_size = size.value()
+    size.setValue(start_size + 3)
+    size.setValue(start_size + 5)  # quick second change merges into one step
+    check("point size change is an undo step", stack.canUndo() and "Point Size" in undo.text())
+    undo.trigger()
+    check("undo restores the point size", size.value() == start_size)
+    redo.trigger()
+    check("redo applies it again", size.value() == start_size + 5)
+
+    checkbox = window.sidebar.checkboxes["Scan B"]
+    window.toggle("Scan B")
+    check("hiding a scan can be undone", not checkbox.isChecked())
+    undo.trigger()
+    check("undo shows the scan again", checkbox.isChecked() and window.scene.is_visible("Scan B"))
+
+    old_color = window.colors["Scan A"]
+    window.sidebar.swatches["Scan A"].on_picked((0.9, 0.2, 0.2, 1.0))
+    undo.trigger()
+    check("undo restores a picked colour", window.colors["Scan A"] == old_color)
+
+    check("the redo shortcuts include Ctrl+Y and Ctrl+Shift+Z",
+          {"Ctrl+Y", "Ctrl+Shift+Z"} <= {key.toString() for key in redo.shortcuts()})
+    check("the title shows unsaved changes", window.isWindowModified())
+
+    # Alignment and detection are steps too
+    window.sidebar.animate.setChecked(False)
+    window.align()
+    wait_until(lambda: window.is_aligned(), after_undo_align)
+
+
+def after_undo_align():
+    undo = window.actions["undo"]
+    aligned = np.array(window.scene.matrices["Scan B"])
+    check("align is an undo step", "Align B to A" in undo.text())
+    undo.trigger()
+    check("undo puts B back", np.allclose(window.scene.matrices["Scan B"], np.eye(4)) and window.align_steps is None)
+    window.actions["redo"].trigger()
+    check("redo aligns again instantly", np.allclose(window.scene.matrices["Scan B"], aligned))
+    window.detect_changes()
+    wait_until(lambda: window.change_result is not None, after_undo_detect)
+
+
+def after_undo_detect():
+    undo = window.actions["undo"]
+    areas = len(window.change_result.areas)
+    undo.trigger()
+    check("undo removes detected changes", window.change_result is None)
+    window.actions["redo"].trigger()
+    check("redo brings them back", window.change_result is not None and len(window.change_result.areas) == areas)
+
+    # Scene change: undo rebuilds the old scene and restores its alignment and results
+    state["before_scene"] = (window.inspections.title, np.array(window.scene.matrices["Scan B"]))
+    window.pick_scene("sheet_pile_corrosion")  # a different scene than the current one
+    wait_until(lambda: data_ready() and window.inspections.title.startswith("Sheet"), after_scene_change)
+
+
+def after_scene_change():
+    undo = window.actions["undo"]
+    check("scene change is an undo step", "Change Scene" in undo.text())
+    undo.trigger()
+    title, matrix = state["before_scene"]
+    wait_until(lambda: data_ready() and window.inspections.title == title, lambda: after_scene_undo(title, matrix))
+
+
+def after_scene_undo(title, matrix):
+    check("undo brings the previous scene back", window.inspections.title == title)
+    check("…aligned as it was", np.allclose(window.scene.matrices["Scan B"], matrix))
+    check("…with its detected changes", window.change_result is not None)
+    project_checks()
+
+
+def project_checks():
+    import tempfile
+
+    folder = Path(tempfile.mkdtemp())
+    path = folder / "test project.subdron"
+    camera = window.scene.plotter.camera
+    camera.position = (5.0, 30.0, 12.0)
+    window.sidebar.point_size.setValue(7)
+    window.sidebar.cards["Camera"].header.setChecked(False)
+    saved = {
+        "matrix": np.array(window.scene.matrices["Scan B"]),
+        "areas": len(window.change_result.areas),
+        "camera": tuple(camera.position),
+        "title": window.inspections.title,
+    }
+    window.write_project(path)
+    check("saving writes a .subdron file", path.exists() and path.stat().st_size > 0)
+    check("after saving there are no unsaved changes", not window.isWindowModified())
+    check("the title shows the project name", window.windowTitle().startswith("test project"))
+
+    window.new_project()
+    check("New Project starts fresh", window.change_result is None and window.align_steps is None
+          and window.project_path is None)
+
+    window.open_project(str(path), ask=False)
+    check("opening restores the scene", window.inspections.title == saved["title"])
+    check("…the alignment", np.allclose(window.scene.matrices["Scan B"], saved["matrix"]))
+    check("…the detected changes", window.change_result is not None and len(window.change_result.areas) == saved["areas"])
+    check("…the camera", np.allclose(window.scene.plotter.camera.position, saved["camera"], atol=1e-6))
+    check("…the point size", window.sidebar.point_size.value() == 7)
+    check("…folded panel cards", not window.sidebar.cards["Camera"].header.isChecked())
+    check("…and no undo steps", not window.history.stack.canUndo())
+
+    # Scans from files are stored inside the project
+    from viewer.pipeline import load_inspections
+
+    a, b = folder / "a.ply", folder / "b.ply"
+    import open3d as o3d
+    o3d.io.write_point_cloud(str(a), window.clouds["Scan A"])
+    o3d.io.write_point_cloud(str(b), window.clouds["Scan B"])
+    window.open_scan_files(a, b)
+    wait_until(lambda: data_ready() and "a.ply" in window.inspections.title,
+               lambda: embedded_checks(folder, a, b))
+
+
+def embedded_checks(folder, a, b):
+    path = folder / "embedded.subdron"
+    count = len(window.clouds["Scan A"].points)
+    window.write_project(path)
+    a.unlink()
+    b.unlink()  # the original files are gone, the project must still open
+    window.new_project()
+    window.open_project(str(path), ask=False)
+    check("embedded scans open without the original files", len(window.clouds["Scan A"].points) == count)
+    finish()
+
+
+def finish():
 
     window.close()
     app.quit()

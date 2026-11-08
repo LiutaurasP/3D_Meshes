@@ -60,7 +60,15 @@ CHAPTERS = [
          "WASD also works in orbit mode. Fly mode is best for going inside scenes like the flooded tunnel.") + "</p>",
      False),
 
-    ("Keyboard shortcuts", keys_table([
+    ("Keyboard shortcuts", P + dim("On Windows and Linux use Ctrl where the Mac uses Cmd.") + "</p>" + keys_table([
+        (key("Cmd") + " " + key("Z"), "undo"),
+        (key("Cmd") + " " + key("Shift") + " " + key("Z") + " / " + key("Ctrl") + " " + key("Y"), "redo"),
+        (key("Cmd") + " " + key("S"), "save the project"),
+        (key("Cmd") + " " + key("O"), "open a project"),
+        (key("Cmd") + " " + key("N"), "new project"),
+        (key("Cmd") + " " + key("L"), "align B to A"),
+        (key("Cmd") + " " + key("D"), "detect changes"),
+        (key("]") + " " + key("["), "next / previous changed area"),
         (key("W") + key("A") + key("S") + key("D"), "move"),
         (key("Q") + " " + key("E"), "down / up"),
         (key("Shift"), "move faster"),
@@ -68,8 +76,27 @@ CHAPTERS = [
         (key("1") + " " + key("2"), "show or hide scan A / B"),
         (key("R"), "reset the view"),
         (key("Space"), "show or hide this panel"),
-        (key("Ctrl") + " / " + key("Cmd") + " + " + key("O"), "open two scans"),
+        (key("F1"), "open this guide"),
     ]), False),
+
+    ("Projects: saving and opening", P +
+     "<b>File → Save</b> stores the whole session in one <b>.subdron</b> file: the scene and its "
+     "settings, the alignment, the detected changes, colours, the camera position and how this "
+     "panel looks. <b>File → Open</b> brings all of it back exactly as it was.</p>" + P +
+     "Scans you imported from files are stored <b>inside</b> the project, so it still opens when "
+     "the original files are moved, or on another computer. Example scenes are rebuilt from "
+     "their settings, which keeps those projects tiny.</p>" + P + dim(
+         "A dot or asterisk in the window title means there are unsaved changes. "
+         "Recently used projects are under File → Open Recent.") + "</p>",
+     False),
+
+    ("Undo and redo", P +
+     "Almost everything can be undone: showing and hiding scans, colours, the scene and its "
+     "settings, the position of scan B, aligning, detecting changes and the display options. "
+     "<b>Edit → Undo</b> says what it will undo, for example <i>Undo Align B to A</i>.</p>" + P + dim(
+         "The camera is not part of undo, so undoing a colour change doesn't make the view jump. "
+         "Quick repeated changes, like dragging a slider, are undone in one step.") + "</p>",
+     False),
 
     ("Example scenes", P +
      "Every scene is two simulated sonar scans of the same place, with a known change in between. "
@@ -131,7 +158,7 @@ CHAPTERS = [
     ]), False),
 
     ("Using your own scans", P +
-     "Use <b>File → Open two scans</b> (or the last entry in the scene list). You are asked for "
+     "Use <b>File → Import Two Scans</b> (or the last entry in the scene list). You are asked for "
      "the earlier scan first (A), then the later one (B). Supported files: "
      "<b>.ply .pcd .xyz .pts</b>.</p>" + P + dim(
          "Then align and detect changes as with the examples. There is no true change to compare "

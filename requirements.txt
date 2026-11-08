@@ -5,3 +5,4 @@ plotly
 PySide6-Essentials
 pyvista
 pyvistaqt
+pyobjc-framework-Cocoa; sys_platform == "darwin"

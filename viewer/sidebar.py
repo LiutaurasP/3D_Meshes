@@ -85,6 +85,7 @@ class Sidebar(QWidget):
         layout.addLayout(switch_row)
 
         settings, settings_layout = page_layout()
+        self.cards = {}
         for card in (
             self._scene_card(data_settings),
             self._offset_card(data_settings),
@@ -95,6 +96,7 @@ class Sidebar(QWidget):
             self._display_card(view_settings),
             self._compare_card(),
         ):
+            self.cards[card.header.text()] = card
             settings_layout.addWidget(card)
         settings_layout.addStretch()
 
@@ -237,7 +239,9 @@ class Sidebar(QWidget):
         self.n_points.blockSignals(True)
         self.n_points.setValue(scene.default_points)
         self.n_points.blockSignals(False)
+        self.icp_method.blockSignals(True)
         self.icp_method.setCurrentIndex(self.icp_method.findData(scene.icp_method))
+        self.icp_method.blockSignals(False)
         self._show_scene_info(key)
         self.callbacks["generate"]()
 
@@ -257,6 +261,74 @@ class Sidebar(QWidget):
 
     def selected_scene(self):
         return self.scene_picker.currentData()
+
+    # Snapshots of the scene settings (for undo and project files)
+
+    def data_snapshot(self):
+        return {
+            "scene": self.scene_picker.currentData(),
+            "n_points": self.n_points.value(),
+            "noise": self.noise.value(),
+            "outliers": self.outliers.value(),
+            "stripes": self.stripes.isChecked(),
+            "seed": self.seed.value(),
+            "rotation": [box.value() for box in self.rotation],
+            "translation": [box.value() for box in self.translation],
+            "icp_method": self.icp_method.currentData(),
+        }
+
+    def restore_data_snapshot(self, snapshot):
+        """Put the scene settings back without triggering a rebuild."""
+        widgets = [self.scene_picker, self.n_points, self.noise, self.outliers, self.stripes, self.seed,
+                   self.icp_method] + self.rotation + self.translation
+        for widget in widgets:
+            widget.blockSignals(True)
+        index = self.scene_picker.findData(snapshot["scene"])
+        if index >= 0:
+            self.scene_picker.setCurrentIndex(index)
+            self._previous_scene = index
+        self.n_points.setValue(snapshot["n_points"])
+        self.noise.setValue(snapshot["noise"])
+        self.outliers.setValue(snapshot["outliers"])
+        self.stripes.setChecked(snapshot["stripes"])
+        self.seed.setValue(snapshot["seed"])
+        for box, value in zip(self.rotation, snapshot["rotation"]):
+            box.setValue(value)
+        for box, value in zip(self.translation, snapshot["translation"]):
+            box.setValue(value)
+        method = self.icp_method.findData(snapshot.get("icp_method", "point-to-point"))
+        if method >= 0:
+            self.icp_method.setCurrentIndex(method)
+        for widget in widgets:
+            widget.blockSignals(False)
+        self.cancel_pending_apply()
+        if snapshot["scene"] in SCENES:
+            self._show_scene_info(snapshot["scene"])
+
+    def undoable_controls(self):
+        """Panel controls whose changes are recorded as undo steps (scene settings are recorded as a whole)."""
+        controls = [(box, name) for name, box in self.checkboxes.items()]
+        controls += [
+            (self.max_distance, "Match Distance"), (self.max_iterations, "Max Rounds"),
+            (self.animate, "Animation"), (self.auto_threshold, "Auto Threshold"),
+            (self.threshold, "Threshold"), (self.min_area_points, "Smallest Area"),
+            (self.show_changes, "Show Changed Points"), (self.show_areas, "Show Area Boxes"),
+            (self.color_mode, "Colours"), (self.point_size, "Point Size"),
+            (self.truth, "Show True Change"), (self.axes, "Show Axes"),
+        ]
+        return controls
+
+    # Layout of the panel itself (for project files)
+
+    def panel_state(self):
+        return {"page": self.pages.currentIndex(),
+                "expanded": {title: card.header.isChecked() for title, card in self.cards.items()}}
+
+    def restore_panel_state(self, state):
+        self.show_page(state.get("page", 0))
+        for title, expanded in state.get("expanded", {}).items():
+            if title in self.cards:
+                self.cards[title].header.setChecked(expanded)
 
     def read_data_settings(self, data):
         """Copy the values of the data widgets into a DataSettings object."""
@@ -344,11 +416,12 @@ class Sidebar(QWidget):
         animate.setChecked(data.animate_alignment)
         animate.toggled.connect(lambda checked: self.callbacks["animate"](checked))
         form.row("Animation", animate)
+        self.animate = animate
         card.add(form)
 
         actions = QHBoxLayout()
         actions.setSpacing(SPACING)
-        self.reset_align_button = button("Undo", tooltip=f"Put {source} back where it was")
+        self.reset_align_button = button("Reset", tooltip=f"Put {source} back where it was before aligning")
         self.reset_align_button.setEnabled(False)
         self.reset_align_button.clicked.connect(lambda: self.callbacks["reset_alignment"]())
         actions.addWidget(self.reset_align_button, 1)
@@ -527,6 +600,7 @@ class Sidebar(QWidget):
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         point_size.valueChanged.connect(lambda value: value_label.setText(str(value)))
         point_size.valueChanged.connect(lambda value: self.callbacks["point_size"](value))
+        self.point_size = point_size
         size_row.addWidget(point_size, 1)
         size_row.addWidget(value_label)
         form.row("Point size", size_row)
@@ -542,6 +616,7 @@ class Sidebar(QWidget):
         axes.setChecked(view_settings.show_axes)
         axes.toggled.connect(lambda checked: self.callbacks["axes"](checked))
         card.add(axes)
+        self.axes = axes
         return card
 
     def set_truth_available(self, available):
