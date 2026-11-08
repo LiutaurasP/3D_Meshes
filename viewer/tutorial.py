@@ -467,6 +467,7 @@ class Tutorial(QObject):
         self.allow = set()  # what the user may do right now: "fly", "rotate", "pan", "panel", "tabs"
         self.unlocked = set()  # mouse and keys stay allowed once their step is done
         self._busy = False  # an animation or calculation is running: ignore the keys meanwhile
+        self._leaving = None
         self._mouse_down = False
         self._camera = None
         self.used = set()
@@ -672,6 +673,7 @@ class Tutorial(QObject):
 
     def go(self, name):
         self.step = name
+        self._leaving = None  # set by advance(), so a step can only be left once
         self.confirming = False
         self.used = set()
         self._busy = False
@@ -696,12 +698,16 @@ class Tutorial(QObject):
             self.card.set_task(0.0)
 
     def advance(self, delay=0):
-        """Celebrate briefly, then go to the next step."""
-        following = self.ORDER[self.ORDER.index(self.step) + 1]
+        """Celebrate briefly, then go to the next step (only once, however often this is called)."""
+        current = self.step
+        if self._leaving == current:
+            return
+        self._leaving = current
+        following = self.ORDER[self.ORDER.index(current) + 1]
         self._busy = True
         if delay:
             self.card.celebrate()
-            QTimer.singleShot(delay, lambda: self.active and self.go(following))
+            QTimer.singleShot(delay, lambda: self.active and self.step == current and self.go(following))
         else:
             self.go(following)
 
