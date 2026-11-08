@@ -173,7 +173,7 @@ class DisplayMode(QObject):
     # Logo, title and caption in the corner
 
     def _add_overlay(self):
-        import vtk
+        from viewer.vtk_classes import vtk
 
         renderer = self.window.scene.plotter.renderer
         ratio = self.window.scene.widget.devicePixelRatioF()
@@ -203,7 +203,7 @@ class DisplayMode(QObject):
         self.window.scene.plotter.render()
 
     def _text(self, text, size, position, bold=False, dim=False):
-        import vtk
+        from viewer.vtk_classes import vtk
 
         actor = vtk.vtkTextActor()
         actor.SetInput(text)

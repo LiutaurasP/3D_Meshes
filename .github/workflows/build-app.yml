@@ -1,0 +1,63 @@
+name: Build app
+
+# Builds Subdron Sonar Studio for macOS and Windows. Start it by hand
+# (Actions tab → Build app → Run workflow) or push a version tag like v0.2.0.
+# The apps can be downloaded from the run's page (Artifacts).
+#
+# The Windows build is started once after building (--self-test: aligns, detects,
+# makes a report, ...). GitHub's Mac machines cannot draw 3D, so the Mac build is
+# only checked on a real Mac (python packaging/build.py runs the same self-test).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            self_test: "--no-self-test"
+          - os: windows-latest
+            self_test: ""
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: pyvista/setup-headless-display-action@v3
+        if: runner.os == 'Windows'
+        with:
+          qt: true
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build
+        run: python packaging/build.py ${{ matrix.self_test }}
+
+      - name: Zip the Mac app
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/Subdron Sonar Studio.app" "dist/Subdron Sonar Studio (macOS).zip"
+
+      - name: Windows installer (Inno Setup)
+        if: runner.os == 'Windows'
+        continue-on-error: true  # the plain app folder is uploaded either way
+        run: iscc packaging\windows_installer.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Subdron Sonar Studio (${{ runner.os }})
+          # Mac: the zipped .app; Windows: the app folder and the installer
+          path: ${{ runner.os == 'macOS' && 'dist/*.zip' || 'dist/' }}
+          if-no-files-found: error

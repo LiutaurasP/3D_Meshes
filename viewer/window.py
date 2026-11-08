@@ -1824,6 +1824,16 @@ class MainWindow(QMainWindow):
         self.notify("Turntable saved", Path(path).name, "success")
         return True
 
+    def show_log_folder(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from viewer.crashlog import log_folder
+
+        folder = log_folder()
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
     def show_about(self):
         dialog = QDialog(self)
         dialog.setWindowTitle(f"About {APP_NAME}")

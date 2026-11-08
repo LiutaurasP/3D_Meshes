@@ -33,6 +33,13 @@ dist/Subdron Sonar Studio/Subdron Sonar Studio.exe. For a Windows installer
 that also opens .subdron files on double click, compile
 packaging/windows_installer.iss with Inno Setup afterwards.
 The app is not signed: on macOS right click > Open the first time.
+build.py starts the finished app once with --self-test (align, detect, report,
+exports) and fails if anything is missing in the package.
+On GitHub: Actions > Build app > Run workflow (or push a tag like v0.2.0)
+builds both apps; download them from the run's Artifacts.
+
+Problems: unexpected errors are written to a log file (Help > Show Log File)
+instead of closing the app.
 
 Example data (datasets/):
 Synthetic underwater scan scenes (harbour wall, sheet pile wall, bridge pier,

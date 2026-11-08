@@ -126,11 +126,41 @@ def self_test(window):
         window.detect_changes()
         wait(lambda: window.change_result is not None, done)
 
-    def done():
+    def tools():
+        """Everything that needs extra parts of VTK, Qt or the file libraries in the packaged app."""
+        import tempfile
+        from pathlib import Path
+
+        folder = Path(tempfile.mkdtemp())
+        window.scene.set_minimap(True)
+        window.play_change_animation()
+        window.export_report(str(folder / "report.pdf"))
+        window.export_turntable(str(folder / "spin.gif"), count=4)
+        window.export_areas("csv", str(folder / "areas.csv"))
+        window.export_aligned_scan(str(folder / "b.laz"))
+        window.write_project(folder / "test.subdron")
+        from scan_formats import read_scan
+
+        read_scan(folder / "b.laz")
+        window.start_display_mode(fullscreen=False)
+        QTimer.singleShot(1500, lambda: finish(folder))
+
+    def finish(folder):
+        window.display_mode.stop()
+        names = sorted(p.name for p in folder.iterdir())
         areas = len(window.change_result.areas)
-        print(f"SELF-TEST OK: aligned, {areas} changed area(s)", flush=True)
+        complete = names == ["areas.csv", "b.laz", "report.pdf", "spin.gif", "test.subdron"]
+        print(f"SELF-TEST {'OK' if areas and complete else 'FAILED'}: aligned, {areas} changed area(s), "
+              f"files {names}", flush=True)
         window.skip_save_prompt = True
-        QApplication.exit(0 if areas else 1)
+        QApplication.exit(0 if areas and complete else 1)
+
+    def done():
+        try:
+            tools()
+        except Exception as error:  # shown in the build output
+            print(f"SELF-TEST FAILED: {type(error).__name__}: {error}", flush=True)
+            QApplication.exit(1)
 
     def start():
         window.sidebar.animate.setChecked(False)
@@ -146,6 +176,8 @@ def main():
     opener = FileOpener()
     app.installEventFilter(opener)
     apply_identity(app)
+    if "--self-test" in sys.argv:
+        app.setOrganizationName("SubdronSelfTest")  # own settings: never touches recent files or preferences
     apply_theme(app)
 
     splash = QSplashScreen(splash_pixmap())
@@ -155,6 +187,9 @@ def main():
     from viewer.window import MainWindow
 
     window = MainWindow(Settings())
+    from viewer import crashlog
+
+    crashlog.install(lambda text, detail: window.notify(text, detail, "error", seconds=8))
     window.show()
     splash.finish(window)
     app.processEvents()  # a file double clicked in the Finder arrives now

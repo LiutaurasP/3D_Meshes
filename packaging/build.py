@@ -37,7 +37,8 @@ def main():
                str(HERE / "sonar_studio.spec")]
     subprocess.run(command, check=True, cwd=ROOT)
     print("\nDone, the app is in", ROOT / "dist")
-    self_test()
+    if "--no-self-test" not in sys.argv:  # GitHub's Mac machines cannot draw 3D, the check is skipped there
+        self_test()
 
 
 def self_test():

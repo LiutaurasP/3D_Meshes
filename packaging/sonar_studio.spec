@@ -10,6 +10,8 @@ sys.path.insert(0, str(ROOT))
 from viewer.branding import APP_NAME, ORGANIZATION, PROJECT_EXTENSION, VERSION  # noqa: E402
 
 ICONS = HERE / "icons"
+# Made from the names PyVista uses: every VTK module it may load while the app runs
+VTK_MODULES = ["vtkmodules." + name for name in (HERE / "vtk_modules.txt").read_text().split()]
 BUNDLE_ID = "com.subdron.sonarstudio"
 PROJECT_TYPE = "com.subdron.sonarstudio.project"
 
@@ -20,8 +22,12 @@ analysis = Analysis(
         (str(ROOT / "viewer" / "assets"), "viewer/assets"),
         (str(ROOT / "viewer" / "icons"), "viewer/icons"),
     ],
-    hiddenimports=["pyvistaqt", "vtkmodules.all", "vtkmodules.util.data_model", "vtkmodules.util.execution_model"],
-    excludes=["tkinter", "PyQt5", "PyQt6", "IPython", "jupyter", "notebook", "pytest"],
+    # Only the VTK parts PyVista can use (vtk_modules.txt), not all of VTK: about half the size
+    hiddenimports=["pyvistaqt", "vtkmodules.util.data_model", "vtkmodules.util.execution_model",
+                   "laspy", "lazrs", "pye57", "tifffile"] + VTK_MODULES,
+    # (dash and flask stay in: Open3D imports them when it starts)
+    excludes=["tkinter", "PyQt5", "PyQt6", "IPython", "jupyter", "notebook", "pytest", "pyarrow", "vtk",
+              "vtkmodules.all"],
     noarchive=False,
 )
 pyz = PYZ(analysis.pure)

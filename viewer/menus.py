@@ -207,6 +207,7 @@ def build_menus(window):
 
     # Help
     help_menu = bar.addMenu("&Help")
+    help_menu.addAction(action(window, "Show Log File", window.show_log_folder))
     help_menu.addAction(action(window, "Guide", lambda: (window.dock.show(), side.show_page(GUIDE_PAGE))))
     help_menu.addAction(action(window, "Keyboard Shortcuts", window.show_shortcuts, "Ctrl+/"))
     about = action(window, "About Subdron Sonar Studio", window.show_about)

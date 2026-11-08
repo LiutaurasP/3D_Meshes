@@ -191,7 +191,7 @@ class SceneView:
     MINIMAP_VIEWPORT = (0.77, 0.70, 0.985, 0.975)  # x0, y0, x1, y1 of the view (0 = left / bottom)
 
     def set_minimap(self, enabled):
-        import vtk
+        from viewer.vtk_classes import vtk
 
         if enabled and self.minimap is None:
             renderer = vtk.vtkRenderer()
@@ -210,7 +210,7 @@ class SceneView:
         self.plotter.render()
 
     def _fill_minimap(self):
-        import vtk
+        from viewer.vtk_classes import vtk
         from matplotlib import colormaps
 
         minimap = self.minimap
@@ -469,7 +469,7 @@ class SceneView:
 
     def pick_point(self, x, y):
         """World position of the surface under a widget pixel, or None over the background."""
-        import vtk
+        from viewer.vtk_classes import vtk
 
         ratio = self.widget.devicePixelRatioF()
         px, py = int(x * ratio), int((self.widget.height() - y) * ratio)
@@ -575,7 +575,7 @@ class SceneView:
 
     def set_swipe(self, enabled, fraction=0.5):
         """Scan A left of a vertical divider, scan B right of it."""
-        import vtk
+        from viewer.vtk_classes import vtk
 
         if enabled and self.swipe is None:
             names = list(self.geometries)[:2]
@@ -699,7 +699,7 @@ class SceneView:
 
     def set_lasso(self, path):
         """Draw the lasso outline (widget pixels), or remove it with None."""
-        import vtk
+        from viewer.vtk_classes import vtk
 
         renderer = self.plotter.renderer
         old = getattr(self, "_lasso_actor", None)
