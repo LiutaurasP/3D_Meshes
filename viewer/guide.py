@@ -44,7 +44,6 @@ CHAPTERS = [
      True),
 
     ("Quick start", steps([
-        "New here? <b>Help → Tutorial</b> walks you through everything step by step in about 5 minutes.",
         "Pick a scene under <b>Scene</b>, for example <i>Quay wall – dropped object</i>.",
         "Press <b>Align B to A</b> and watch scan B slide onto scan A.",
         "Press <b>Detect changes</b>. Changed points light up and every changed area gets a box.",
@@ -53,7 +52,8 @@ CHAPTERS = [
     ]), True),
 
     ("Moving around", P +
-     "<b>Orbit mode</b> (default): drag to rotate around the scene, " + key("Shift") +
+     "<b>Orbit mode</b> (default): drag to turn around whatever is in the middle of the screen "
+     "(a white dot shows the point while you drag), " + key("Shift") +
      " + drag to pan, scroll to zoom.</p>" + P +
      "<b>Fly mode</b> (" + key("M") + " to switch): move like in a game with " + key("W") + key("A") + key("S") + key("D") +
      ", go down and up with " + key("Q") + " / " + key("E") + ", hold " + key("Shift") + " to go faster. "

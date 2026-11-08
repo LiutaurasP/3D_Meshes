@@ -27,7 +27,7 @@ from viewer.style import apply_theme
 
 from viewer.scene import cloud_to_polydata
 from viewer.settings import Settings
-from datasets import SCENES
+from datasets import DEFAULT_SCENE, SCENES
 from scan_formats import ImportOptions
 from viewer.window import MainWindow
 
@@ -1080,6 +1080,41 @@ def change_animation_done():
     scene.flight.stop()
     window.set_minimap(False)
     check("the minimap can be switched off", scene.minimap is None)
+    orbit_checks()
+
+
+def orbit_checks():
+    """Orbiting turns around the scans in the middle of the screen, not around a point in the water."""
+    from scipy.spatial import cKDTree
+
+    scene = window.scene
+    window.set_navigation("Orbit")
+    scene.look_from("Iso", animate=False)
+    camera = scene.plotter.camera
+    forward = np.subtract(camera.focal_point, camera.position)
+    forward /= np.linalg.norm(forward)
+    shift = forward * 0.6 * scene.size()  # like flying forward with W: the centre moves along
+    camera.position = tuple(np.add(camera.position, shift))
+    camera.focal_point = tuple(np.add(camera.focal_point, shift))
+    tree = cKDTree(np.vstack([np.asarray(c.points) for c in window.clouds.values()]))
+    drifted = tree.query(np.array(camera.focal_point))[0]
+    before = np.subtract(camera.focal_point, camera.position)
+    x, y = view.width() / 2, view.height() / 2
+    app.sendEvent(view, QMouseEvent(QEvent.MouseButtonPress, QPointF(x, y), QPointF(x, y), Qt.LeftButton,
+                                    Qt.LeftButton, Qt.NoModifier))
+    after = np.subtract(camera.focal_point, camera.position)
+    landed = tree.query(np.array(camera.focal_point))[0]
+    turned = np.degrees(np.arccos(np.clip(np.dot(before, after) / np.linalg.norm(before) / np.linalg.norm(after), -1, 1)))
+    check("orbiting turns around the scans in the middle of the screen", drifted > 1.0 and landed < 0.5)
+    check("…without the view jumping", turned < 0.01)
+    check("…and shows where it turns", scene.pivot_actor is not None)
+    app.sendEvent(view, QMouseEvent(QEvent.MouseButtonRelease, QPointF(x, y), QPointF(x, y), Qt.LeftButton,
+                                    Qt.NoButton, Qt.NoModifier))
+    then(700, orbit_released)
+
+
+def orbit_released():
+    check("the orbit marker goes away after letting go", window.scene.pivot_actor is None)
     tutorial_checks()
 
 
@@ -1127,6 +1162,27 @@ def hold(code, seconds):
                                                                  QKeyEvent(QEvent.KeyRelease, code, Qt.NoModifier)))
 
 
+CARD_PROBLEMS = []
+
+
+def watch_card():
+    """While a tutorial runs: the card checked several times a second (text fits, nothing outside it)."""
+    tutorial = getattr(window, "tutorial", None)
+    if tutorial is not None and tutorial.active and tutorial.card.isVisible():
+        card = tutorial.card
+        for label in (card.heading, card.body):
+            if label.isVisible() and label.height() < label.heightForWidth(label.width()):
+                CARD_PROBLEMS.append((tutorial.step, "text cut off"))
+        for part in [card.row, card.next] + list(card.chips.values()):
+            if part.isVisible() and part.mapTo(card, part.rect().bottomLeft()).y() > card.height() - 12:
+                CARD_PROBLEMS.append((tutorial.step, "outside the card"))
+
+
+card_watch = QTimer()
+card_watch.setInterval(120)
+card_watch.timeout.connect(watch_card)
+
+
 def run_plan(plan, done, index=0, waited=0):
     """Run (action, wait ms) items; an item ("until", condition) waits for the condition (max 60 s)."""
     if index >= len(plan):
@@ -1151,8 +1207,43 @@ def at(name):
     return lambda: window.in_tutorial() and window.tutorial.step == name and not window.tutorial._busy
 
 
+def card_layout_checks():
+    """Every card of both tutorials: key caps keep their shape and nothing is cut off."""
+    from PySide6.QtCore import QCoreApplication
+
+    from viewer.tutorial import KeyChip, Tutorial, TutorialCard, body
+    from viewer.tutorial_advanced import AdvancedTutorial
+
+    class Results:
+        last_measurement = (5.2, 4.9, -1.7)
+        last_section = {"length": 9.0, "biggest": (3.8, -1.9)}
+        change_result = None
+
+    steps = list(Tutorial.steps(type("T", (), {"fit_text": body("a", "b"), "found_text": body("a", "b")})()).values())
+    steps += list(AdvancedTutorial.steps(type("A", (), {"window": Results(), "scour_area": lambda s: None,
+                                                       "anchor_area": lambda s: None})()).values())
+    distorted, clipped = 0, 0
+    for step in steps:
+        card = TutorialCard(window, lambda: None, lambda: None)
+        card.set_content(dict(step), animate=False)
+        card.show()
+        app.processEvents()
+        for chip in card.chips.values():
+            distorted += chip.height() != KeyChip.HEIGHT or chip.width() < chip.height()
+            clipped += chip.mapTo(card, chip.rect().bottomLeft()).y() > card.height() - 12
+        clipped += card.body.height() < card.body.heightForWidth(card.body.width())
+        card.hide()
+        card.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    check(f"all {len(steps)} tutorial cards keep their key caps in shape", distorted == 0)
+    check("…and nothing on them is cut off", clipped == 0)
+
+
 def tutorial_checks():
     from viewer.dialogs import StartScreen
+
+    card_layout_checks()
+    card_watch.start()
 
     screen = StartScreen([], window)
     screen.tutorial_button.click()
@@ -1160,8 +1251,10 @@ def tutorial_checks():
     screen.deleteLater()
 
     window.dock.show()
-    tutorial = window.start_tutorial()
+    window.sidebar.tutorial_button.click()  # the button in the Guide's Quick start
+    tutorial = window.tutorial
     state["tutorial"] = tutorial
+    check("the Guide's button starts the tutorial", tutorial is not None and tutorial.active)
     check("the tutorial starts with everything switched off", tutorial is not None and tutorial.active
           and not window.dock.isVisible() and not any(window.scene.visible.values())
           and not any(item.isEnabled() for item in window.menuBar().actions()))
@@ -1208,7 +1301,6 @@ def tutorial_checks():
 
 
 def tutorial_done():
-    from datasets import DEFAULT_SCENE, SCENES
 
     check("after the tutorial everything is unlocked", all(item.isEnabled() for item in window.menuBar().actions())
           and window.dock.isVisible() and window.statusBar().isVisible())
@@ -1224,6 +1316,157 @@ def tutorial_done():
             (lambda: check("…Enter leaves it and gives everything back",
                            all(item.isEnabled() for item in window.menuBar().actions())
                            and window.inspections.title == SCENES[DEFAULT_SCENE].title), 50)]
+    run_plan(plan, advanced_tutorial_checks)
+
+
+# Advanced tutorial: six chapters on the wind turbine foundation
+
+
+def looked_at(name):
+    """A look-around step is done and waits for Continue: press Enter, like a user would."""
+    return [("until", lambda: window.in_tutorial() and name in window.tutorial.looking),
+            (lambda: check(f"{name} waits for Continue instead of moving on", window.tutorial.step == name), 50),
+            (lambda: key(Qt.Key_Return), 400)]
+
+
+def ready_at(name):
+    return lambda: at(name)() and not getattr(window.tutorial, "_shown_waiting", False)
+
+
+def advanced_tutorial_checks():
+    import viewer.tutorial_advanced as adv
+    from viewer import prefs
+
+    state["minimap_pref"] = prefs.get("show_minimap")
+    window.sidebar.advanced_tutorial_button.click()
+    tutorial = window.tutorial
+    tutorial.open_files = False  # no PDF viewer popping up during the test
+    tutorial.display_fullscreen = False
+    check("the Guide's second button starts the advanced tutorial",
+          tutorial is not None and tutorial.active and type(tutorial).__name__ == "AdvancedTutorial")
+    check("…on the wind turbine series", window.series is not None and len(window.series.names) == 4)
+
+    def lasso_the_fish():
+        xy, front = window.scene.project_to_widget("Scan B")
+        cloud = window.clouds["Scan B"]
+        matrix = window.scene.matrices["Scan B"]
+        points = np.asarray(cloud.points) @ matrix[:3, :3].T + matrix[:3, 3]
+        fish = (np.hypot(points[:, 0] - adv.FISH[0], points[:, 1] - adv.FISH[1]) < 6) & (points[:, 2] > -25.5) \
+            & (np.hypot(points[:, 0], points[:, 1]) > 5) & front
+        (x0, y0), (x1, y1) = np.percentile(xy[fish], 3, axis=0), np.percentile(xy[fish], 97, axis=0)
+        cx, cy, rx, ry = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) * 0.75 + 8, (y1 - y0) * 0.75 + 8
+        window.cancel_tool()
+        window.apply_lasso([(cx + rx * np.cos(a), cy + ry * np.sin(a)) for a in np.linspace(0, 2 * np.pi, 40)])
+
+    def tag_areas():
+        t = window.tutorial
+        scour, anchor = t.scour_area(), t.anchor_area()
+        window.edit_area(t.area_index(scour), "tag", "Scour")
+        window.edit_area(t.area_index(scour), "status", "Open")
+        window.edit_area(t.area_index(anchor), "tag", "Debris")
+
+    def pick(point):
+        window.pick_at(np.asarray(point, dtype=float))
+
+    seabed = np.array([0, 0, -28.0])
+    plan = [(lambda: None, 300), ("until", at("welcome")), (lambda: key(Qt.Key_Return), 500), ("until", at("c1")),
+            (lambda: key(Qt.Key_Return), 500), ("until", at("c1_scans")), (lambda: key(Qt.Key_1), 300),
+            (lambda: key(Qt.Key_2), 300),  # during the first ping: it is kept and comes next
+            ("until", at("c1_align")),
+            (lambda: check("chapter 1 doesn't align or detect by itself",
+                           not window.is_aligned() and window.change_result is None), 50),
+            (lambda: key(Qt.Key_L, Qt.ControlModifier), 300), ("until", at("c1_detect")),
+            (lambda: check("…the user aligns the scans", window.is_aligned()), 50),
+            (lambda: key(Qt.Key_D, Qt.ControlModifier), 300)] + looked_at("c1_detect") + [("until", at("c1_timeline")),
+            (lambda: check("the side panel doesn't open by itself, the card asks for Space",
+                           not window.dock.isVisible() and "space" in window.tutorial.card.chips), 50),
+            (lambda: key(Qt.Key_Space), 400),
+            (lambda: check("…and Space opens it on the Timeline", window.dock.isVisible()
+                           and window.sidebar.pages.currentIndex() == 0 and "space" not in window.tutorial.card.chips), 50),
+            (lambda: check("…and finds the changes", window.change_result is not None
+                           and window.sidebar.timeline_auto.isChecked()), 50)]
+    for newer in (1, 2):
+        plan += [(lambda n=newer: window.sidebar.timeline.setValue(n), 300),
+                 ("until", lambda: window.is_aligned() and window.change_result is not None)]
+    plan += [(lambda: window.sidebar.timeline.setValue(3), 300)] + looked_at("c1_timeline") + [
+             ("until", ready_at("c1_animation")),
+             (lambda: check("scrubbing the Timeline moves the tutorial on", True), 50),
+             (lambda: key(Qt.Key_P), 300)] + looked_at("c1_animation") + [("until", at("c1_done")),
+             (lambda: check("the change animation played", not window.change_animation.active), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c2")), (lambda: key(Qt.Key_Return), 400),
+             ("until", ready_at("c2_fish")),
+             (lambda: check("chapter 2 shows summer against autumn", window.series_pair == (1, 2)), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", at("c2_lasso")),
+             (lambda: state.update(fish=window.tutorial.fish_count()), 50),
+             (lambda: key(Qt.Key_L), 200), (lasso_the_fish, 300), ("until", at("c2_undo")),
+             (lambda: check("the lasso takes the fish out", window.tutorial.fish_count() < 0.15 * state["fish"]), 50),
+             (lambda: key(Qt.Key_Z, Qt.ControlModifier), 300), ("until", at("c2_redo")),
+             (lambda: check("undo brings the fish back", window.tutorial.fish_count() >= 0.9 * state["fish"]), 50),
+             (lambda: key(Qt.Key_Z, Qt.ControlModifier | Qt.ShiftModifier), 300), ("until", at("c2_palette")),
+             # The palette is a window of its own (no windows in this test): run its command directly
+             (lambda: window.remove_stray_points(), 300), ("until", at("c2_history")),
+             (lambda: check("the tutorial sees the stray points removed",
+                            window.history.stack.text(window.history.stack.index() - 1) == "Remove Stray Points"), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", at("c2_done")), (lambda: key(Qt.Key_Return), 400),
+             ("until", ready_at("c3")), (lambda: key(Qt.Key_Return), 400), ("until", at("c3_colours")),
+             (lambda: window.sidebar.color_mode.setCurrentText("Change"), 300)] + looked_at("c3_colours") + [
+             ("until", at("c3_swipe")),
+             (lambda: key(Qt.Key_B), 300), (lambda: window.scene.set_swipe_fraction(0.8), 300)] + looked_at("c3_swipe") + [
+             ("until", at("c3_minimap")),
+             (lambda: check("the swipe is put away after its step", not window.scene.swipe), 50),
+             (lambda: key(Qt.Key_M, Qt.ShiftModifier), 300),
+             (lambda: window.scene.look_at_xy(np.array([12.0, 12.0])), 300)] + looked_at("c3_minimap") + [
+             ("until", at("c3_done")),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c4")), (lambda: key(Qt.Key_Return), 400),
+             ("until", at("c4_explain")),
+             (lambda: check("chapter 4 marks where to click", len(window.tutorial.targets) == 2), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", at("c4_section")),
+             (lambda: check("chapter 4 is back to the normal colours", window.scene.settings.color_mode == "Per scan"), 50),
+             (lambda: key(Qt.Key_X), 200), (lambda: pick(adv.CURRENT * 7 + seabed), 100),
+             (lambda: pick(adv.CURRENT * 16 + seabed), 300), ("until", at("c4_section_read")),
+             (lambda: check("the cross section opens across the scour", window.section_window.isVisible()
+                            and window.last_section["length"] > 5), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", at("c4_measure")), (lambda: key(Qt.Key_T), 200),
+             (lambda: pick(adv.CURRENT * 16 + seabed), 100), (lambda: pick(adv.SCOUR), 300),
+             ("until", at("c4_measured")), (lambda: key(Qt.Key_Return), 400), ("until", at("c4_heightmap")),
+             (lambda: key(Qt.Key_Return), 300),
+             (lambda: check("the height map step waits for the map", at("c4_heightmap")()), 50),
+             (lambda: key(Qt.Key_H), 800), (lambda: key(Qt.Key_Return), 400), ("until", at("c4_done")),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c5")), (lambda: key(Qt.Key_Return), 400),
+             ("until", at("c5_areas")), (lambda: key(Qt.Key_Return), 400), ("until", at("c5_tags")),
+             (tag_areas, 300), ("until", at("c5_note")), (lambda: key(Qt.Key_N), 200),
+             (lambda: pick(adv.ANCHOR), 300), ("until", at("c5_done")),
+             (lambda: check("the note is pinned without asking for its text",
+                            window.notes and window.notes[-1]["text"] == adv.NOTE_TEXT), 50),
+             (lambda: key(Qt.Key_Return), 400), ("until", ready_at("c6")), (lambda: key(Qt.Key_Return), 400),
+             ("until", at("c6_details")), (lambda: key(Qt.Key_Return), 400), ("until", at("c6_report")),
+             (lambda: key(Qt.Key_R, Qt.ControlModifier | Qt.ShiftModifier), 300), ("until", at("c6_display")),
+             (lambda: check("the tutorial writes the PDF report", window.tutorial.report_path is not None
+                            and window.tutorial.report_path.read_bytes().startswith(b"%PDF")), 50),
+             (lambda: key(Qt.Key_P, Qt.ControlModifier | Qt.ShiftModifier), 1500),
+             (lambda: check("Display Mode runs in the tutorial", window.display_mode.active), 50),
+             (lambda: QTest.keyClick(window, Qt.Key_Space), 800), ("until", at("end")),
+             (lambda: key(Qt.Key_Return), 500), ("until", lambda: not window.in_tutorial())]
+    run_plan(plan, advanced_tutorial_done)
+
+
+def advanced_tutorial_done():
+    from viewer import prefs
+
+    check("after the advanced tutorial everything is unlocked and the wind farm stays open",
+          all(item.isEnabled() for item in window.menuBar().actions()) and window.series is not None
+          and window.dock.isVisible())
+    check("…with nothing to undo", window.history.stack.count() == 0)
+    check("…and the minimap setting as it was", prefs.get("show_minimap") == state["minimap_pref"])
+    card_watch.stop()
+    check(f"tutorial cards stayed whole in the running app ({len(set(CARD_PROBLEMS))} problems)", not CARD_PROBLEMS)
+    tutorial = window.start_tutorial(advanced=True)
+    plan = [(lambda: None, 400), ("until", at("welcome")), (lambda: key(Qt.Key_5), 400), ("until", ready_at("c5")),
+            (lambda: check("1–6 on the welcome card jump straight to a chapter", tutorial.step == "c5"), 50),
+            (lambda: key(Qt.Key_Escape), 400), (lambda: key(Qt.Key_Return), 300),
+            ("until", lambda: not window.in_tutorial() and data_ready()),
+            (lambda: check("leaving the advanced tutorial opens the default scene",
+                           window.series is None and window.inspections.title == SCENES[DEFAULT_SCENE].title), 50)]
     run_plan(plan, finish)
 
 

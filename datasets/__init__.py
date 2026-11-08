@@ -20,6 +20,7 @@ from datasets.more_scenes import MORE_SCENES
 from datasets.scenes import SIMPLE_SCENES, QuayWallDroppedObject, Scene
 from datasets.sonar import ScanSettings, scan
 from datasets.tutorial import TutorialSeafloor
+from datasets.wind_turbine import WindTurbineFoundation
 
 
 @dataclass
@@ -56,7 +57,7 @@ DEFAULT_SCENE = HarbourQuaySection.key
 # Older names of scenes, so projects saved before a rename still open
 RENAMED_SCENES = {"port_approach_survey": "port_approach_scan"}
 # Scenes that are not in the lists of examples (the tutorial loads its own)
-HIDDEN_SCENES = {TutorialSeafloor.key: TutorialSeafloor}
+HIDDEN_SCENES = {TutorialSeafloor.key: TutorialSeafloor, WindTurbineFoundation.key: WindTurbineFoundation}
 
 
 def size_label(n_points):
@@ -115,6 +116,7 @@ def generate(key, settings=None):
 
 SERIES = {
     "harbour_wall_scour": "Scour growing over a year (4 scans)",
+    "wind_turbine_storm": "Wind turbine foundation through a stormy year (4 scans)",
 }
 
 
@@ -126,19 +128,25 @@ class ScanSeries:
     clouds: list  # Open3D point clouds, oldest first
 
 
-def generate_series(key="harbour_wall_scour", scans=4, settings=None):
+def generate_series(key="harbour_wall_scour", scans=None, settings=None):
     """The same place scanned several times while a change develops (the scour deepens).
 
-    The first scan is the original state, the last one has the full change.
+    The first scan is the original state, the last one has the full change. Scenes made for a
+    series can name their scans (scan_names), say how far the change is in each one
+    (growth_by_scan) and how far each dive started off (drift: rotation in degrees, then metres).
     """
-    scene_class = SCENES[key]
+    scene_class = SCENES[key] if key in SCENES else HIDDEN_SCENES[key]
+    names = getattr(scene_class, "scan_names", None)
+    scans = scans or (len(names) if names else 4)
     settings = settings or ScanSettings(n_points=scene_class.default_points)
     scene = scene_class()
     scene.build_world(np.random.default_rng(settings.seed))
+    growth_by_scan = getattr(scene_class, "growth_by_scan", None)
+    drift = getattr(scene_class, "drift", None)
     clouds, center = [], None
     for number in range(scans):
-        growth = number / max(scans - 1, 1)
-        scene.growth = growth
+        scene.growth = growth_by_scan[number] if growth_by_scan else number / max(scans - 1, 1)
+        scene.scan_index = number
         rng = np.random.default_rng([settings.seed, 100 + number])
         state = "a" if number == 0 else "b"
         points, _ = scan(lambda r, n, s=state: scene.sample(r, n, s), scene.sonar_positions, settings, rng,
@@ -146,10 +154,17 @@ def generate_series(key="harbour_wall_scour", scans=4, settings=None):
         if center is None:
             center = (points.min(axis=0) + points.max(axis=0)) / 2
             center[2] = 0.0
-        clouds.append(to_cloud(points - center))
-    months = [round(12 * number / max(scans - 1, 1)) for number in range(scans)]
-    names = ["Scan 1 (start)"] + [f"Scan {i + 1} (+{m} months)" for i, m in enumerate(months) if i]
-    return ScanSeries(key, SERIES.get(key, scene.title), names, clouds)
+        cloud = to_cloud(points - center)
+        if drift and number and any(drift[number]):
+            matrix = np.eye(4)
+            matrix[:3, :3] = cloud.get_rotation_matrix_from_xyz(np.deg2rad(drift[number][:3]))
+            matrix[:3, 3] = drift[number][3:]
+            cloud.transform(matrix)
+        clouds.append(cloud)
+    if not names:
+        months = [round(12 * number / max(scans - 1, 1)) for number in range(scans)]
+        names = ["Scan 1 (start)"] + [f"Scan {i + 1} (+{m} months)" for i, m in enumerate(months) if i]
+    return ScanSeries(key, SERIES.get(key, scene.title), list(names[:scans]), clouds)
 
 
 def _original_wall():

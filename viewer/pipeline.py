@@ -170,11 +170,11 @@ def load_series(paths, options=None):
                   [scan.kind for scan in scans], notes, [str(p) for p in paths])
 
 
-def example_series(n_points=30_000):
+def example_series(n_points=30_000, key="harbour_wall_scour"):
     from datasets import generate_series
     from datasets.sonar import ScanSettings
 
-    example = generate_series(settings=ScanSettings(n_points=n_points))
+    example = generate_series(key, settings=ScanSettings(n_points=n_points))
     return Series(example.title, example.names, example.clouds, kinds=["Example scan"] * len(example.clouds))
 
 

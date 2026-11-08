@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -764,15 +765,48 @@ class Sidebar(QWidget):
         page, layout = page_layout()
         for title, html, expanded in CHAPTERS:
             card = Card(title, expanded=expanded)
+            if title == "Quick start":
+                card.add(self._tutorial_row())
             text = QLabel(html)
             text.setObjectName("guideText")
             text.setWordWrap(True)
             text.setTextFormat(Qt.RichText)
             text.setTextInteractionFlags(Qt.TextSelectableByMouse)
             card.add(text)
+            if title == "Quick start":
+                card.add(self._tutorial_row(advanced=True))  # after the steps: for when the basics are known
             layout.addWidget(card)
         layout.addStretch()
         return page
+
+    def _tutorial_row(self, advanced=False):
+        """Invitations to the tutorials at the top of the Quick start chapter."""
+        row = QFrame()
+        row.setObjectName("tutorialRow")
+        border, fill = ("0.3", "0.04") if advanced else ("0.45", "0.08")
+        row.setStyleSheet(f"#tutorialRow {{ border: 1px solid rgba(61, 127, 245, {border}); border-radius: 8px;"
+                          f" background: rgba(61, 127, 245, {fill}); }} #tutorialRow QLabel {{ background: transparent; }}")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(12, 10, 10, 10)
+        layout.setSpacing(10)
+        if advanced:
+            text = QLabel("<b>Know the basics?</b><br><span style='color:#9a9da7'>The Storm Season: six chapters "
+                          "of tricks on a wind turbine foundation, about 15 minutes.</span>")
+        else:
+            text = QLabel("<b>New here?</b><br><span style='color:#9a9da7'>Everything step by step in about 5 "
+                          "minutes.</span>")
+        text.setWordWrap(True)
+        layout.addWidget(text, 1)
+        start = button("Advanced Tutorial" if advanced else "Start Tutorial", primary=True)
+        if advanced:  # blue as well, a deeper shade, so the two don't look like the same button
+            start.setStyleSheet("QPushButton { background: #4a5fe0; } QPushButton:hover { background: #5c70ea; }")
+        start.clicked.connect(lambda: self.callbacks["advanced_tutorial" if advanced else "tutorial"]())
+        layout.addWidget(start, 0, Qt.AlignVCenter)
+        if advanced:
+            self.advanced_tutorial_button = start
+        else:
+            self.tutorial_button = start
+        return row
 
     # Keep widgets in sync when something changes from the keyboard or menu
 

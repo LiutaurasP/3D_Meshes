@@ -72,6 +72,7 @@ class SceneView:
         self.change_values = {}  # name -> signed change per point, for the "Change" colours
         self.change_limit = 0.3
         self.area_actors = []
+        self.pivot_actor = None  # marker on the point the camera turns around, while orbiting
 
     # Geometry
 
@@ -474,11 +475,36 @@ class SceneView:
         ratio = self.widget.devicePixelRatioF()
         px, py = int(x * ratio), int((self.widget.height() - y) * ratio)
         renderer = self.plotter.renderer
-        if renderer.GetZ(px, py) >= 0.999999:  # nothing drawn there
-            return None
+        if renderer.GetZ(px, py) >= 0.999999:  # nothing drawn exactly there: maybe between two points
+            near = self._nearest_drawn_pixel(px, py, int(6 * ratio))
+            if near is None:
+                return None
+            px, py = near
         picker = vtk.vtkWorldPointPicker()
         picker.Pick(px, py, 0, renderer)
         return np.array(picker.GetPickPosition())
+
+    def _nearest_drawn_pixel(self, px, py, radius):
+        """Closest pixel around (px, py) where something is drawn, so a click between points still counts."""
+        window = self.plotter.ren_win
+        width, height = window.GetSize()
+        x0, y0 = max(px - radius, 0), max(py - radius, 0)
+        x1, y1 = min(px + radius, width - 1), min(py + radius, height - 1)
+        if x1 < x0 or y1 < y0:
+            return None
+        from vtkmodules.vtkCommonCore import vtkFloatArray
+
+        values = vtkFloatArray()
+        window.GetZbufferData(x0, y0, x1, y1, values)
+        count = (y1 - y0 + 1) * (x1 - x0 + 1)
+        if values.GetNumberOfValues() < count:
+            return None
+        depth = np.array([values.GetValue(i) for i in range(count)]).reshape(y1 - y0 + 1, x1 - x0 + 1)
+        rows, cols = np.nonzero(depth < 0.999999)
+        if not len(rows):
+            return None
+        best = np.argmin((cols + x0 - px) ** 2 + (rows + y0 - py) ** 2)
+        return int(cols[best] + x0), int(rows[best] + y0)
 
     def set_background(self, rgba):
         self.settings.background = tuple(rgba)
@@ -679,6 +705,15 @@ class SceneView:
 
     # Cleaning: which points are under a lasso, and redrawing after points were removed
 
+    def point_on_widget(self, point):
+        """Widget pixel position (x, y from the top left) of one point in the scene."""
+        renderer = self.plotter.renderer
+        renderer.SetWorldPoint(*np.asarray(point, dtype=float), 1.0)
+        renderer.WorldToDisplay()
+        x, y, _ = renderer.GetDisplayPoint()
+        ratio = self.widget.devicePixelRatioF()
+        return x / ratio, self.widget.height() - y / ratio
+
     def project_to_widget(self, name):
         """Widget pixel position (x, y from the top left) of every point of a cloud, and
         whether it is in front of the camera."""
@@ -780,6 +815,82 @@ class SceneView:
     def clear_overlays(self):
         for items in list(self.overlays):
             self.remove_overlay(items)
+
+    # Orbiting: turn around what is in the middle of the screen
+
+    def surface_in_view(self, cone_deg=0.5, widest_deg=5.0, max_points=150_000):
+        """Point on the scans straight ahead of the camera, or None if there is only water.
+
+        Looks at the points inside a narrow cone around the line of sight (not at the one pixel
+        in the middle, which often falls between two points) and widens the cone until it holds
+        enough of them. The near side of the surface is used, ignoring the odd stray echo in front.
+        The result lies exactly on the line of sight, so making it the focal point doesn't move the view.
+        """
+        camera = self.plotter.camera
+        position = np.array(camera.position, dtype=float)
+        forward = np.array(camera.focal_point, dtype=float) - position
+        forward /= np.linalg.norm(forward) or 1.0
+
+        along, across = [], []
+        for name, cloud in self.geometries.items():
+            if not self.visible.get(name, False):
+                continue
+            points = np.asarray(self._shown(name, np.asarray(cloud.points)))
+            if len(points) > max_points:
+                points = points[:: int(np.ceil(len(points) / max_points))]
+            matrix = self.matrices[name]
+            relative = points @ matrix[:3, :3].T + matrix[:3, 3] - position
+            depth = relative @ forward
+            ahead = depth > 0
+            relative, depth = relative[ahead], depth[ahead]
+            offset = np.linalg.norm(relative - depth[:, None] * forward, axis=1)
+            along.append(depth)
+            across.append(offset / depth)  # tangent of the angle to the line of sight
+        if not along:
+            return None
+        along, across = np.concatenate(along), np.concatenate(across)
+
+        cone = cone_deg
+        while cone <= widest_deg:
+            inside = across < np.tan(np.radians(cone))
+            if inside.sum() >= 8:
+                depth = float(np.percentile(along[inside], 10))  # near side, past a few stray echoes
+                return position + forward * depth
+            cone *= 2
+        return None
+
+    def pivot_on_view(self):
+        """Move the point the camera turns around onto the surface straight ahead (no visible jump)."""
+        point = self.surface_in_view()
+        if point is None:
+            return None
+        camera = self.plotter.camera
+        camera.focal_point = tuple(point)
+        self.plotter.renderer.ResetCameraClippingRange()
+        return point
+
+    def show_pivot(self, point):
+        """A small white dot on the point the camera turns around (same size on screen at any distance)."""
+        self.hide_pivot(render=False)
+        if point is None:
+            return
+        # A little towards the camera along the line of sight: same place on screen, not sunk between points
+        position = np.array(self.plotter.camera.position, dtype=float)
+        shown_at = position + (np.asarray(point) - position) * 0.985
+        ratio = self.widget.devicePixelRatioF()
+        self.pivot_actor = [self.plotter.add_points(
+            pv.PolyData(np.array([shown_at])), color=(0.97, 0.98, 1.0), point_size=13 * ratio,
+            render_points_as_spheres=True, reset_camera=False, name="orbit pivot", pickable=False)]
+        self.plotter.render()
+
+    def hide_pivot(self, render=True):
+        if self.pivot_actor is None:
+            return
+        for actor in self.pivot_actor:
+            self.plotter.remove_actor(actor, render=False)
+        self.pivot_actor = None
+        if render:
+            self.plotter.render()
 
     def set_navigation(self, mode):
         self.navigation = mode
