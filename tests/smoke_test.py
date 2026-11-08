@@ -1162,6 +1162,27 @@ def hold(code, seconds):
                                                                  QKeyEvent(QEvent.KeyRelease, code, Qt.NoModifier)))
 
 
+CARD_PROBLEMS = []
+
+
+def watch_card():
+    """While a tutorial runs: the card checked several times a second (text fits, nothing outside it)."""
+    tutorial = getattr(window, "tutorial", None)
+    if tutorial is not None and tutorial.active and tutorial.card.isVisible():
+        card = tutorial.card
+        for label in (card.heading, card.body):
+            if label.isVisible() and label.height() < label.heightForWidth(label.width()):
+                CARD_PROBLEMS.append((tutorial.step, "text cut off"))
+        for part in [card.row, card.next] + list(card.chips.values()):
+            if part.isVisible() and part.mapTo(card, part.rect().bottomLeft()).y() > card.height() - 12:
+                CARD_PROBLEMS.append((tutorial.step, "outside the card"))
+
+
+card_watch = QTimer()
+card_watch.setInterval(120)
+card_watch.timeout.connect(watch_card)
+
+
 def run_plan(plan, done, index=0, waited=0):
     """Run (action, wait ms) items; an item ("until", condition) waits for the condition (max 60 s)."""
     if index >= len(plan):
@@ -1222,6 +1243,7 @@ def tutorial_checks():
     from viewer.dialogs import StartScreen
 
     card_layout_checks()
+    card_watch.start()
 
     screen = StartScreen([], window)
     screen.tutorial_button.click()
@@ -1431,6 +1453,8 @@ def advanced_tutorial_done():
           and window.dock.isVisible())
     check("…with nothing to undo", window.history.stack.count() == 0)
     check("…and the minimap setting as it was", prefs.get("show_minimap") == state["minimap_pref"])
+    card_watch.stop()
+    check(f"tutorial cards stayed whole in the running app ({len(set(CARD_PROBLEMS))} problems)", not CARD_PROBLEMS)
     tutorial = window.start_tutorial(advanced=True)
     plan = [(lambda: None, 400), ("until", at("welcome")), (lambda: key(Qt.Key_5), 400), ("until", ready_at("c5")),
             (lambda: check("1–6 on the welcome card jump straight to a chapter", tutorial.step == "c5"), 50),

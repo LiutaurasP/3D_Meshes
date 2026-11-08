@@ -92,6 +92,8 @@ class AdvancedTutorial(TutorialBase):
         self.waiting_for = None  # (older, newer): comparison that has to be aligned and detected first
         self.targets = []  # points the user is asked to click (chapter 4)
         self.looking = set()  # steps that are done and wait for Continue (time to look)
+        # Counts taken when a step starts (they exist from the start, so jumping into a chapter is safe)
+        self.fish_before = self.points_before = self.measured_before = self.notes_before = 0
         self.target_actors = []
 
     # Start and end

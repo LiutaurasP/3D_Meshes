@@ -26,8 +26,28 @@ from PySide6.QtCore import (
     QTimer,
     QVariantAnimation,
 )
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPalette,
+    QPen,
+    QTextDocument,
+)
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from viewer.style import ACCENT, TEXT, TEXT_DIM, TEXT_FAINT
 
@@ -45,21 +65,46 @@ MOUSE_EVENTS = (QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.Mouse
 # The card
 
 
-class KeyChip(QLabel):
-    """A key cap (or a mouse action) that lights up when it has been used."""
+def tutorial_font(pixels, weight=QFont.Normal, spacing=0.0):
+    """Fonts are set directly (not through style sheets), so text is measured exactly as it is drawn."""
+    font = QFont(QApplication.font())
+    font.setPixelSize(pixels)
+    font.setWeight(weight)
+    if spacing:
+        font.setLetterSpacing(QFont.AbsoluteSpacing, spacing)
+    return font
 
-    HEIGHT = 44  # every key cap has this height
+
+def text_height(html, font, width):
+    """Height of rich text at a width, measured the way QLabel lays it out (no document margin)."""
+    document = QTextDocument()
+    document.setDefaultFont(font)
+    document.setDocumentMargin(0)
+    document.setHtml(html)
+    document.setTextWidth(width)
+    return int(np.ceil(document.size().height()))
+
+
+def coloured(widget, colour):
+    palette = widget.palette()
+    palette.setColor(QPalette.WindowText, QColor(colour))
+    palette.setColor(QPalette.Text, QColor(colour))
+    widget.setPalette(palette)
+
+
+class KeyChip(QWidget):
+    """A key cap (or a mouse action) that lights up when it has been used. It draws itself and has a fixed
+    shape: as wide as its text needs (at least square), always the same height."""
+
+    HEIGHT = 44
     FONT_PX = 20
     SIDE_PADDING = 14
 
     def __init__(self, text, wide=False):
-        super().__init__(text)
-        self.setAlignment(Qt.AlignCenter)
-        # A fixed shape: as wide as the text needs (at least square), never stretched by the row it sits in
-        font = QFont(self.font())
-        font.setPixelSize(self.FONT_PX)
-        font.setBold(True)
-        width = QFontMetrics(font).horizontalAdvance(text) + 2 * self.SIDE_PADDING + 2
+        super().__init__()
+        self.label = text
+        self.key_font = tutorial_font(self.FONT_PX, QFont.Bold)
+        width = QFontMetrics(self.key_font).horizontalAdvance(text) + 2 * self.SIDE_PADDING + 2
         self.setFixedSize(max(width, self.HEIGHT), self.HEIGHT)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.state = "idle"
@@ -71,14 +116,16 @@ class KeyChip(QLabel):
         self.pulse.setDuration(1600)
         self.pulse.setLoopCount(-1)
         self.pulse.valueChanged.connect(self._set_glow)
-        self._restyle()
+
+    def text(self):
+        return self.label
 
     def start_pulse(self):
         self.pulse.start()
 
     def _set_glow(self, value):
         self._glow = value
-        self._restyle()
+        self.update()  # only a repaint: nothing about the layout changes
 
     def set_state(self, state):
         """idle, pressed (being held / used) or done."""
@@ -86,27 +133,48 @@ class KeyChip(QLabel):
         if state == "done":
             self.pulse.stop()
             self._glow = 0.0
-        self._restyle()
+        self.update()
 
-    def _restyle(self):
-        accent = QColor(ACCENT)
+    def paintEvent(self, event):
         if self.state == "done":
-            fill, border, text = "rgba(63, 178, 127, 0.22)", SUCCESS, "#bdf0d6"
+            fill, border, text = QColor(63, 178, 127, 56), QColor(SUCCESS), QColor("#bdf0d6")
         elif self.state == "pressed":
-            fill, border, text = "rgba(61, 127, 245, 0.45)", ACCENT, "#ffffff"
+            fill, border, text = QColor(61, 127, 245, 115), QColor(ACCENT), QColor("#ffffff")
         else:
-            glow = self._glow
-            fill = f"rgba(61, 127, 245, {0.08 + 0.14 * glow:.3f})"
-            border = f"rgba({accent.red()}, {accent.green()}, {accent.blue()}, {0.45 + 0.55 * glow:.3f})"
-            text = TEXT
-        self.setStyleSheet(
-            f"QLabel {{ background: {fill}; color: {text}; border: 1px solid {border};"
-            f" border-bottom: 4px solid {border}; border-radius: 8px; padding: 0px;"
-            f" font-size: {self.FONT_PX}px; font-weight: 700; }}")
+            fill = QColor(61, 127, 245, int(255 * (0.08 + 0.14 * self._glow)))
+            border = QColor(ACCENT)
+            border.setAlphaF(0.45 + 0.55 * self._glow)
+            text = QColor(TEXT)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        outer = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(border)  # the thicker lower edge of a key cap
+        painter.drawRoundedRect(outer, 8, 8)
+        face = outer.adjusted(1, 1, -1, -4)
+        painter.setBrush(QColor(14, 19, 33))
+        painter.drawRoundedRect(face, 7, 7)
+        painter.setBrush(fill)
+        painter.drawRoundedRect(face, 7, 7)
+        painter.setPen(text)
+        painter.setFont(self.key_font)
+        painter.drawText(face, Qt.AlignCenter, self.label)
 
 
 class TutorialCard(QWidget):
-    """The floating text card: small step label, big heading, text, keys and a progress bar."""
+    """The floating text card: small step label, big heading, text, keys and a progress bar.
+
+    Every part gets a fixed size measured from its own text and font, and the card's height is the sum of
+    those parts and fixed gaps. Nothing is left for Qt to estimate, so the card looks the same every time.
+    """
+
+    WIDTH = 1000  # at most; narrower when the 3D view is
+    MARGINS = (40, 24, 28, 24)  # left, top, right, bottom
+    GAP_TITLE = 6  # blue line → title
+    GAP_TEXT = 8  # title → text
+    GAP_ROW = 18  # text → keys and button
+    GAP_HINT = 10  # keys → hint
+    ROW_HEIGHT = KeyChip.HEIGHT
 
     def __init__(self, owner, on_continue, on_leave):
         super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
@@ -125,50 +193,84 @@ class TutorialCard(QWidget):
         self.border = QColor(ACCENT)
         self._full_heading = ""
         self._typed = 0
+        self._step = {}
+
+        self.fonts = {
+            "eyebrow": tutorial_font(11, QFont.Bold, 2.0),
+            "heading": tutorial_font(30, QFont.Bold),
+            "body": tutorial_font(16),
+            "row": tutorial_font(17, QFont.DemiBold),
+            "hint": tutorial_font(14),
+            "leave": tutorial_font(12),
+            "button": tutorial_font(15, QFont.DemiBold),
+        }
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 16, 24, 20)
-        layout.setSpacing(6)
+        layout.setSizeConstraint(QLayout.SetNoConstraint)  # the card sets its own size, see relayout()
+        left, top, right, bottom = self.MARGINS
+        layout.setContentsMargins(left, top, right, bottom)
+        layout.setSpacing(0)
 
-        # The blue line, with a quiet "Leave tutorial  Esc" in the top-right corner, and the title right under it
+        # The blue line, with a quiet "Leave tutorial  Esc" in the top-right corner
         header = QHBoxLayout()
         header.setSpacing(12)
         self.eyebrow = QLabel()
-        header.addWidget(self.eyebrow, 1)
+        self.eyebrow.setFont(self.fonts["eyebrow"])
+        coloured(self.eyebrow, ACCENT)
+        header.addWidget(self.eyebrow, 1, Qt.AlignVCenter)
         self.leave = QPushButton()
+        self.leave.setFont(self.fonts["leave"])
         self.leave.setCursor(Qt.PointingHandCursor)
         self.leave.setStyleSheet(
             f"QPushButton {{ background: none; color: {TEXT_DIM}; border: 1px solid rgba(255, 255, 255, 0.13);"
-            f" border-radius: 7px; padding: 3px 9px; font-size: 12px; }}"
+            f" border-radius: 7px; padding: 0px 10px; }}"
             f"QPushButton:hover {{ color: {TEXT}; border-color: rgba(255, 255, 255, 0.32); }}")
         self.leave.clicked.connect(on_leave)
-        header.addWidget(self.leave, 0, Qt.AlignTop)
+        header.addWidget(self.leave, 0, Qt.AlignVCenter)
+        self.header = header
         layout.addLayout(header)
-        self.heading = QLabel()
-        self.heading.setWordWrap(True)
-        self.heading.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.heading)
-        layout.addSpacing(-4)  # the title sits close under the blue line
-        self.body = QLabel()
-        self.body.setWordWrap(True)
-        self.body.setTextFormat(Qt.RichText)
-        layout.addWidget(self.body)
-        layout.addSpacing(2)
+        layout.addSpacing(self.GAP_TITLE)
 
-        # Keys on the left, the button on the right, in one row
-        self.keys_row = QHBoxLayout()
-        self.keys_row.setSpacing(5)
-        layout.addLayout(self.keys_row)
+        self.heading = QLabel()
+        self.heading.setTextFormat(Qt.RichText)
+        self.heading.setWordWrap(True)
+        self.heading.setFont(self.fonts["heading"])
+        coloured(self.heading, TEXT)
+        layout.addWidget(self.heading)
+        layout.addSpacing(self.GAP_TEXT)
+
+        self.body = QLabel()
+        self.body.setTextFormat(Qt.RichText)
+        self.body.setWordWrap(True)
+        self.body.setFont(self.fonts["body"])
+        coloured(self.body, TEXT_DIM)
+        layout.addWidget(self.body)
+
+        # Keys on the left, the button on the right, in one row of fixed height
+        self.row_space = QSpacerItem(0, self.GAP_ROW, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        layout.addItem(self.row_space)
+        self.row = QWidget()
+        self.keys_row = QHBoxLayout(self.row)
+        self.keys_row.setContentsMargins(0, 0, 0, 0)
+        self.keys_row.setSpacing(6)
+        layout.addWidget(self.row)
+
+        self.hint_space = QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Fixed)
+        layout.addItem(self.hint_space)
         self.hint = QLabel()
-        self.hint.setStyleSheet(f"color: {WARNING}; font-size: 14px;")
+        self.hint.setTextFormat(Qt.RichText)
+        self.hint.setWordWrap(True)
+        self.hint.setFont(self.fonts["hint"])
+        coloured(self.hint, WARNING)
         self.hint.hide()
         layout.addWidget(self.hint)
+        layout.addStretch()
 
         self.next = QPushButton("Continue")
+        self.next.setFont(self.fonts["button"])
         self.next.setCursor(Qt.PointingHandCursor)
         self.next.setStyleSheet(
-            f"QPushButton {{ background: {ACCENT}; color: white; border: none; border-radius: 8px;"
-            f" padding: 8px 18px; font-size: 14px; font-weight: 600; }}"
+            f"QPushButton {{ background: {ACCENT}; color: white; border: none; border-radius: 9px; padding: 0px; }}"
             f"QPushButton:hover {{ background: #5590f7; }}")
         self.next.clicked.connect(on_continue)
 
@@ -185,25 +287,20 @@ class TutorialCard(QWidget):
         self.flash.valueChanged.connect(self._flash_frame)
         self._flash_color = QColor(SUCCESS)
         self._flash = 0.0
+        self.setFixedWidth(self.WIDTH)
 
     # Content
 
     def set_content(self, step, animate=True):
         """step: dict with eyebrow, heading, body, keys [(label, id)], button, position, big."""
-        big = step.get("big", False)
+        self._step = step
         self.position = step.get("position", "bottom")
-        self.setFixedWidth(820 if big else 760)  # wide and flat: covers as little of the scans as possible
-        inner = self.width() - 56  # minus the margins: wrapped text needs its real width to know its height
-        for label in (self.heading, self.body, self.hint):
-            label.setFixedWidth(inner)
         self.eyebrow.setText(step.get("eyebrow", "").upper())
-        self.eyebrow.setStyleSheet(f"color: {ACCENT}; font-size: 11px; font-weight: 700; letter-spacing: 2px;")
-        self.heading.setStyleSheet(f"color: {TEXT}; font-size: 30px; font-weight: 700;")  # one size on every card
         text = step.get("body", "")
         if not text.lstrip().startswith("<p"):
             text = body(text)  # a single paragraph: the same spacing as all the others
         self.body.setText(f"<div style='line-height: 125%;'>{text}</div>")
-        self.body.setStyleSheet(f"color: {TEXT_DIM}; font-size: 16px;")
+        self.hint.setText("")
         self.hint.hide()
         self.task = None
         self._fill = 0.0
@@ -211,19 +308,25 @@ class TutorialCard(QWidget):
 
         while self.keys_row.count():
             item = self.keys_row.takeAt(0)
-            if item.widget() is not None and item.widget() is not self.next:
-                item.widget().deleteLater()
+            widget = item.widget()
+            if widget is not None and widget is not self.next:
+                widget.hide()
+                widget.deleteLater()
         self.chips = {}
         for label, name in step.get("keys", []):
             if name is None:  # text between or after the keys
-                text = QLabel(label)
-                if label in CONNECTORS:  # "+", "then": quiet, the keys are what matters
-                    text.setStyleSheet(f"color: {TEXT_DIM}; font-size: 17px; font-weight: 600; padding: 0;")
-                else:  # what to do: reads like an instruction
-                    text.setStyleSheet(f"color: {TEXT}; font-size: 17px; font-weight: 600; padding: 0 0 0 10px;")
-                self.keys_row.addWidget(text, 0, Qt.AlignVCenter)
+                words = QLabel(label)
+                words.setFont(self.fonts["row"])
+                quiet = label in CONNECTORS  # "+", "then": quiet, the keys are what matters
+                coloured(words, TEXT_DIM if quiet else TEXT)
+                indent = 0 if quiet else 8
+                words.setContentsMargins(indent, 0, 0, 0)
+                words.setFixedSize(QFontMetrics(self.fonts["row"]).horizontalAdvance(label) + indent + 4,
+                                   self.ROW_HEIGHT)
+                words.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+                self.keys_row.addWidget(words, 0, Qt.AlignVCenter)
                 continue
-            chip = KeyChip(label, wide=len(label) > 3)
+            chip = KeyChip(label)
             chip.start_pulse()
             self.chips[name] = chip
             self.keys_row.addWidget(chip, 0, Qt.AlignVCenter)
@@ -231,59 +334,90 @@ class TutorialCard(QWidget):
         self.keys_row.addWidget(self.next, 0, Qt.AlignVCenter)
 
         button = step.get("button")
-        self.next.setVisible(bool(button))
-        self.next.setText(f"{button}  ↵" if button else "")
+        self._set_button(button)
         self.leave.setVisible(step.get("leave", True))
         self.leave.setText(step.get("leave_text", "Leave tutorial    Esc"))
+        metrics = QFontMetrics(self.fonts["leave"])
+        self.leave.setFixedSize(metrics.horizontalAdvance(self.leave.text()) + 22, 26)
 
         self._full_heading = step.get("heading", "")
-        self.heading.setText(self._full_heading)  # full text first, so the size is right
-        self.fit_height()
+        self.heading.setText(self._full_heading)
+        self.relayout()
         if animate:
             self._typed = 0
             self.heading.setText("​")
             self.typer.start(max(12, min(28, 650 // max(len(self._full_heading), 1))))
         self.update()
 
-    def fit_height(self):
-        """Height from the parts themselves (Qt's own estimate comes out short for wrapped text)."""
-        layout = self.layout()
-        margins = layout.contentsMargins()
-        inner = self.width() - margins.left() - margins.right()
-        gap = layout.spacing()
-        header = max(self.eyebrow.sizeHint().height(), self.leave.sizeHint().height() if self.leave.isVisibleTo(self) else 0)
-        height = margins.top() + header + gap + self.heading.heightForWidth(inner) + gap - 4
-        height += self.body.heightForWidth(inner) + gap + 2
-        row = [self.keys_row.itemAt(i).widget() for i in range(self.keys_row.count())]
-        row = [widget for widget in row if widget is not None and not widget.isHidden()]
-        if row:
-            height += gap + max(max(widget.sizeHint().height(), widget.minimumHeight()) for widget in row)
-        if not self.hint.isHidden():
-            height += gap + self.hint.heightForWidth(inner)
-        height += margins.bottom()
-        layout.activate()
-        self.setFixedHeight(max(height, layout.totalHeightForWidth(self.width())))
+    def _set_button(self, text):
+        self.next.setVisible(bool(text))
+        if text:
+            self.next.setText(f"{text}  ↵")
+            width = QFontMetrics(self.fonts["button"]).horizontalAdvance(self.next.text()) + 40
+            self.next.setFixedSize(width, 40)
+
+    def relayout(self):
+        """Give every part its exact size and the card the sum of them (see the class description)."""
+        view = self.owner.centralWidget()
+        width = min(self.WIDTH, max(480, view.width() - 40)) if view is not None and view.width() > 0 else self.WIDTH
+        left, top, right, bottom = self.MARGINS
+        inner = width - left - right
+        self._width_used = width
+
+        header = max(QFontMetrics(self.fonts["eyebrow"]).height(), 26 if self.leave.isVisibleTo(self) else 0)
+        heading = text_height(self._escape(self._full_heading), self.fonts["heading"], inner) + 2
+        text = text_height(self.body.text(), self.fonts["body"], inner) + 2
+        self.heading.setFixedSize(inner, heading)
+        self.body.setFixedSize(inner, text)
+
+        has_row = bool(self.chips) or self.next.isVisibleTo(self) or self.keys_row.count() > 2
+        self.row.setVisible(has_row)
+        self.row.setFixedSize(inner, self.ROW_HEIGHT)
+        self.row_space.changeSize(0, self.GAP_ROW if has_row else 0, QSizePolicy.Minimum, QSizePolicy.Fixed)
+
+        hint = 0
+        if self.hint.text():
+            hint = text_height(self.hint.text(), self.fonts["hint"], inner) + 2
+            self.hint.setFixedSize(inner, hint)
+        self.hint.setVisible(bool(hint))
+        self.hint_space.changeSize(0, self.GAP_HINT if hint else 0, QSizePolicy.Minimum, QSizePolicy.Fixed)
+
+        height = top + header + self.GAP_TITLE + heading + self.GAP_TEXT + text
+        if has_row:
+            height += self.GAP_ROW + self.ROW_HEIGHT
+        if hint:
+            height += self.GAP_HINT + hint
+        height += bottom
+        self.setFixedSize(width, height)
+        self.layout().invalidate()
+        self.layout().activate()
+
+    fit_height = relayout  # older name
+
+    @staticmethod
+    def _escape(text):
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     def _type_more(self):
-        """Typewriter: the heading appears a few letters at a time."""
+        """Typewriter: the heading appears a few letters at a time (its space is already set aside)."""
         self._typed += 1
-        self.heading.setText(self._full_heading[:self._typed] or "​")
+        self.heading.setText(self._escape(self._full_heading[:self._typed]) or "​")
         if self._typed >= len(self._full_heading):
             self.typer.stop()
 
     def set_hint(self, text):
+        if text == self.hint.text():
+            return
         self.hint.setText(text)
-        self.hint.setVisible(bool(text))
-        self.fit_height()
+        self.relayout()
         self.place()
 
     def show_button(self, text="Continue"):
         """Show the card's button now (the task is done: move on when you're ready)."""
-        if self.next.isVisible():
+        if self.next.isVisibleTo(self):
             return
-        self.next.setText(f"{text}  ↵")
-        self.next.setVisible(True)
-        self.fit_height()
+        self._set_button(text)
+        self.relayout()
         self.place()
 
     def set_task(self, fraction):
@@ -337,6 +471,9 @@ class TutorialCard(QWidget):
 
     def place(self, animate=False):
         view = self.owner.centralWidget()
+        wanted = min(self.WIDTH, max(480, view.width() - 40))
+        if self._step and wanted != getattr(self, "_width_used", None):
+            self.relayout()  # the view changed width (side panel opened or closed): measure again
         corner = view.mapToGlobal(QPoint(0, 0))
         x = corner.x() + (view.width() - self.width()) // 2
         if self.position == "center":
