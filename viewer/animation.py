@@ -65,15 +65,16 @@ class DataWorker(QThread):
     done = Signal(object)  # Inspections
     failed = Signal(str)
 
-    def __init__(self, data_settings=None, files=None):
+    def __init__(self, data_settings=None, files=None, options=None):
         super().__init__()
         self.data = data_settings
         self.files = files
+        self.options = options  # ImportOptions (or a dict per scan) for files
 
     def run(self):
         try:
             if self.files:
-                self.done.emit(load_inspections(*self.files))
+                self.done.emit(load_inspections(*self.files, options=self.options))
             else:
                 self.done.emit(build_inspections(self.data))
         except Exception as error:  # shown to the user instead of crashing the thread

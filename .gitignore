@@ -4,3 +4,4 @@ __pycache__/
 /build/
 /dist/
 packaging/icons/
+.DS_Store

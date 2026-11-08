@@ -199,11 +199,21 @@ CHAPTERS = [
     ]), False),
 
     ("Using your own scans", P +
-     "Use <b>File → Import Two Scans</b> (or the last entry in the scene list). You are asked for "
-     "the earlier scan first (A), then the later one (B). Supported files: "
-     "<b>.ply .pcd .xyz .pts</b>.</p>" + P + dim(
-         "Then align and detect changes as with the examples. There is no true change to compare "
-         "with for your own data.") + "</p>",
+     "Use <b>File → Import Two Scans</b> or drop two files on the window: the earlier scan is A, the later "
+     "one B. The Import window shows what each file is and lets you check the settings.</p>" + keys_table([
+         ("<b>Point clouds</b>", "LAS, LAZ, E57, PLY, PCD, PTS"),
+         ("<b>Text tables</b>", "XYZ, TXT, CSV, DAT with any separator: pick which column is x, y, z "
+                                "and intensity, the preview shows the result"),
+         ("<b>Depth grids</b>", "GeoTIFF and ESRI ASCII grids: one point per cell"),
+         ("<b>Meshes</b>", "OBJ, STL, PLY meshes: points are spread over the surface"),
+         ("<b>Units</b>", "metres, centimetres, millimetres, feet or US survey feet"),
+         ("<b>Depth direction</b>", "found automatically; choose it yourself if the seabed comes out upside down"),
+         ("<b>Survey coordinates</b>", "big UTM numbers are shifted for smooth drawing, the status bar, notes "
+                                       "and the report still show the real ones"),
+         ("<b>Intensity</b>", "if the files have it: Colours → Intensity shows the sonar return strength"),
+     ]) + '<p style="margin:8px 0 0 0;">' + dim(
+         "Raw multibeam recordings (.xtf, .gsf, .s7k, .all) have to be processed in your sonar software "
+         "first: export the cleaned survey as LAS/LAZ, XYZ or CSV.") + "</p>",
      False),
 
     ("Tips and troubleshooting", keys_table([

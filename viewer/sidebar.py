@@ -624,6 +624,8 @@ class Sidebar(QWidget):
         colors.addItems(COLOR_MODES)
         colors.setCurrentText(view_settings.color_mode)
         colors.setItemData(COLOR_MODES.index("Change"), "Blue = removed, red = added (after Detect changes)", Qt.ToolTipRole)
+        colors.setItemData(COLOR_MODES.index("Intensity"), "Strength of the sonar return (only if the files have it)",
+                           Qt.ToolTipRole)
         colors.currentTextChanged.connect(lambda text: self.callbacks["color_mode"](text))
         self.color_mode = form.row("Colours", colors)
 
@@ -669,6 +671,14 @@ class Sidebar(QWidget):
 
     def set_truth_available(self, available):
         self.truth.setEnabled(available)
+
+    def set_intensity_available(self, available):
+        """The Intensity colours can only be picked for scans that have intensity values."""
+        combo = self.color_mode
+        item = combo.model().item(COLOR_MODES.index("Intensity"))
+        item.setEnabled(available)
+        if not available and combo.currentText() == "Intensity":
+            combo.setCurrentText("Per scan")
 
     # Compare
 

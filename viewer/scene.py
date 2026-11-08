@@ -16,7 +16,9 @@ CAMERA_PRESETS = {
 }
 
 NAVIGATION_MODES = ("Orbit", "Fly (WASD)")
-COLOR_MODES = ("Per scan", "Depth", "Change")
+COLOR_MODES = ("Per scan", "Depth", "Change", "Intensity")
+INTENSITY_COLORMAP = "copper"  # dark = weak return, bright = strong, like a backscatter mosaic
+INTENSITY_LABEL = "Intensity (sonar return)"
 DEPTH_COLORMAP = "turbo_r"  # shallow = red, deep = blue, like sonar software
 DEPTH_LABEL = "Depth below surface (m)"
 CHANGE_COLORMAP = "coolwarm"  # blue = material removed, white = unchanged, red = added
@@ -58,6 +60,7 @@ class SceneView:
         self.overlays = []  # lines and labels of the measuring tools
 
         self.geometries = {}
+        self.intensity = {}
         self.colors = {}
         self.actors = {}
         self.matrices = {}
@@ -70,9 +73,10 @@ class SceneView:
 
     # Geometry
 
-    def set_clouds(self, clouds, colors, truth=None):
+    def set_clouds(self, clouds, colors, truth=None, intensity=None):
         """Replace everything in the scene. All arguments are dicts keyed by cloud name."""
         self.geometries = dict(clouds)
+        self.intensity = dict(intensity or {})
         self.colors = dict(colors)
         self.matrices = {name: np.eye(4) for name in self.geometries}
         self.visible = {name: True for name in self.geometries}
@@ -98,7 +102,10 @@ class SceneView:
         mode = self.settings.color_mode
         if mode == "Change" and not self.change_values:
             mode = "Per scan"  # nothing detected yet
+        if mode == "Intensity" and not self.intensity:
+            mode = "Per scan"  # these scans have no intensity values
         depth_range = self._depth_range() if mode == "Depth" else None
+        intensity_range = self._intensity_range() if mode == "Intensity" else None
 
         # Round "sphere" points look nicer, plain points draw ~3x faster on huge scans
         from viewer import prefs
@@ -122,6 +129,12 @@ class SceneView:
                 actor = self.plotter.add_points(
                     data, scalars=CHANGE_LABEL, cmap=CHANGE_COLORMAP, clim=[-limit, limit],
                     show_scalar_bar=index == 0, scalar_bar_args={"title": CHANGE_LABEL, **bar}, **style)
+            elif mode == "Intensity" and name in self.intensity:
+                data[INTENSITY_LABEL] = self.intensity[name]
+                first = name == next(n for n in self.geometries if n in self.intensity)
+                actor = self.plotter.add_points(
+                    data, scalars=INTENSITY_LABEL, cmap=INTENSITY_COLORMAP, clim=intensity_range,
+                    show_scalar_bar=first, scalar_bar_args={"title": INTENSITY_LABEL, **bar}, **style)
             else:
                 actor = self.plotter.add_points(data, color=self.colors[name][:3], **style)
             self.actors[name] = actor
@@ -139,6 +152,11 @@ class SceneView:
             self._apply(name)
         self._attach_swipe_planes()
         self.plotter.render()
+
+    def _intensity_range(self):
+        values = np.concatenate([np.asarray(v, dtype=float) for v in self.intensity.values()])
+        low, high = np.percentile(values[np.isfinite(values)], [2, 98])  # a few very strong echoes don't wash it out
+        return [float(low), float(high) if high > low else float(low) + 1]
 
     def _depth_range(self):
         depth = -np.concatenate([np.asarray(c.points)[:, 2] for c in self.geometries.values()])
@@ -276,7 +294,7 @@ class SceneView:
     def set_color(self, name, rgba):
         """Change the colour of one cloud (used when colouring per scan)."""
         self.colors[name] = tuple(rgba)
-        if self.settings.color_mode not in ("Depth", "Change") or (
+        if self.settings.color_mode not in ("Depth", "Change", "Intensity") or (
                 self.settings.color_mode == "Change" and not self.change_values):
             self.actors[name].prop.color = tuple(rgba[:3])
             self.plotter.render()

@@ -7,4 +7,7 @@ pyvista
 pyvistaqt
 matplotlib
 pillow
+laspy[lazrs]
+pye57
+tifffile
 pyobjc-framework-Cocoa; sys_platform == "darwin"

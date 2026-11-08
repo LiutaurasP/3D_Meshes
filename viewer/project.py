@@ -83,12 +83,13 @@ def _npz_bytes(arrays):
 # Saving and opening
 
 
-def save(path, state, scan_points=None, changes=None):
+def save(path, state, scan_points=None, changes=None, intensity=None):
     """Write a project file.
 
     state:        dict with everything that is plain data (see MainWindow.project_state)
     scan_points:  {"Scan A": array, "Scan B": array} to embed, or None for example scenes
     changes:      ChangeResult or None
+    intensity:    {"Scan A": array, ...} sonar return strength of embedded scans, if they have it
     """
     state = dict(state)
     state["format"] = FORMAT
@@ -100,8 +101,11 @@ def save(path, state, scan_points=None, changes=None):
         if scan_points:
             names = list(scan_points)
             state["data"]["embedded_scans"] = names
-            archive.writestr("scans.npz", _npz_bytes(
-                {f"scan{i}": np.asarray(points, dtype=np.float32) for i, points in enumerate(scan_points.values())}))
+            arrays = {f"scan{i}": np.asarray(points, dtype=np.float32) for i, points in enumerate(scan_points.values())}
+            for i, name in enumerate(names):
+                if intensity and name in intensity:
+                    arrays[f"intensity{i}"] = np.asarray(intensity[name], dtype=np.float32)
+            archive.writestr("scans.npz", _npz_bytes(arrays))
         if changes is not None:
             summary, arrays = changes_to_files(changes)
             state["detection"]["result"] = summary
@@ -110,7 +114,7 @@ def save(path, state, scan_points=None, changes=None):
 
 
 def load(path):
-    """Read a project file. Returns (state, scan_points or None, ChangeResult or None)."""
+    """Read a project file. Returns (state, scan_points or None, ChangeResult or None, intensity dict)."""
     try:
         with zipfile.ZipFile(path) as archive:
             state = json.loads(archive.read("project.json"))
@@ -119,11 +123,13 @@ def load(path):
             if state.get("format_version", 0) > FORMAT_VERSION:
                 raise ProjectError("This project was saved by a newer version of the app. Please update.")
 
-            scan_points = None
+            scan_points, intensity = None, {}
             names = state.get("data", {}).get("embedded_scans")
             if names:
                 with np.load(io.BytesIO(archive.read("scans.npz"))) as arrays:
                     scan_points = {name: arrays[f"scan{i}"].astype(float) for i, name in enumerate(names)}
+                    intensity = {name: arrays[f"intensity{i}"] for i, name in enumerate(names)
+                                 if f"intensity{i}" in arrays.files}
 
             changes = None
             summary = state.get("detection", {}).get("result")
@@ -132,4 +138,4 @@ def load(path):
                     changes = changes_from_files(summary, {key: arrays[key] for key in arrays.files})
     except (zipfile.BadZipFile, KeyError, json.JSONDecodeError) as error:
         raise ProjectError(f"The project file is damaged or incomplete ({error}).") from error
-    return state, scan_points, changes
+    return state, scan_points, changes, intensity

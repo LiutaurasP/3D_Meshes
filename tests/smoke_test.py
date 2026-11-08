@@ -27,6 +27,7 @@ from viewer.style import apply_theme
 
 from viewer.scene import cloud_to_polydata
 from viewer.settings import Settings
+from scan_formats import ImportOptions
 from viewer.window import MainWindow
 
 
@@ -49,6 +50,7 @@ settings.data.scene = "harbour_wall_scour"
 settings.data.n_points = 30_000
 window = MainWindow(settings)
 window.skip_save_prompt = True  # closing at the end must not wait for a "save changes?" answer
+window.show_import_dialog = False  # dropped / imported files use the automatic import settings
 window.show()
 
 view = window.scene.widget
@@ -764,6 +766,67 @@ def output_checks():
     gif = Image.open(folder / "turntable.gif")
     check("turntable GIF has every frame", ok and gif.n_frames == 8)
     check("turntable puts the camera back", np.allclose(after["position"], scene.current_view()["position"]))
+    import_checks()
+
+
+def import_checks():
+    """Real survey files: LAZ with UTM coordinates and intensity, CSV with positive depths."""
+    import tempfile
+    import laspy
+    from viewer.import_dialog import ImportDialog
+
+    folder = Path(tempfile.mkdtemp())
+    rng = np.random.default_rng(3)
+    utm = np.array([512_300.0, 5_801_200.0, 0.0])
+    files = []
+    for index in range(2):
+        xy = rng.uniform(0, 30, size=(20_000, 2))
+        z = -9 + 0.05 * xy[:, 0] + rng.normal(0, 0.02, len(xy))
+        if index == 1:
+            z[np.hypot(xy[:, 0] - 15, xy[:, 1] - 15) < 2] += 1.0  # something new on the seabed
+        points = np.column_stack([xy, z]) + utm
+        header = laspy.LasHeader(point_format=1, version="1.2")
+        header.scales, header.offsets = [0.001] * 3, utm
+        las = laspy.LasData(header)
+        las.x, las.y, las.z = points.T
+        las.intensity = (100 + 50 * np.sin(xy[:, 0])).astype(np.uint16)
+        path = folder / f"{index + 1}_survey.laz"
+        las.write(str(path))
+        files.append(str(path))
+
+    dialog = ImportDialog({"Scan A": files[0], "Scan B": files[1]}, window)
+    check("import dialog recognises LAZ files", "LAZ" in dialog.probes["Scan A"].kind)
+    dialog.close()
+    state["import_files"] = files
+    window.open_scan_files(files[0], files[1], {"Scan A": ImportOptions(depth_down=None),
+                                                "Scan B": ImportOptions(depth_down=None)})
+    wait_until(lambda: data_ready() and "1_survey.laz" in window.inspections.title, after_laz_import)
+
+
+def after_laz_import():
+    import tempfile
+
+    inspections = window.inspections
+    check("big survey coordinates are shifted for drawing", inspections.offset[0] == 512_300 and
+          np.abs(np.asarray(window.clouds["Scan A"].points)).max() < 1000)
+    real = window.real_coordinates(np.asarray(window.clouds["Scan A"].points)[0])
+    check("real coordinates are kept", 512_300 <= real[0] <= 512_330 and 5_801_200 <= real[1] <= 5_801_230)
+    check("intensity is read from the files", set(inspections.intensity) == {"Scan A", "Scan B"})
+    colors = window.sidebar.color_mode
+    check("intensity colours can be picked", colors.model().item(colors.findText("Intensity")).isEnabled())
+    colors.setCurrentText("Intensity")
+    check("intensity colour mode is drawn", window.scene.settings.color_mode == "Intensity")
+    colors.setCurrentText("Per scan")
+
+    folder = Path(tempfile.mkdtemp())
+    window.write_project(folder / "survey.subdron")
+    window.new_project()
+    window.open_project(str(folder / "survey.subdron"), ask=False)
+    check("projects keep intensity and the coordinate offset",
+          set(window.inspections.intensity) == {"Scan A", "Scan B"} and window.inspections.offset[1] == 5_801_200)
+    window.new_project()
+    colors = window.sidebar.color_mode
+    check("intensity is greyed out for example scenes", not colors.model().item(colors.findText("Intensity")).isEnabled())
     finish()
 
 

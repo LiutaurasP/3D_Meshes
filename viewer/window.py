@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from datasets import short_count
+from scan_formats import ALL_TYPES, ImportOptions
+from scan_formats import FILE_FILTER as SCAN_FILES
 from viewer import prefs, project
 from viewer.animation import AlignmentAnimation, AlignWorker, ChangeWorker, DataWorker
 from viewer.branding import APP_NAME, LOGO_PATH, PROJECT_EXTENSION, PROJECT_FILTER, VERSION
@@ -34,7 +36,6 @@ from viewer.toast import Toast
 from viewer.undo import History
 
 TEXT_INPUTS = (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit)
-SCAN_FILES = "Point clouds (*.ply *.pcd *.xyz *.xyzn *.xyzrgb *.pts);;All files (*)"
 RECENT_LIMIT = 8
 
 
@@ -71,6 +72,8 @@ class MainWindow(QMainWindow):
         self.history = History(self)
         self.project_path = None
         self.loaded_files = None  # (path A, path B) when the scans came from files
+        self.import_options = None  # {"Scan A": ImportOptions, "Scan B": ...} used for those files
+        self.show_import_dialog = True  # tests switch the Import Scans dialog off
         self._pending_pose = None  # pose to restore once rebuilt data is ready (undo of a scene change)
 
         self.scene = SceneView(self, settings.view)
@@ -245,8 +248,8 @@ class MainWindow(QMainWindow):
 
     # Notifications, cursor readout, drag & drop
 
-    def notify(self, text, detail="", kind="info"):
-        self.toast.show_message(text, detail, kind)
+    def notify(self, text, detail="", kind="info", seconds=3.5):
+        self.toast.show_message(text, detail, kind, seconds)
 
     def _update_cursor_readout(self):
         if self._mouse_position is None:
@@ -255,8 +258,12 @@ class MainWindow(QMainWindow):
         if point is None:
             self.cursor_label.clear()
             return
-        x, y, z = point
-        self.cursor_label.setText(f"x {x:7.2f} m    y {y:7.2f} m    depth {-z:6.2f} m")
+        x, y, z = self.real_coordinates(point)
+        self.cursor_label.setText(f"x {x:,.2f} m    y {y:,.2f} m    depth {-z:6.2f} m")
+
+    def real_coordinates(self, point):
+        """Survey coordinates of a point in the scene (big coordinates are shifted for drawing)."""
+        return np.asarray(point, dtype=float) + getattr(self.inspections, "offset", np.zeros(3))
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -265,11 +272,15 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event):
         paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
         projects = [p for p in paths if p.endswith(PROJECT_EXTENSION)]
-        scans = sorted(p for p in paths if Path(p).suffix.lower() in (".ply", ".pcd", ".xyz", ".xyzn", ".xyzrgb", ".pts"))
+        scans = sorted(p for p in paths if Path(p).suffix.lower() in ALL_TYPES)
         if projects:
             self.open_project(projects[0])
         elif len(scans) == 2:
-            self.open_scan_files(*scans)  # sorted by name: the first one is scan A
+            options = self.ask_import_options(*scans)  # sorted by name: the first one is scan A
+            if options is None:
+                event.acceptProposedAction()
+                return
+            self.open_scan_files(*scans, options)
             self.notify("Importing two scans", f"A: {Path(scans[0]).name}   B: {Path(scans[1]).name}")
         elif scans:
             self.notify("Drop two scan files", "Scan A (earlier) and scan B (later) together", "warning")
@@ -505,11 +516,12 @@ class MainWindow(QMainWindow):
         scans = {name: np.asarray(cloud.points).copy() for name, cloud in self.clouds.items()} \
             if self.loaded_files else None
         changes = self.change_result
+        intensity = dict(self.inspections.intensity) if self.loaded_files else None
         path = recovery_path()
         temporary = path.with_suffix(".tmp")
 
         def write():
-            project.save(temporary, state, scans, changes)
+            project.save(temporary, state, scans, changes, intensity)
             temporary.replace(path)  # never leave a half written recovery file
 
         threading.Thread(target=write, daemon=True).start()
@@ -542,6 +554,7 @@ class MainWindow(QMainWindow):
         return {
             "data": self.sidebar.data_snapshot(),
             "files": self.loaded_files,
+            "import": self.import_options_json(),
             "pose": self.pose_state() if pose == "current" else pose,
         }
 
@@ -551,7 +564,8 @@ class MainWindow(QMainWindow):
         self._pending_pose = state["pose"]
         if state["files"]:
             self.loaded_files = state["files"]
-            self._start_data_worker(DataWorker(files=state["files"]), "Loading scans...")
+            self.import_options = self._options_from_json(state.get("import"))
+            self._start_data_worker(DataWorker(files=state["files"], options=self.import_options), "Loading scans...")
         else:
             self.loaded_files = None
             self.generate(record=False)
@@ -591,19 +605,46 @@ class MainWindow(QMainWindow):
         path_a, _ = QFileDialog.getOpenFileName(self, "Scan A (the earlier, reference scan)", "", SCAN_FILES)
         if not path_a:
             return False
-        path_b, _ = QFileDialog.getOpenFileName(self, "Scan B (the later scan)", "", SCAN_FILES)
+        path_b, _ = QFileDialog.getOpenFileName(self, "Scan B (the later scan)", str(Path(path_a).parent), SCAN_FILES)
         if not path_b:
             return False
-        self.open_scan_files(path_a, path_b)
+        options = self.ask_import_options(path_a, path_b)
+        if options is None:
+            return False
+        self.open_scan_files(path_a, path_b, options)
         return True
 
-    def open_scan_files(self, path_a, path_b):
+    def ask_import_options(self, path_a, path_b):
+        """Import Scans dialog: columns, units, depth direction. None when cancelled."""
+        from viewer.import_dialog import ImportDialog, default_options
+
+        paths = {self.target_name: path_a, self.source_name: path_b}
+        if not self.show_import_dialog:
+            return default_options(paths)
+        dialog = ImportDialog(paths, self)
+        if not dialog.exec():
+            return None
+        return dialog.options()
+
+    def import_options_json(self):
+        if not self.import_options:
+            return None
+        return {name: options.to_json() for name, options in self.import_options.items()}
+
+    @staticmethod
+    def _options_from_json(data):
+        if not data:
+            return None
+        return {name: ImportOptions.from_json(values) for name, values in data.items()}
+
+    def open_scan_files(self, path_a, path_b, options=None):
         before = {**self._applied_scene, "pose": self.pose_state()}
         self.loaded_files = (str(path_a), str(path_b))
+        self.import_options = options
         after = self._scene_state(pose=None)
         self._applied_scene = after
         self.history.push("Import Scans", lambda: self._restore_scene(after), lambda: self._restore_scene(before))
-        self._start_data_worker(DataWorker(files=self.loaded_files), "Loading scans...")
+        self._start_data_worker(DataWorker(files=self.loaded_files, options=options), "Loading scans...")
 
     def _start_data_worker(self, worker, message):
         if self._data_worker is not None and self._data_worker.isRunning():
@@ -628,7 +669,11 @@ class MainWindow(QMainWindow):
             total = sum(len(c.points) for c in inspections.clouds.values())
             self.sidebar.show_loaded_files(inspections.title, total)
         if not self._generate_again:
-            self.notify(inspections.title, f"{counts} points · ready in {seconds:.1f} s")
+            if inspections.notes:
+                self.notify(inspections.title, " · ".join(inspections.notes), "info", seconds=8)
+                self.statusBar().showMessage(inspections.notes[0], 10000)
+            else:
+                self.notify(inspections.title, f"{counts} points · ready in {seconds:.1f} s")
         if self._pending_pose is not None and not self._generate_again:
             self.apply_pose(self._pending_pose)
         self._pending_pose = None
@@ -647,8 +692,9 @@ class MainWindow(QMainWindow):
         self.align_steps = None
         self.change_result = None
         self.sidebar.clear_changes_result()
-        self.scene.set_clouds(self.clouds, self.colors, inspections.truth)
+        self.scene.set_clouds(self.clouds, self.colors, inspections.truth, inspections.intensity)
         self.sidebar.set_truth_available(self.scene.has_truth())
+        self.sidebar.set_intensity_available(bool(inspections.intensity))
         self.sidebar.show_not_aligned()
         for name in self.clouds:
             self.sidebar.set_checked(name, True)
@@ -951,6 +997,9 @@ class MainWindow(QMainWindow):
         data["title"] = self.inspections.title
         if self.loaded_files:
             data["files"] = [Path(path).name for path in self.loaded_files]
+            data["offset"] = [float(v) for v in self.inspections.offset]
+            data["kinds"] = dict(self.inspections.kinds)
+            data["import"] = self.import_options_json()
         return {
             "data": data,
             "view": {
@@ -992,7 +1041,8 @@ class MainWindow(QMainWindow):
         scans = None
         if self.loaded_files:
             scans = {name: np.asarray(cloud.points) for name, cloud in self.clouds.items()}
-        project.save(path, self.project_state(), scans, self.change_result)
+        intensity = dict(self.inspections.intensity) if self.loaded_files else None
+        project.save(path, self.project_state(), scans, self.change_result, intensity)
         self.project_path = str(path)
         self.history.stack.setClean()
         self._add_recent(path)
@@ -1029,13 +1079,13 @@ class MainWindow(QMainWindow):
         if ask and not self.maybe_save():
             return False
         try:
-            state, scans, changes = project.load(path)
+            state, scans, changes, intensity = project.load(path)
         except (OSError, project.ProjectError) as error:
             QMessageBox.warning(self, "Could not open the project", str(error))
             return False
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            self.apply_project_state(state, scans, changes)
+            self.apply_project_state(state, scans, changes, intensity)
         finally:
             QApplication.restoreOverrideCursor()
         self.project_path = str(path)
@@ -1046,7 +1096,7 @@ class MainWindow(QMainWindow):
         self.notify("Project opened", Path(path).name)
         return True
 
-    def apply_project_state(self, state, scans=None, changes=None):
+    def apply_project_state(self, state, scans=None, changes=None, intensity=None):
         """Bring the whole app into the state of a project (no undo steps are recorded)."""
         self.history.applying = True
         try:
@@ -1057,7 +1107,10 @@ class MainWindow(QMainWindow):
             # Data: embedded scans as they were, example scenes rebuilt from their settings
             if scans:
                 clouds = {name: to_cloud(points) for name, points in scans.items()}
-                inspections = Inspections(title=data.get("title", "Loaded scans"), change="", clouds=clouds)
+                inspections = Inspections(title=data.get("title", "Loaded scans"), change="", clouds=clouds,
+                                          intensity=dict(intensity or {}),
+                                          offset=np.asarray(data.get("offset", [0, 0, 0]), dtype=float),
+                                          kinds=data.get("kinds", {}))
                 # The points come from the project itself; the original file names are kept for reference
                 self.loaded_files = tuple(data.get("files") or ("scan A", "scan B"))
             else:

@@ -30,6 +30,7 @@ def collect(window):
     """Everything the report says, as plain values."""
     clouds = window.clouds
     a, b = window.target_name, window.source_name
+    offset = np.asarray(getattr(window.inspections, "offset", np.zeros(3)), dtype=float)
     info = {
         "title": window.inspections.title,
         "project": Path(window.project_path).stem if window.project_path else "Unsaved project",
@@ -41,7 +42,9 @@ def collect(window):
         "alignment": None,
         "detection": None,
         "areas": [],
-        "notes": [dict(n) for n in window.notes],
+        "notes": [{**n, "point": [float(v) for v in np.asarray(n["point"]) + offset]} for n in window.notes],
+        "kinds": dict(getattr(window.inspections, "kinds", {}) or {}),
+        "offset": [float(v) for v in offset],
     }
     steps = window.align_steps
     if steps:
@@ -62,7 +65,7 @@ def collect(window):
                 "kind": area.kind,
                 "peak": float(area.peak),
                 "size": [float(v) for v in area.size],
-                "center": [float(v) for v in area.center],
+                "center": [float(v) for v in np.asarray(area.center) + offset],
                 "points": int(area.n_points),
             })
     return info
@@ -188,8 +191,8 @@ def facts_table(pages, rows):
 
 
 def areas_table(pages, areas, names):
-    columns = [("#", 24), ("Change", 64), ("Biggest", 62), ("Size x × y × z (m)", 130),
-               ("Centre x, y (m)", 104), ("Depth", 50), ("Points", 0)]
+    columns = [("#", 24), ("Change", 64), ("Biggest", 62), ("Size x × y × z (m)", 108),
+               ("Centre x, y (m)", 126), ("Depth", 50), ("Points", 0)]
     widths = [w for _, w in columns]
     widths[-1] = PAGE_W - 2 * MARGIN - sum(widths[:-1])
 
@@ -245,7 +248,9 @@ def write_pdf(path, info, overview, close_ups):
     a, b = info["names"]
     rows = [("Project", info["project"]), ("Data", info["source"])]
     if info["files"]:
-        rows.append(("Files", f"{a}: {info['files'][0]}   ·   {b}: {info['files'][1]}"))
+        kinds = info.get("kinds", {})
+        for name, file in zip((a, b), info["files"]):
+            rows.append((f"File {name[-1]}", f"{file}" + (f"  ({kinds[name]})" if kinds.get(name) else "")))
     rows.append(("Points", f"{a} (before): {info['points'][a]:,}   ·   {b} (after): {info['points'][b]:,}"))
     alignment = info["alignment"]
     if alignment:

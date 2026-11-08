@@ -27,6 +27,10 @@ class Inspections:
     change: str  # what changed, empty if unknown
     clouds: dict  # name -> Open3D point cloud, first one is the reference
     truth: dict = field(default_factory=dict)  # name -> bool per point (only for examples)
+    intensity: dict = field(default_factory=dict)  # name -> sonar return strength per point (if the files have it)
+    offset: np.ndarray = field(default_factory=lambda: np.zeros(3))  # add to get real-world coordinates
+    kinds: dict = field(default_factory=dict)  # name -> what kind of file it came from
+    notes: list = field(default_factory=list)  # things the user should know about the import
 
 
 def misalign(cloud, rotation_deg, translation):
@@ -61,17 +65,59 @@ def build_inspections(data_settings):
     )
 
 
-def load_inspections(path_a, path_b):
-    """Read two scans from files (.ply, .pcd, .xyz, .pts). There is no ground truth for these."""
-    clouds = {}
+def big_coordinate_offset(points, limit=10_000.0):
+    """Survey coordinates (UTM etc.) are millions of metres: far too big for smooth 3D drawing.
+
+    Returns a round offset near the middle of the data that is taken off for display and
+    added back wherever real coordinates are shown or exported. Zero for normal sized data.
+    """
+    points = np.asarray(points)
+    middle = np.median(points[:: max(1, len(points) // 100_000)], axis=0)
+    offset = np.zeros(3)
+    for axis in (0, 1):
+        if abs(middle[axis]) > limit:
+            offset[axis] = np.round(middle[axis], -2)  # to 100 m, so the shown numbers stay readable
+    return offset
+
+
+def load_inspections(path_a, path_b, options=None):
+    """Read two scans from files (see scan_formats.py for all the types). No ground truth for these.
+
+    options: ImportOptions for both files, or a dict {"Scan A": ..., "Scan B": ...}.
+    depth_down=None in the options means: decide from the data of scan A.
+    """
+    from scan_formats import ImportOptions, guess_depth_down, read_scan
+
+    if not isinstance(options, dict):
+        options = {"Scan A": options, "Scan B": options}
+    scans, notes = {}, []
     for name, path in (("Scan A", path_a), ("Scan B", path_b)):
-        cloud = o3d.io.read_point_cloud(str(path))
-        if len(cloud.points) == 0:
-            raise ValueError(f"No points could be read from {Path(path).name}")
+        chosen = options.get(name) or ImportOptions(depth_down=None)
+        raw = ImportOptions(**{**chosen.to_json(), "depth_down": bool(chosen.depth_down)})
+        scans[name] = read_scan(path, raw)
+        notes += [f"{Path(path).name}: {note}" for note in scans[name].notes]
+
+    # Depth stored as positive numbers: flip both scans the same way, decided from scan A
+    automatic = (options.get("Scan A") or ImportOptions(depth_down=None)).depth_down is None
+    if automatic and guess_depth_down(scans["Scan A"].points):
+        for scan in scans.values():
+            scan.points[:, 2] *= -1
+        notes.append("Depth values were positive, so they were turned into heights below the surface")
+
+    offset = big_coordinate_offset(scans["Scan A"].points)
+    clouds, intensity = {}, {}
+    for name, scan in scans.items():
+        cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(scan.points - offset))
         clouds[name] = cloud
+        if scan.intensity is not None:
+            intensity[name] = scan.intensity
+    if offset.any():
+        notes.append(f"Coordinates are shown relative to x {offset[0]:,.0f}, y {offset[1]:,.0f} for smooth drawing; "
+                     "the status bar, notes and exports use the real coordinates")
 
     title = f"{Path(path_a).name} + {Path(path_b).name}"
-    return Inspections(title=title, change="", clouds=clouds)
+    return Inspections(title=title, change="", clouds=clouds, intensity=intensity, offset=offset,
+                       kinds={name: scan.kind for name, scan in scans.items()}, notes=notes)
 
 
 def thin_out(cloud, max_points, seed=0):
