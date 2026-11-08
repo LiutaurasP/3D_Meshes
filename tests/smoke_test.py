@@ -1026,6 +1026,21 @@ def display_ended():
     check("any key ends display mode", not window.display_mode.active and window.dock.isVisible() == state["dock_before"])
     check("the screen may sleep again afterwards", window.display_mode.keep_awake.process is None)
     check("the overlay is removed", not window.display_mode._props)
+    started = window.play_change_animation()
+    check("the change animation starts", started and window.change_animation.active)
+    then(2500, change_animation_running)
+
+
+def change_animation_running():
+    check("the change animation moves the changed points", window.change_animation.active
+          and not np.allclose(window.change_animation.rising.points, window.change_animation.paths[0])
+          if window.change_animation.rising is not None else window.change_animation.active)
+    then(3500, change_animation_done)
+
+
+def change_animation_done():
+    check("the change animation ends and puts the scans back", not window.change_animation.active
+          and all(actor.GetVisibility() for actor in window.scene.actors.values()))
     finish()
 
 

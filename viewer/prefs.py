@@ -18,6 +18,7 @@ DEFAULTS = {
     "display_tour": True,  # fly between the saved views, if there are any
     "display_fullscreen": True,
     "display_caption": "",
+    "display_morph": False,  # play the change animation over and over
 }
 
 

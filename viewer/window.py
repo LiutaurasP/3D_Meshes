@@ -738,6 +738,22 @@ class MainWindow(QMainWindow):
         self.sidebar.show_series(None)
         self.history.clear()
 
+    # Change animation
+
+    def play_change_animation(self, loop=False):
+        """The detected change happens in front of you: new parts rise, gone parts sink away."""
+        from viewer.morph import ChangeAnimation
+
+        if self.change_result is None:
+            self.notify("No changes to show yet", "Run Detect Changes first", "warning")
+            return False
+        if getattr(self, "change_animation", None) is None:
+            self.change_animation = ChangeAnimation(self)
+        if self.change_animation.active:
+            self.change_animation.stop()
+            return False
+        return self.change_animation.start(loop)
+
     # Display Mode
 
     def start_display_mode(self, fullscreen=None):

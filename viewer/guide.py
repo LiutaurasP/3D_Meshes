@@ -163,6 +163,8 @@ CHAPTERS = [
          ("<b>Level of detection</b>", "the smallest difference that is real with 95 % certainty, from the "
                                        "sonar noise; areas close to it are marked \"likely\" or \"uncertain\""),
          ("<b>Height map</b> " + key("H"), "the site from above, red where B is higher, blue where it is lower"),
+        ("<b>Change animation</b> " + key("P"), "the change happens in front of you: new parts rise out of the "
+                                                "old surface, removed parts sink away"),
      ]) + '<p style="margin:8px 0 0 0;">' + dim(
          "Always align first, otherwise the misalignment itself looks like change. "
          "For example scenes the panel also says how much of the true change was found.") + "</p>",
@@ -223,6 +225,7 @@ CHAPTERS = [
         ("<b>Stop</b>", "any key or click; everything is put back as it was"),
         ("<b>Settings</b>", "View → Display Mode Settings: speed, direction, caption, what is shown"),
         ("<b>Tour</b>", "with two or more saved views it flies from one to the next"),
+        ("<b>Change animation</b>", "can play over and over while the display turns (Settings)"),
         ("<b>Screen</b>", "stays on while the display runs"),
     ]), False),
 

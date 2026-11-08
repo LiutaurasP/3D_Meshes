@@ -104,6 +104,8 @@ class DisplayMode(QObject):
         self.clock.start()
         self.timer.start()
         self.keep_awake.start()
+        if prefs.get("display_morph") and window.change_result is not None:
+            window.play_change_animation(loop=True)
         QApplication.instance().installEventFilter(self)
 
     def stop(self):
@@ -114,6 +116,9 @@ class DisplayMode(QObject):
         self.timer.stop()
         self.keep_awake.stop()
         window, scene = self.window, self.window.scene
+        animation = getattr(window, "change_animation", None)
+        if animation is not None and animation.active:
+            animation.stop()
         self._remove_overlay()
         saved = self._saved
         scene.set_changes_visible(saved["areas"])
