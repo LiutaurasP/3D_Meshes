@@ -148,7 +148,7 @@ class AdvancedTutorial(TutorialBase):
         self.looking.add(self.step)
         self._busy = False
         self.card.celebrate()
-        self.card.set_task(None)
+        self.card.set_task(1.0)  # the card fills up and the shine sweeps across
         self.card.show_button("Continue")
 
     def on_continue(self):

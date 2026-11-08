@@ -19,6 +19,7 @@ from PySide6.QtCore import (
     QEvent,
     QObject,
     QPoint,
+    QPointF,
     QPropertyAnimation,
     QRectF,
     Qt,
@@ -104,7 +105,13 @@ class TutorialCard(QWidget):
         self.owner = owner
         self.position = "bottom"
         self.progress = 0.0  # whole tutorial, drawn along the bottom edge
-        self.task = None  # progress of the current task (turning, moving), drawn under the keys
+        self.task = None  # progress of the current task (turning, moving): the card fills up with it
+        self._fill = 0.0  # how far the fill is drawn, eases towards the task's progress
+        self._shine = -1.0  # the sweep of light across the card when a task is done (-1: none)
+        self._shine_clock = None
+        self.fill_timer = QTimer(self)
+        self.fill_timer.setInterval(16)
+        self.fill_timer.timeout.connect(self._animate_fill)
         self.border = QColor(ACCENT)
         self._full_heading = ""
         self._typed = 0
@@ -185,6 +192,8 @@ class TutorialCard(QWidget):
         self.body.setStyleSheet(f"color: {TEXT_DIM}; font-size: {16 if big else 15}px;")
         self.hint.hide()
         self.task = None
+        self._fill = 0.0
+        self._shine = -1.0
 
         while self.keys_row.count():
             item = self.keys_row.takeAt(0)
@@ -261,7 +270,35 @@ class TutorialCard(QWidget):
         self.place()
 
     def set_task(self, fraction):
+        """Progress of the current task: the card's background fills up from left to right."""
+        before = self.task
         self.task = None if fraction is None else max(0.0, min(1.0, fraction))
+        if self.task is None:
+            self._fill = 0.0
+        elif self.task >= 1.0 and (before is None or before < 1.0):
+            import time
+
+            self._shine_clock = time.monotonic()  # done: a sweep of light across the card
+            self._shine = 0.0
+        if not self.fill_timer.isActive():
+            self.fill_timer.start()
+        self.update()
+
+    SHINE_SECONDS = 0.7
+
+    def _animate_fill(self):
+        import time
+
+        target = self.task or 0.0
+        self._fill += (target - self._fill) * 0.18  # eases, so steady progress looks smooth
+        if abs(target - self._fill) < 0.002:
+            self._fill = target
+        if self._shine >= 0:
+            self._shine = (time.monotonic() - self._shine_clock) / self.SHINE_SECONDS
+            if self._shine > 1.0:
+                self._shine = -1.0
+        if self._fill == target and self._shine < 0:
+            self.fill_timer.stop()
         self.update()
 
     def mark(self, name, state):
@@ -355,6 +392,50 @@ class TutorialCard(QWidget):
         painter.setBrush(gradient)
         painter.drawRoundedRect(rect, radius, radius)
 
+        # Progress of the current task: a brighter fill from the left with a slanted front edge
+        if self.task is not None and self._fill > 0.001:
+            clip = QPainterPath()
+            clip.addRoundedRect(rect, radius, radius)
+            painter.save()
+            painter.setClipPath(clip)
+            slant = 0.35 * rect.height()  # the front edge leans like a slash
+            front = rect.left() + (rect.width() + slant) * self._fill
+            finished = self.task >= 1.0 and self._fill > 0.99
+            tint = QColor(63, 178, 127, 38) if finished else QColor(120, 160, 255, 36)
+            fill = QPainterPath()
+            fill.moveTo(rect.left(), rect.top())
+            fill.lineTo(front, rect.top())
+            fill.lineTo(front - slant, rect.bottom())
+            fill.lineTo(rect.left(), rect.bottom())
+            fill.closeSubpath()
+            painter.fillPath(fill, tint)
+            edge = QColor(255, 255, 255, 0 if finished else 34)  # a faint bright line on the front edge
+            painter.setPen(QPen(edge, 1.5))
+            painter.drawLine(QPointF(front, rect.top()), QPointF(front - slant, rect.bottom()))
+            painter.restore()
+
+        # Done: a band of light sweeps across the card once
+        if self._shine >= 0:
+            clip = QPainterPath()
+            clip.addRoundedRect(rect, radius, radius)
+            painter.save()
+            painter.setClipPath(clip)
+            t = 1 - (1 - self._shine) ** 2  # fast start, gentle finish
+            width, slant = 90.0, 0.45 * rect.height()
+            centre = rect.left() - width + (rect.width() + 2 * width + slant) * t
+            band = QLinearGradient(QPointF(centre - width / 2, 0), QPointF(centre + width / 2, 0))
+            band.setColorAt(0.0, QColor(255, 255, 255, 0))
+            band.setColorAt(0.5, QColor(220, 255, 235, int(70 * (1 - self._shine * 0.5))))
+            band.setColorAt(1.0, QColor(255, 255, 255, 0))
+            shine = QPainterPath()
+            shine.moveTo(centre - width / 2 + slant, rect.top())
+            shine.lineTo(centre + width / 2 + slant, rect.top())
+            shine.lineTo(centre + width / 2, rect.bottom())
+            shine.lineTo(centre - width / 2, rect.bottom())
+            shine.closeSubpath()
+            painter.fillPath(shine, band)
+            painter.restore()
+
         # Progress of the whole tutorial along the bottom edge
         if self.progress > 0:
             clip = QPainterPath()
@@ -364,16 +445,6 @@ class TutorialCard(QWidget):
             painter.fillRect(bar, QColor(ACCENT))
             painter.setClipping(False)
 
-        # Progress of the current task, a thin line under the keys
-        if self.task is not None and self.keys_row.count():
-            top = self.keys_row.geometry().bottom() + 8
-            track = QRectF(rect.left() + 28, top, rect.width() - 56, 4)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(255, 255, 255, 22))
-            painter.drawRoundedRect(track, 2, 2)
-            done = QRectF(track.left(), track.top(), track.width() * self.task, track.height())
-            painter.setBrush(QColor(SUCCESS if self.task >= 1 else ACCENT))
-            painter.drawRoundedRect(done, 2, 2)
 
 
 # Sonar ping: a scan appears in a ring that sweeps outwards from the middle
