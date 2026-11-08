@@ -1307,8 +1307,9 @@ def advanced_tutorial_checks():
 
     seabed = np.array([0, 0, -28.0])
     plan = [(lambda: None, 300), ("until", at("welcome")), (lambda: key(Qt.Key_Return), 500), ("until", at("c1")),
-            (lambda: key(Qt.Key_Return), 500), ("until", at("c1_scans")), (lambda: key(Qt.Key_1), 2800),
-            (lambda: key(Qt.Key_2), 300), ("until", at("c1_timeline"))]
+            (lambda: key(Qt.Key_Return), 500), ("until", at("c1_scans")), (lambda: key(Qt.Key_1), 300),
+            (lambda: key(Qt.Key_2), 300),  # during the first ping: it is kept and comes next
+            ("until", at("c1_timeline"))]
     for newer in (1, 2):
         plan += [(lambda n=newer: window.sidebar.timeline.setValue(n), 300),
                  ("until", lambda: window.is_aligned() and window.change_result is not None)]

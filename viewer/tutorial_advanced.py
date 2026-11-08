@@ -566,18 +566,7 @@ class AdvancedTutorial(TutorialBase):
             self.jump_to_chapter(key - Qt.Key_0)
             return True
         if step == "c1_scans" and key in (Qt.Key_1, Qt.Key_2):
-            name, label = ("Scan A", "1") if key == Qt.Key_1 else ("Scan B", "2")
-            if name in self.revealed or self.ping is not None:
-                return True
-            self.revealed.add(name)
-            self.card.mark(label, "done")
-
-            def revealed():
-                self._busy = False
-                if self.revealed >= {"Scan A", "Scan B"}:
-                    self.advance(delay=600)
-
-            self._reveal(name, turn=12.0 if name == "Scan A" else 0.0, then=revealed)
+            self.reveal_scan("Scan A" if key == Qt.Key_1 else "Scan B")
             return True
         if step == "c1_animation" and key == Qt.Key_P and self.ready():
             if window.play_change_animation():
@@ -645,6 +634,30 @@ class AdvancedTutorial(TutorialBase):
             window.start_display_mode(self.display_fullscreen)
             return True
         return None
+
+    def reveal_scan(self, name):
+        """Ping a scan in (chapter 1). A second key pressed during the first ping is kept for afterwards."""
+        if name in self.revealed:
+            return
+        if self.ping is not None:
+            self.queued = name
+            return
+        self.revealed.add(name)
+        self.card.mark("1" if name == "Scan A" else "2", "done")
+
+        def revealed():
+            self._busy = False
+            waiting, self.queued = getattr(self, "queued", None), None
+            if waiting and waiting not in self.revealed:
+                self.reveal_scan(waiting)
+            elif self.revealed >= {"Scan A", "Scan B"}:
+                self.advance(delay=600)
+
+        self._reveal(name, turn=12.0 if name == "Scan A" else 0.0, then=revealed)
+
+    def key_while_busy(self, step, key):
+        if step == "c1_scans" and key in (Qt.Key_1, Qt.Key_2):
+            self.reveal_scan("Scan A" if key == Qt.Key_1 else "Scan B")
 
     def jump_to_chapter(self, number):
         """From the welcome card straight into a chapter (the earlier ones count as done)."""

@@ -502,6 +502,9 @@ class TutorialBase(QObject):
     def tick(self, step, before, view):
         """Called 25 times a second: check whether the step is done."""
 
+    def key_while_busy(self, step, key):
+        """A key pressed while an animation runs (it is not used, unless a subclass remembers it)."""
+
     def after_finish(self, completed):
         """Everything is unlocked again: what to show now."""
 
@@ -736,6 +739,7 @@ class TutorialBase(QObject):
                 self.finish(completed=False)
             return True
         if self._busy:
+            self.key_while_busy(self.step, key)
             return True
         step = self.step
 
