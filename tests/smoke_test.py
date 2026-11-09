@@ -1433,7 +1433,8 @@ def looked_at(name):
 
 
 def ready_at(name):
-    return lambda: at(name)() and not getattr(window.tutorial, "_shown_waiting", False)
+    # What the person sees: the card's button can be used and there is no "One moment" note
+    return lambda: at(name)() and window.tutorial.card.next.isEnabled() and not window.tutorial.card.hint.text()
 
 
 def advanced_tutorial_checks():

@@ -157,7 +157,7 @@ class AdvancedTutorial(TutorialBase):
         if self.step in self.looking and not self.confirming:
             self.advance()
             return
-        if getattr(self, "_shown_waiting", False):
+        if not self.card.next.isEnabled():
             return  # the scans are still being aligned and compared
         if self.step == "c4_heightmap" and not getattr(self, "_map_opened", False):
             return  # open the map first
@@ -180,6 +180,23 @@ class AdvancedTutorial(TutorialBase):
         return (window.series_pair == self.waiting_for and window.is_aligned()
                 and window.change_result is not None
                 and not (window._change_worker is not None and window._change_worker.isRunning()))
+
+    def make_ready(self):
+        """The comparison a step waits for is shown but not aligned or detected (for example after jumping
+        straight to a chapter): start what is missing, unless something is already running."""
+        window = self.window
+        if self.waiting_for is None or window.series_pair != self.waiting_for:
+            return
+        running = [worker for worker in (window._worker, window._change_worker, window._data_worker)
+                   if worker is not None and worker.isRunning()]
+        animating = window._animation is not None and window._animation.is_running()
+        if running or animating:
+            return
+        if not window.align_steps:
+            window._detect_after_align = True
+            window.align()
+        elif window.change_result is None:
+            window.detect_changes()
 
     def need(self, older, newer):
         """Show this comparison (aligned and detected); the step waits until it is ready."""
@@ -226,11 +243,32 @@ class AdvancedTutorial(TutorialBase):
         self.card.celebrate()
 
     def show_panel(self, page, widget=None, highlight=False):
+        """Show a tab of the side panel and scroll to the widget the step uses. The page may be scrolled by
+        hand too (only clicking stays limited to what the step uses)."""
+        from viewer.widgets import Card
+
         window = self.window
         self._show_tab(page, highlight)
-        if widget is not None:
-            window.sidebar.pages.widget(page).ensureWidgetVisible(widget, 20, 40)
-            QTimer.singleShot(0, lambda: window.sidebar.pages.widget(page).ensureWidgetVisible(widget, 20, 40))
+        area = window.sidebar.pages.widget(page)
+        self.scrollable = [area]
+        if widget is None:
+            return
+        card = widget.parent()
+        while card is not None and not isinstance(card, Card):
+            card = card.parent()
+        if card is not None and not card.header.isChecked():
+            card.header.setChecked(True)  # a folded card would hide the widget
+        step = self.step
+
+        def scroll():
+            """The widget a third of the way down the panel, where the eye goes first."""
+            if self.active and self.step == step and widget.isVisible():
+                top = widget.mapTo(area.widget(), widget.rect().topLeft()).y()
+                area.verticalScrollBar().setValue(int(top - area.viewport().height() * 0.33))
+
+        scroll()
+        for delay in (0, 150, 400, 900):  # again once the panel has its final size (it may just have opened)
+            QTimer.singleShot(delay, scroll)
 
     def surface(self, xy):
         """The seabed under a spot (x, y), from the newer scan as it is shown."""
@@ -568,6 +606,7 @@ class AdvancedTutorial(TutorialBase):
     def enter(self, name):
         window = self.window
         self._panel_wanted = None
+        self.card.next.setEnabled(True)  # a new card: tick() greys the button out again while it waits
         chapter = int(name[1]) if name[0] == "c" and name[1].isdigit() else 0
         if name in ("c2", "c3", "c4", "c5", "c6"):
             self.unlocked |= {"rotate", "pan", "fly", "panel"}
@@ -807,9 +846,15 @@ class AdvancedTutorial(TutorialBase):
         if self._busy and step not in ("c1_animation", "c6_display"):
             return
         waiting = step in ("c1_animation", "c2", "c2_fish", "c3", "c4", "c5", "c6") and not self.ready()
-        if waiting != getattr(self, "_shown_waiting", False):
-            self._shown_waiting = waiting
-            self.card.set_hint("One moment: aligning and comparing the scans…" if waiting else "")
+        if waiting:
+            self.make_ready()
+        # Checked against what the card shows (its text is swapped in after a fade, which clears the note)
+        note = "One moment: aligning and comparing the scans…"
+        if waiting and self.card.hint.text() != note:
+            self.card.set_hint(note)
+        elif not waiting and self.card.hint.text() == note:
+            self.card.set_hint("")
+        if self.card.next.isEnabled() == waiting:
             self.card.next.setEnabled(not waiting)
         if waiting:
             return

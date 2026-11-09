@@ -740,6 +740,7 @@ class TutorialBase(QObject):
         self.allow = set()  # what the user may do right now: "fly", "rotate", "pan", "panel", "tabs"
         self.unlocked = set()  # mouse and keys stay allowed once their step is done
         self.clickable = []  # widgets of the side panel that may be used in this step
+        self.scrollable = []  # parts of the side panel that may be scrolled (not clicked) in this step
         self._busy = False  # an animation or calculation is running: ignore the keys meanwhile
         self._leaving = None
         self._mouse_down = False
@@ -855,6 +856,7 @@ class TutorialBase(QObject):
         self._camera = self.scene.current_view()
         self.travel = 0.0
         self.clickable = []
+        self.scrollable = []
         content = self.card_content(name)
         number = content.get("number")
         if number:
@@ -944,7 +946,10 @@ class TutorialBase(QObject):
 
     def _wheel_allowed(self, widget):
         """Zooming stays off, but lists and pages that may be used can scroll."""
-        return isinstance(widget, QWidget) and self._in_clickable(widget)
+        if not isinstance(widget, QWidget):
+            return False
+        return self._in_clickable(widget) or any(widget is area or area.isAncestorOf(widget)
+                                                 for area in self.scrollable)
 
     def _in_clickable(self, widget):
         return any(widget is allowed or allowed.isAncestorOf(widget) for allowed in self.clickable)
