@@ -91,6 +91,12 @@ class Form(QGridLayout):
         self._row += 1
         return item
 
+    def full_row(self, widget):
+        """A widget across both columns, e.g. a group of rows that is shown or hidden together."""
+        self.addWidget(widget, self._row, 0, 1, 2)
+        self._row += 1
+        return widget
+
 
 class WheelGuard(QObject):
     """Stops number fields and dropdowns from changing when the panel is scrolled over them.

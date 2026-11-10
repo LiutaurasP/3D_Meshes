@@ -1218,9 +1218,17 @@ class MainWindow(SeriesMixin, QMainWindow):
             self.clouds[self.target_name], aligned_b,
             None if data.auto_threshold else data.change_threshold,
             data.min_area_points,
+            data.change_method,
+            *((None, None) if data.m3c2_auto_sizes else (data.m3c2_cylinder, data.m3c2_normals)),
         )
         self._change_worker.done.connect(self._on_changes)
+        self._change_worker.failed.connect(self._on_changes_failed)
         self._change_worker.start()
+
+    def _on_changes_failed(self, message):
+        self.sidebar.set_detecting(False)
+        self.statusBar().clearMessage()
+        self.notify("Change detection failed", message, "warning", seconds=8)
 
     def _on_changes(self, result):
         if self.series is not None and getattr(self, "_detect_pair", None) != self.series_pair:
@@ -1262,8 +1270,12 @@ class MainWindow(SeriesMixin, QMainWindow):
                        f"{result.n_changed:,} points ({result.share_changed:.1%})")
         else:
             summary = "<b>No changes found</b>"
-        summary += f"<br>Threshold {result.threshold * 100:.1f} cm"
-        summary += " (auto)" if self.settings.data.auto_threshold else ""
+        if result.method == "m3c2" and self.settings.data.auto_threshold:
+            summary += f"<br>M3C2: threshold per point (median {result.threshold * 100:.1f} cm)"
+        else:
+            summary += "<br>M3C2: threshold" if result.method == "m3c2" else "<br>Threshold"
+            summary += f" {result.threshold * 100:.1f} cm"
+            summary += " (auto)" if self.settings.data.auto_threshold else ""
         if result.lod is not None:
             from volumes import format_volume
 
@@ -1273,13 +1285,19 @@ class MainWindow(SeriesMixin, QMainWindow):
             summary += f" · level of detection {result.lod * 100:.1f} cm"
             if result.areas:
                 summary += f"<br>Volume: <b>+{format_volume(added)}</b> added, <b>−{format_volume(removed)}</b> removed"
+        if result.method == "m3c2":
+            summary += (f"<br>Cylinder radius {result.cylinder_radius * 100:.1f} cm · registration error "
+                        f"(estimated) {result.registration_error * 100:.1f} cm")
+            if result.n_unmeasured:
+                share = result.n_unmeasured / max(len(result.changed_a) + len(result.changed_b), 1)
+                summary += f" · {share:.1%} of points by nearest surface"
 
         truth = self.inspections.truth
         if truth:
             if truth[self.target_name].any() or truth[self.source_name].any():
                 found = score(result, truth[self.target_name], truth[self.source_name])
                 summary += (f"<br>Compared to the true change: found <b>{found.found:.0%}</b>, "
-                            f"false alarms <b>{found.false_alarms:.0%}</b>")
+                            f"false alarms <b>{found.false_alarms:.0%}</b>, F1 <b>{found.f1:.2f}</b>")
             else:
                 summary += "<br>(nothing really changed in this scene)"
         if self.align_steps is None:
@@ -1413,9 +1431,13 @@ class MainWindow(SeriesMixin, QMainWindow):
                 "steps": project.steps_to_json(self.align_steps),
             },
             "detection": {
+                "method": self.sidebar.change_method.currentData(),
                 "auto_threshold": self.sidebar.auto_threshold.isChecked(),
                 "threshold": self.sidebar.threshold.value(),
                 "min_area_points": self.sidebar.min_area_points.value(),
+                "m3c2_auto_sizes": self.sidebar.m3c2_auto_sizes.isChecked(),
+                "m3c2_cylinder": self.sidebar.m3c2_cylinder.value(),
+                "m3c2_normals": self.sidebar.m3c2_normals.value(),
             },
             "camera": {
                 "position": list(camera.position), "focal_point": list(camera.focal_point),
@@ -1549,9 +1571,14 @@ class MainWindow(SeriesMixin, QMainWindow):
             side.max_iterations.setValue(alignment.get("max_iterations", side.max_iterations.value()))
             side.animate.setChecked(alignment.get("animate", True))
             detection = state.get("detection", {})
+            method = side.change_method.findData(detection.get("method", "nearest-surface"))
+            side.change_method.setCurrentIndex(max(method, 0))
             side.auto_threshold.setChecked(detection.get("auto_threshold", True))
             side.threshold.setValue(detection.get("threshold", side.threshold.value()))
             side.min_area_points.setValue(detection.get("min_area_points", side.min_area_points.value()))
+            side.m3c2_cylinder.setValue(detection.get("m3c2_cylinder", side.m3c2_cylinder.value()))
+            side.m3c2_normals.setValue(detection.get("m3c2_normals", side.m3c2_normals.value()))
+            side.m3c2_auto_sizes.setChecked(detection.get("m3c2_auto_sizes", True))
 
             matrix = np.array(alignment.get("matrix", np.eye(4).ravel()), dtype=float).reshape(4, 4)
             self.apply_pose({"matrix": matrix, "steps": project.steps_from_json(alignment.get("steps")),
@@ -1608,9 +1635,13 @@ class MainWindow(SeriesMixin, QMainWindow):
                      "show_areas": view.show_areas},
             "alignment": {"max_distance": default_data.max_correspondence_distance,
                           "max_iterations": default_data.max_iterations, "animate": default_data.animate_alignment},
-            "detection": {"auto_threshold": default_data.auto_threshold,
+            "detection": {"method": default_data.change_method,
+                          "auto_threshold": default_data.auto_threshold,
                           "threshold": default_data.change_threshold * 100,
-                          "min_area_points": default_data.min_area_points},
+                          "min_area_points": default_data.min_area_points,
+                          "m3c2_auto_sizes": default_data.m3c2_auto_sizes,
+                          "m3c2_cylinder": default_data.m3c2_cylinder,
+                          "m3c2_normals": default_data.m3c2_normals},
             "navigation": "Orbit",
             "panel": {"page": 0, "visible": True},
         }

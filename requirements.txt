@@ -10,4 +10,5 @@ pillow
 laspy[lazrs]
 pye57
 tifffile
+py4dgeo
 pyobjc-framework-Cocoa; sys_platform == "darwin"

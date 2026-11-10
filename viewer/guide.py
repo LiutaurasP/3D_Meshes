@@ -157,7 +157,13 @@ CHAPTERS = [
     ("Finding changes", P +
      "<b>Detect changes</b> measures how far every point is from the other scan's surface. "
      "Points further than the <b>threshold</b> count as changed and are grouped into areas.</p>" + keys_table([
+         ("<b>Method</b>", "<b>Nearest surface</b>: distance to the closest point of the other scan. "
+                           "<b>M3C2</b>: averages both scans in a small cylinder along the surface and gives "
+                           "every point its own threshold; finds more on smooth walls and seabed, more false "
+                           "alarms on rough or folded surfaces"),
          ("<b>Auto threshold</b>", "picked from the noise in the data (recommended)"),
+         ("<b>Cylinder, Normals</b>", "M3C2 only: how wide it averages and how wide it looks for the surface "
+                                      "direction, in point spacings. <b>Auto</b> uses the tested defaults"),
          ("<b>Smallest area</b>", "smaller groups of changed points are ignored as noise"),
          ("<b>+ added</b>", "something new: an object, sediment, a bulge"),
          ("<b>&minus; removed</b>", "something gone: scour, a hole, a missing rock"),

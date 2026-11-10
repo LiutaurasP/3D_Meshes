@@ -62,6 +62,13 @@ def series_pairs(count, before=True):
     return pairs
 
 
+def m3c2_sizes(settings):
+    """M3C2 cylinder and normal size from the data settings (None = the defaults when Auto is on)."""
+    if getattr(settings, "m3c2_auto_sizes", True):
+        return {"m3c2_cylinder": None, "m3c2_normals": None}
+    return {"m3c2_cylinder": settings.m3c2_cylinder, "m3c2_normals": settings.m3c2_normals}
+
+
 def compare_pairs(clouds, pairs, settings, on_progress=None, known=None, should_stop=None):
     """Align the newer scan of every pair with the older one and find what changed.
 
@@ -98,7 +105,9 @@ def compare_pairs(clouds, pairs, settings, on_progress=None, known=None, should_
             moved.transform(matrix)
             threshold = None if settings.auto_threshold else settings.change_threshold
             changes = detect_changes(clouds[older], moved, threshold=threshold,
-                                     min_area_points=settings.min_area_points)
+                                     min_area_points=settings.min_area_points,
+                                     method=getattr(settings, "change_method", "nearest-surface"),
+                                     **m3c2_sizes(settings))
             measure_areas(changes, clouds[older].points, moved.points)
         results[(older, newer)] = Comparison(newer, matrix, steps, changes)
     if on_progress is not None:

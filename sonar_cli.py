@@ -3,6 +3,7 @@
     python sonar_cli.py compare before.laz after.laz --out results
     python sonar_cli.py compare a.csv b.csv --depth down --unit ft --report --csv --geojson
     python sonar_cli.py series scans/ --out results          # every scan against the first and the one before
+    python sonar_cli.py compare a.laz b.laz --change-method m3c2   # M3C2 instead of the nearest-surface distance
 
 Each comparison: read both scans, align B to A (ICP), detect changes, measure volumes.
 Writes a summary to the terminal and, as asked, a PDF report, a CSV / GeoJSON of the
@@ -48,7 +49,9 @@ def compare(series, older, newer, args, log=print):
 
     aligned = o3d.geometry.PointCloud(b)
     aligned.transform(matrix)
-    result = detect_changes(a, aligned, threshold=args.threshold, min_area_points=defaults.min_area_points)
+    result = detect_changes(a, aligned, threshold=args.threshold, min_area_points=defaults.min_area_points,
+                            method=args.change_method, m3c2_cylinder=args.m3c2_cylinder,
+                            m3c2_normals=args.m3c2_normals)
     measure_areas(result, np.asarray(a.points), np.asarray(aligned.points))
     seconds = time.time() - start
     added = sum(x.volume_added or 0 for x in result.areas)
@@ -153,6 +156,12 @@ def main(argv=None):
                              help="z values are depths going down, heights going up, or find out")
         command.add_argument("--method", default="point-to-point", choices=["point-to-point", "point-to-plane"])
         command.add_argument("--match-distance", type=float, default=0.5, help="ICP match distance in metres")
+        command.add_argument("--change-method", default="nearest-surface", choices=["nearest-surface", "m3c2"],
+                             help="how the distance between the scans is measured (default: nearest-surface)")
+        command.add_argument("--m3c2-cylinder", type=float, default=None,
+                             help="M3C2 cylinder radius in point spacings (default: tested default)")
+        command.add_argument("--m3c2-normals", type=float, default=None,
+                             help="M3C2 normal neighbourhood in point spacings (default: tested default)")
         command.add_argument("--threshold", type=float, default=None, help="change threshold in metres (auto)")
         command.add_argument("--report", action="store_true", help="write a PDF change report")
         command.add_argument("--csv", action="store_true", help="write the changed areas as CSV")

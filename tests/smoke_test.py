@@ -515,6 +515,35 @@ def after_undo_detect():
     window.actions["redo"].trigger()
     check("redo brings them back", window.change_result is not None and len(window.change_result.areas) == areas)
 
+    # Second change detection method: M3C2 from the Method dropdown
+    side = window.sidebar
+    side.change_method.setCurrentIndex(side.change_method.findData("m3c2"))
+    check("change method is an undo step", "Change Detection Method" in undo.text())
+    import m3c2
+
+    check("M3C2 sizes follow Auto", not side.m3c2_sizes.isHidden() and not side.m3c2_cylinder.isEnabled())
+    side.m3c2_auto_sizes.setChecked(False)
+    check("without Auto the sizes can be typed", side.m3c2_cylinder.isEnabled() and side.m3c2_normals.isEnabled())
+    side.m3c2_cylinder.setValue(m3c2.CYLINDER_SCALE + 2)
+    check("the sizes are saved in the project",
+          window.project_state()["detection"]["m3c2_cylinder"] == m3c2.CYLINDER_SCALE + 2)
+    side.m3c2_auto_sizes.setChecked(True)
+    check("Auto goes back to the default sizes", side.m3c2_cylinder.value() == m3c2.CYLINDER_SCALE
+          and not side.m3c2_cylinder.isEnabled())
+    window.change_result = None
+    window.detect_changes()
+    wait_until(lambda: window.change_result is not None, after_m3c2_detect)
+
+
+def after_m3c2_detect():
+    side = window.sidebar
+    result = window.change_result
+    check("M3C2 detection finds the change", result.method == "m3c2" and len(result.areas) > 0)
+    check("M3C2 summary says so", "M3C2" in side.change_info.text())
+    check("the method is saved in the project", window.project_state()["detection"]["method"] == "m3c2")
+    side.change_method.setCurrentIndex(side.change_method.findData("nearest-surface"))
+    check("M3C2 sizes are hidden for the nearest surface", side.m3c2_sizes.isHidden())
+
     # Scene change: undo rebuilds the old scene and restores its alignment and results
     state["before_scene"] = (window.inspections.title, np.array(window.scene.matrices["Scan B"]))
     window.pick_scene("sheet_pile_corrosion")  # a different scene than the current one

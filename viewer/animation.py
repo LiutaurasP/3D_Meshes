@@ -43,19 +43,31 @@ class ChangeWorker(QThread):
 
     done = Signal(object)  # ChangeResult
 
-    def __init__(self, cloud_a, aligned_b, threshold, min_area_points):
+    failed = Signal(str)  # message, e.g. when py4dgeo (M3C2) is not installed
+
+    def __init__(self, cloud_a, aligned_b, threshold, min_area_points, method="nearest-surface",
+                 m3c2_cylinder=None, m3c2_normals=None):
         super().__init__()
         self.cloud_a = cloud_a
         self.aligned_b = aligned_b
         self.threshold = threshold
         self.min_area_points = min_area_points
+        self.method = method
+        self.m3c2_cylinder = m3c2_cylinder  # point spacings, None = default
+        self.m3c2_normals = m3c2_normals
 
     def run(self):
         from change_detection import detect_changes
+        from m3c2 import MissingPackage
         from volumes import measure_areas
 
-        result = detect_changes(self.cloud_a, self.aligned_b,
-                                threshold=self.threshold, min_area_points=self.min_area_points)
+        try:
+            result = detect_changes(self.cloud_a, self.aligned_b, threshold=self.threshold,
+                                    min_area_points=self.min_area_points, method=self.method,
+                                    m3c2_cylinder=self.m3c2_cylinder, m3c2_normals=self.m3c2_normals)
+        except MissingPackage as error:
+            self.failed.emit(str(error))
+            return
         measure_areas(result, self.cloud_a.points, self.aligned_b.points)  # volumes and confidence
         self.done.emit(result)
 

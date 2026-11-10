@@ -5,3 +5,4 @@ __pycache__/
 /dist/
 packaging/icons/
 .DS_Store
+benchmark_results.csv

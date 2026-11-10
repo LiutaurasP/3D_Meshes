@@ -36,6 +36,20 @@ def test_compare_writes_all_results(tmp_path):
     assert (out / "b vs a report.pdf").read_bytes().startswith(b"%PDF")
 
 
+def test_compare_with_m3c2(tmp_path):
+    make_scan(tmp_path / "a.laz", 0.0, 1)
+    make_scan(tmp_path / "b.laz", 0.8, 2)
+    out = tmp_path / "out"
+    code = sonar_cli.main(["compare", str(tmp_path / "a.laz"), str(tmp_path / "b.laz"), "--out", str(out),
+                           "--csv", "--report", "--change-method", "m3c2", "--m3c2-cylinder", "4"])
+    assert code == 0
+    rows = list(csv.DictReader(open(out / "b vs a areas.csv", encoding="utf-8-sig")))
+    assert rows and rows[0]["change"] == "removed"
+    true = 0.8 * np.pi * 4
+    assert abs(-float(rows[0]["volume_m3"]) - true) / true < 0.25
+    assert (out / "b vs a report.pdf").read_bytes().startswith(b"%PDF")
+
+
 def test_series_summary(tmp_path):
     for i, depth in enumerate((0.0, 0.4, 0.8)):
         make_scan(tmp_path / f"2025-0{i + 1}.laz", depth, i)

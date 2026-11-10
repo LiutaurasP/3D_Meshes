@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from change_detection import METHODS as CHANGE_METHODS
+from m3c2 import CYLINDER_SCALE, NORMAL_SCALE
 from datasets import SCENES, short_count, size_label
 from viewer.guide import CHAPTERS
 from viewer.scene import CAMERA_PRESETS, COLOR_MODES, NAVIGATION_MODES
@@ -374,8 +376,11 @@ class Sidebar(QWidget):
         controls = [(box, name) for name, box in self.checkboxes.items()]
         controls += [
             (self.max_distance, "Match Distance"), (self.max_iterations, "Max Rounds"),
-            (self.animate, "Animation"), (self.auto_threshold, "Auto Threshold"),
+            (self.animate, "Animation"), (self.change_method, "Change Detection Method"),
+            (self.auto_threshold, "Auto Threshold"),
             (self.threshold, "Threshold"), (self.min_area_points, "Smallest Area"),
+            (self.m3c2_auto_sizes, "Auto M3C2 Sizes"), (self.m3c2_cylinder, "M3C2 Cylinder"),
+            (self.m3c2_normals, "M3C2 Normals"),
             (self.show_changes, "Show Changed Points"), (self.show_areas, "Show Area Boxes"),
             (self.color_mode, "Colours"), (self.point_size, "Point Size"),
             (self.truth, "Show True Change"), (self.axes, "Show Axes"),
@@ -408,9 +413,13 @@ class Sidebar(QWidget):
         data.max_correspondence_distance = self.max_distance.value()
         data.max_iterations = self.max_iterations.value()
         data.icp_method = self.icp_method.currentData()
+        data.change_method = self.change_method.currentData()
         data.auto_threshold = self.auto_threshold.isChecked()
         data.change_threshold = self.threshold.value() / 100
         data.min_area_points = self.min_area_points.value()
+        data.m3c2_auto_sizes = self.m3c2_auto_sizes.isChecked()
+        data.m3c2_cylinder = self.m3c2_cylinder.value()
+        data.m3c2_normals = self.m3c2_normals.value()
         return data
 
     def set_offset(self, rotation, translation):
@@ -541,6 +550,15 @@ class Sidebar(QWidget):
         card = Card("Change detection")
 
         form = Form()
+        self.change_method = guard_wheel(QComboBox())
+        for value, label in CHANGE_METHODS:
+            self.change_method.addItem(label, value)
+        self.change_method.setCurrentIndex(max(self.change_method.findData(data.change_method), 0))
+        form.row("Method", self.change_method,
+                 "Nearest surface measures to the closest point of the other scan. M3C2 averages both scans "
+                 "in a small cylinder along the surface normal and gives every point its own level of "
+                 "detection: it finds more of a change on smooth walls and seabed, but gives false alarms "
+                 "on rough or folded surfaces (sheet piles, rocks).")
         threshold_row = QHBoxLayout()
         threshold_row.setSpacing(SPACING)
         self.auto_threshold = QCheckBox("Auto")
@@ -551,9 +569,37 @@ class Sidebar(QWidget):
         self.threshold.setEnabled(not data.auto_threshold)
         self.auto_threshold.toggled.connect(lambda checked: self.threshold.setEnabled(not checked))
         threshold_row.addWidget(self.threshold, 1)
-        form.row("Threshold", threshold_row, "Points that moved further than this count as changed")
+        form.row("Threshold", threshold_row, "Points that moved further than this count as changed. "
+                 "Auto: from the noise of the data (M3C2: each point's own level of detection)")
         self.min_area_points = form.row("Smallest area", spin(1, 10_000, data.min_area_points, 5, suffix=" points"),
                                         "Smaller groups of changed points are treated as noise")
+
+        # M3C2 only (hidden for the nearest-surface method): cylinder and normal size,
+        # in point spacings (Auto = the tested defaults)
+        self.m3c2_sizes = form.full_row(QWidget())
+        m3c2_form = Form()
+        self.m3c2_sizes.setLayout(m3c2_form)
+        cylinder_row = QHBoxLayout()
+        cylinder_row.setSpacing(SPACING)
+        self.m3c2_auto_sizes = QCheckBox("Auto")
+        self.m3c2_auto_sizes.setChecked(data.m3c2_auto_sizes)
+        self.m3c2_auto_sizes.setToolTip(f"Use the default sizes ({CYLINDER_SCALE:g} and {NORMAL_SCALE:g} point "
+                                        "spacings), tested on the example scenes")
+        cylinder_row.addWidget(self.m3c2_auto_sizes)
+        self.m3c2_cylinder = spin(0.5, 50.0, data.m3c2_cylinder, 0.5, decimals=1, suffix=" × spacing")
+        cylinder_row.addWidget(self.m3c2_cylinder, 1)
+        m3c2_form.row(
+            "Cylinder", cylinder_row,
+            "M3C2 only. Radius of the cylinder in which both scans are averaged, in point spacings. "
+            "Bigger: less noise, finds shallower changes, but blurs small ones and mixes faces on "
+            "rough or folded surfaces (sheet piles, rocks).")
+        self.m3c2_normals = m3c2_form.row(
+            "Normals", spin(1.0, 100.0, data.m3c2_normals, 1.0, decimals=1, suffix=" × spacing"),
+            "M3C2 only. Neighbourhood for the surface direction, in point spacings. "
+            "Bigger: steadier direction on noisy walls; smaller: follows corners and bends.")
+        self.m3c2_auto_sizes.toggled.connect(self._update_m3c2_controls)
+        self.change_method.currentIndexChanged.connect(self._update_m3c2_controls)
+        self._update_m3c2_controls()
         card.add(form)
 
         self.detect_button = button("Detect changes", primary=True,
@@ -591,6 +637,19 @@ class Sidebar(QWidget):
         self.area_list.currentRowChanged.connect(lambda row: row >= 0 and self.callbacks["focus_area"](row))
         card.add(self.area_list)
         return card
+
+    def _update_m3c2_controls(self):
+        """The M3C2 sizes are only shown for M3C2; with Auto they show (and use) the defaults."""
+        m3c2 = self.change_method.currentData() == "m3c2"
+        auto = self.m3c2_auto_sizes.isChecked()
+        self.m3c2_sizes.setVisible(m3c2)
+        if auto:
+            for box, value in ((self.m3c2_cylinder, CYLINDER_SCALE), (self.m3c2_normals, NORMAL_SCALE)):
+                box.blockSignals(True)
+                box.setValue(value)
+                box.blockSignals(False)
+        self.m3c2_cylinder.setEnabled(not auto)
+        self.m3c2_normals.setEnabled(not auto)
 
     def set_detecting(self, busy):
         self.detect_button.setEnabled(not busy)

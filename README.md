@@ -65,4 +65,29 @@ automatically from the noise) and groups them into areas:
     result = detect_changes(cloud_a, aligned_cloud_b)
 In the app: align first, then "Detect changes" in the Change detection panel.
 
+Two ways to measure the distance between the scans (Method in the Change
+detection panel, Analyze > Method, or --change-method in sonar_cli.py):
+- Nearest surface (default): distance to the closest point of the other scan,
+  along its surface normal, with one automatic threshold for the whole scan.
+- M3C2 (Lague et al. 2013, computed with py4dgeo, see m3c2.py): averages both
+  scans in a small cylinder along the normal and gives every point its own
+  level of detection (incl. an estimated registration error).
+    result = detect_changes(cloud_a, aligned_cloud_b, method="m3c2")
+The grouping into areas (DBSCAN), volumes and reports are the same for both.
+M3C2 has two sizes of its own, in point spacings (Cylinder and Normals in the
+panel, --m3c2-cylinder / --m3c2-normals on the command line). With Auto ticked
+it uses the defaults in m3c2.py, picked with the benchmark below:
+- Cylinder: radius in which both scans are averaged. Bigger = less noise and
+  shallower changes found, but small changes blur and rough surfaces mix faces.
+- Normals: neighbourhood for the surface direction. Bigger = steadier on noisy
+  walls, smaller = follows corners and bends.
+
+Which one is better? Compare them on the example scenes, where the true change
+is known (found = recall, false alarms = 1 - precision, F1):
+    python benchmark_change_detection.py              # every scene, both methods
+    python benchmark_change_detection.py --aligned    # after a real ICP alignment
+    python benchmark_change_detection.py harbour_wall_scour quay_wall_bulge
+It writes a table to the terminal and benchmark_results.csv. The app shows the
+same numbers ("Compared to the true change") after Detect changes.
+
 Tests: python -m pytest tests (needs: pip install pytest)

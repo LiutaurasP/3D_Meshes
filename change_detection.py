@@ -23,6 +23,15 @@ How it works
 3. Threshold: points further than the threshold count as changed. By
    default it is set automatically from the noise level of the data.
 4. Changed points that lie close together are grouped into areas.
+
+Two methods measure the distance in step 1 (method=...):
+- "nearest-surface" (default): as described above, one nearest point.
+- "m3c2": M3C2 (Lague et al. 2013, via py4dgeo, see m3c2.py). Averages
+  the points of both scans in a cylinder along the normal and gives every
+  point its own level of detection, which replaces the threshold of step
+  3 when it is automatic. Where M3C2 can't measure (too few points in the
+  cylinder) the nearest-surface distance is used.
+Steps 2 and 4 (sign, grouping into areas) are the same for both.
 """
 
 from dataclasses import dataclass, field
@@ -30,6 +39,10 @@ from dataclasses import dataclass, field
 import numpy as np
 import open3d as o3d
 from scipy.spatial import cKDTree
+
+NEAREST_SURFACE = "nearest-surface"
+M3C2 = "m3c2"
+METHODS = ((NEAREST_SURFACE, "Nearest surface"), (M3C2, "M3C2"))
 
 
 @dataclass
@@ -84,6 +97,19 @@ class ChangeResult:
     areas: list = field(default_factory=list)
     noise: float = None  # noise of the unchanged surface (metres, 1 sigma), see volumes.py
     lod: float = None  # level of detection (95 %), see volumes.py
+    method: str = NEAREST_SURFACE
+    # M3C2 only: which points M3C2 could measure (the others use the nearest-surface distance)
+    measured_a: np.ndarray = None
+    measured_b: np.ndarray = None
+    registration_error: float = None  # metres, estimated from the data (see m3c2.py)
+    cylinder_radius: float = None  # metres, the M3C2 cylinder that was used
+
+    @property
+    def n_unmeasured(self):
+        """Points M3C2 couldn't measure (0 for the nearest-surface method)."""
+        if self.measured_a is None:
+            return 0
+        return int((~self.measured_a).sum() + (~self.measured_b).sum())
 
     @property
     def n_changed(self):
@@ -159,8 +185,14 @@ def default_viewpoint(points):
     return center + np.array([0.0, 1.0, 1.0]) * reach
 
 
-def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoint=None):
-    """Compare two aligned inspections. threshold in metres (None = automatic)."""
+def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoint=None, method=NEAREST_SURFACE,
+                   m3c2_cylinder=None, m3c2_normals=None):
+    """Compare two aligned inspections. threshold in metres (None = automatic).
+
+    method: "nearest-surface" or "m3c2" (see the top of this file).
+    m3c2_cylinder, m3c2_normals: M3C2 cylinder radius and normal neighbourhood in point
+    spacings (None = the defaults in m3c2.py). Not used by the nearest-surface method.
+    """
     a = np.asarray(cloud_a.points)
     b = np.asarray(cloud_b.points)
     tree_a, tree_b = cKDTree(a), cKDTree(b)
@@ -175,11 +207,19 @@ def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoi
     # A against B's surface: A in front of B means that material is gone, so flip the sign
     distance_a = -signed_surface_distance(a, b, normals_b, tree_b, spacing)
 
-    if threshold is None:
+    automatic = threshold is None
+    if automatic:
         threshold = auto_threshold(np.concatenate([distance_a, distance_b]))
-
     changed_a = np.abs(distance_a) > threshold
     changed_b = np.abs(distance_b) > threshold
+
+    extra = {}
+    if method == M3C2:
+        distance_a, distance_b, changed_a, changed_b, threshold, extra = m3c2_changes(
+            a, b, spacing, viewpoint, (distance_a, distance_b), (changed_a, changed_b), threshold, automatic,
+            m3c2_cylinder, m3c2_normals)
+    elif method != NEAREST_SURFACE:
+        raise ValueError(f"Unknown change detection method: {method}")
 
     areas = group_into_areas(a, b, changed_a, changed_b, distance_a, distance_b, spacing, min_area_points)
 
@@ -190,7 +230,39 @@ def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoi
         changed_a[area.index_a] = True
         changed_b[area.index_b] = True
 
-    return ChangeResult(distance_a, distance_b, changed_a, changed_b, threshold, spacing, areas)
+    return ChangeResult(distance_a, distance_b, changed_a, changed_b, threshold, spacing, areas,
+                        method=method, **extra)
+
+
+def m3c2_changes(a, b, spacing, viewpoint, nearest, nearest_changed, threshold, automatic,
+                 cylinder_scale=None, normal_scale=None):
+    """M3C2 distances and changed points, with the nearest-surface result where M3C2 can't measure.
+
+    Automatic threshold: a point is changed where its distance is beyond its own level of
+    detection. Fixed threshold: beyond the threshold, as with the nearest-surface method.
+    The threshold returned for display is the median level of detection (automatic).
+    """
+    import m3c2
+
+    found = m3c2.compare(a, b, spacing, viewpoint, cylinder_scale, normal_scale)
+    distances, changed = [], []
+    for side, near, near_changed in zip("ab", nearest, nearest_changed):
+        measured = found[f"measured_{side}"]
+        distance = np.where(measured, found[f"distance_{side}"], near)
+        if automatic:
+            beyond = np.abs(distance) > np.where(measured, found[f"lod_{side}"], np.inf)
+        else:
+            beyond = np.abs(distance) > threshold
+        distances.append(distance)
+        changed.append(np.where(measured, beyond, near_changed))
+
+    if automatic:
+        lods = np.concatenate([found["lod_a"], found["lod_b"]])
+        lods = lods[np.isfinite(lods)]
+        threshold = float(np.median(lods)) if len(lods) else threshold
+    extra = {"measured_a": found["measured_a"], "measured_b": found["measured_b"],
+             "registration_error": found["registration_error"], "cylinder_radius": found["cylinder_radius"]}
+    return distances[0], distances[1], changed[0], changed[1], threshold, extra
 
 
 def group_into_areas(a, b, changed_a, changed_b, distance_a, distance_b, spacing, min_points):

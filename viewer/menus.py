@@ -195,6 +195,9 @@ def build_menus(window):
     analyze.addAction(action(window, "Next Changed Area", lambda: window.step_area(1), "]"))
     analyze.addAction(action(window, "Previous Changed Area", lambda: window.step_area(-1), "["))
     analyze.addSeparator()
+    change_method = analyze.addMenu("Method")
+    link_combobox(change_method, window, side.change_method,
+                  [side.change_method.itemText(i) for i in range(side.change_method.count())])
     analyze.addAction(link_checkbox(action(window, "Automatic Threshold"), side.auto_threshold))
     analyze.addSeparator()
     analyze.addAction(action(window, "Height Difference Map", window.show_height_map, "H"))

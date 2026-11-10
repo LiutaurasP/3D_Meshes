@@ -24,7 +24,8 @@ analysis = Analysis(
     ],
     # Only the VTK parts PyVista can use (vtk_modules.txt), not all of VTK: about half the size
     hiddenimports=["pyvistaqt", "vtkmodules.util.data_model", "vtkmodules.util.execution_model",
-                   "laspy", "lazrs", "pye57", "tifffile"] + VTK_MODULES,
+                   "laspy", "lazrs", "pye57", "tifffile",
+                   "m3c2", "py4dgeo", "_py4dgeo"] + VTK_MODULES,  # M3C2 is only imported when it is picked
     # Dash and its web server: Open3D imports Dash only for its browser viewer,
     # no_dash.py puts a small stand-in in its place (plotly stays for "Open in Plotly")
     excludes=["tkinter", "PyQt5", "PyQt6", "IPython", "jupyter", "notebook", "pytest", "pyarrow", "vtk",

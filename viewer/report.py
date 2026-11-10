@@ -56,6 +56,9 @@ def collect(window):
         info["detection"] = {
             "threshold": float(result.threshold),
             "auto": bool(window.settings.data.auto_threshold),
+            "method": result.method,
+            "registration_error": result.registration_error,
+            "cylinder_radius": result.cylinder_radius,
             "areas": len(result.areas),
             "changed": int(result.n_changed),
             "share": float(result.share_changed),
@@ -420,7 +423,16 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         rows.append(("Alignment", "Scan B was not aligned to scan A"))
     detection = info["detection"]
     if detection:
-        rows.append(("Threshold", f"{detection['threshold'] * 100:.1f} cm" + (" (automatic)" if detection["auto"] else "")))
+        if detection.get("method") == "m3c2":
+            rows.append(("Method", "M3C2 (Lague et al. 2013), cylinder radius "
+                                   f"{(detection.get('cylinder_radius') or 0) * 100:.1f} cm, registration error "
+                                   f"estimated at {(detection.get('registration_error') or 0) * 100:.1f} cm"))
+            threshold = f"{detection['threshold'] * 100:.1f} cm"
+            rows.append(("Threshold", f"per point, median {threshold} (automatic)" if detection["auto"] else threshold))
+        else:
+            rows.append(("Method", "Nearest surface distance"))
+            rows.append(("Threshold", f"{detection['threshold'] * 100:.1f} cm"
+                         + (" (automatic)" if detection["auto"] else "")))
         rows.append(("Result", f"{detection['areas']} changed area{'s' if detection['areas'] != 1 else ''}, "
                                f"{detection['changed']:,} changed points ({detection['share']:.1%})"))
         if detection.get("lod") is not None:

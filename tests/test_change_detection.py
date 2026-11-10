@@ -153,3 +153,78 @@ def test_one_stray_point_does_not_flip_an_area():
 
     mostly_added = np.concatenate([np.full(500, 0.4), [-0.9]])
     assert robust_peak(mostly_added) > 0
+
+
+# M3C2 (method="m3c2"): the same pipeline with M3C2 distances, see m3c2.py
+
+def detect_m3c2(key, threshold=None):
+    pair = generate(key)
+    result = detect_changes(pair.a, pair.b, threshold=threshold, method="m3c2")
+    return pair, result, score(result, pair.changed_a, pair.changed_b)
+
+
+@pytest.mark.parametrize("key", ["harbour_wall_scour", "quay_wall_bulge", "harbour_basin_siltation",
+                                 "seabed_debris_field", "flooded_tunnel_settlement"])
+def test_m3c2_finds_more_on_smooth_surfaces(key):
+    """On smooth walls and seabed M3C2 finds more of the change than the nearest surface distance."""
+    _, nearest, nearest_score = detect(key)
+    _, result, result_score = detect_m3c2(key)
+    assert result.method == "m3c2" and nearest.method == "nearest-surface"
+    assert result_score.found > nearest_score.found
+    assert result_score.false_alarms < 0.15
+    assert result_score.f1 > nearest_score.f1
+
+
+def test_m3c2_keeps_the_sign_convention():
+    _, result, _ = detect_m3c2("quay_wall_dropped_object")
+    assert result.areas[0].kind == "added"
+    assert 2.0 < result.areas[0].peak < 2.8  # the 2.59 m container
+    _, result, _ = detect_m3c2("harbour_wall_scour")
+    assert result.areas[0].kind == "removed"
+
+
+def test_m3c2_fixed_threshold_is_used():
+    _, result, _ = detect_m3c2("harbour_wall_scour", threshold=0.3)
+    assert result.threshold == 0.3
+    assert np.all(np.abs(result.distance_b[result.changed_b]) > 0.3)
+
+
+def test_m3c2_fills_in_where_it_cannot_measure():
+    pair, result, _ = detect_m3c2("quay_wall_dropped_object")
+    assert 0 < result.n_unmeasured < 0.2 * (len(pair.changed_a) + len(pair.changed_b))
+    assert np.all(np.isfinite(result.distance_a)) and np.all(np.isfinite(result.distance_b))
+    assert 0 < result.registration_error < 0.05
+
+
+def test_m3c2_sizes_are_used():
+    """The cylinder and normal size (point spacings) change the result; None means the defaults."""
+    import m3c2
+
+    pair = generate("harbour_wall_scour")
+    default = detect_changes(pair.a, pair.b, method="m3c2")
+    assert default.cylinder_radius == pytest.approx(m3c2.CYLINDER_SCALE * default.spacing)
+    wide = detect_changes(pair.a, pair.b, method="m3c2", m3c2_cylinder=2 * m3c2.CYLINDER_SCALE,
+                          m3c2_normals=m3c2.NORMAL_SCALE / 2)
+    assert wide.cylinder_radius == pytest.approx(2 * default.cylinder_radius)
+    assert not np.allclose(wide.distance_a, default.distance_a)
+
+
+def test_m3c2_writes_no_log_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    detect_m3c2("original_wall")
+    assert not list(tmp_path.iterdir())
+
+
+def test_unknown_method_is_an_error():
+    pair = generate("original_wall")
+    with pytest.raises(ValueError):
+        detect_changes(pair.a, pair.b, method="magic")
+
+
+def test_missing_py4dgeo_is_explained(monkeypatch):
+    from m3c2 import MissingPackage
+
+    monkeypatch.setitem(sys.modules, "py4dgeo", None)  # as if it were not installed
+    pair = generate("original_wall")
+    with pytest.raises(MissingPackage, match="pip install py4dgeo"):
+        detect_changes(pair.a, pair.b, method="m3c2")

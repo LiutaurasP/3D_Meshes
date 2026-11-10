@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from m3c2 import CYLINDER_SCALE, NORMAL_SCALE
+
 
 @dataclass
 class ViewSettings:
@@ -43,9 +45,14 @@ class DataSettings:
     animate_alignment: bool = True
 
     # Change detection
+    change_method: str = "nearest-surface"  # or "m3c2" (see change_detection.py)
     change_threshold: float = 0.10  # metres, used when auto_threshold is off
     auto_threshold: bool = True
     min_area_points: int = 15
+    # M3C2 only, in point spacings. Auto uses the defaults from m3c2.py
+    m3c2_auto_sizes: bool = True
+    m3c2_cylinder: float = CYLINDER_SCALE
+    m3c2_normals: float = NORMAL_SCALE
 
 
 @dataclass
