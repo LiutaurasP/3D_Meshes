@@ -724,13 +724,17 @@ class MainWindow(SeriesMixin, QMainWindow):
 
     # Height difference map
 
+    def _map_scan_points(self):
+        points_a = np.asarray(self.clouds[self.target_name].points)
+        matrix = np.asarray(self.scene.matrices[self.source_name])
+        points_b = np.asarray(self.clouds[self.source_name].points) @ matrix[:3, :3].T + matrix[:3, 3]
+        return points_a, points_b
+
     def height_map_data(self):
         """(grid, extent, cell) of B minus A seen from above, in real coordinates."""
         from viewer.heightmap import compute_map
 
-        points_a = np.asarray(self.clouds[self.target_name].points)
-        matrix = np.asarray(self.scene.matrices[self.source_name])
-        points_b = np.asarray(self.clouds[self.source_name].points) @ matrix[:3, :3].T + matrix[:3, 3]
+        points_a, points_b = self._map_scan_points()
         lod = self.change_result.lod if self.change_result is not None else None
         return compute_map(points_a, points_b, self.inspections.offset, lod)
 
@@ -749,6 +753,27 @@ class MainWindow(SeriesMixin, QMainWindow):
         areas = self.change_result.areas if self.change_result is not None else []
         lod = self.change_result.lod if self.change_result is not None else None
         self.height_map_window.show_map(grid, extent, cell, areas, self.inspections.offset, lod)
+
+    def wall_map_data(self):
+        from viewer.heightmap import compute_wall_map
+
+        points_a, points_b = self._map_scan_points()
+        return compute_wall_map(points_a, points_b, self.change_result, self.inspections.offset)
+
+    def show_wall_map(self):
+        from viewer.heightmap import HeightMapWindow
+
+        if self.change_result is None:
+            self.notify("No change result yet", "Run Detect Changes first", "warning")
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            data = self.wall_map_data()
+        finally:
+            QApplication.restoreOverrideCursor()
+        if getattr(self, "wall_map_window", None) is None:
+            self.wall_map_window = HeightMapWindow(self, wall=True)
+        self.wall_map_window.show_map(*data, offset=(0, 0, 0), lod=None)
 
     # Before / after swipe
 

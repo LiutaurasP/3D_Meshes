@@ -385,7 +385,7 @@ def series_chapter(pages, series, charts):
         pages.y += height + 10
 
 
-def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=None):
+def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=None, wall_map=None):
     pages = Pages(path, f"Change report – {info['title']}")
     painter = pages.painter
 
@@ -480,6 +480,15 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
                    "(removed). Numbers are the changed areas. Vertical walls only show as a thin line from above.", 8.5,
                    color=DIM)
 
+    if wall_map is not None:
+        width = PAGE_W - 2 * MARGIN
+        height = width * wall_map.height() / max(wall_map.width(), 1)
+        pages.heading("Unrolled wall view", keep=height + 48)
+        pages.image(wall_map, MARGIN, width, height)
+        pages.y += height + 4
+        pages.text("Distance along the wall is horizontal and depth increases downward. Red shows added material, "
+                   "blue shows removed material, and outlines mark detected areas.", 8.5, color=DIM)
+
     if close_ups:
         width = (PAGE_W - 2 * MARGIN - 14) / 2
         height = width * 0.68
@@ -519,13 +528,14 @@ def export_report(window, path):
     """Make the report for the window's current state; returns the number of pages."""
     info = collect(window)
     overview, close_ups = pictures(window)
-    height_map = None
+    height_map = wall_map = None
     if window.change_result is not None:
         from viewer.heightmap import map_image
 
         grid, extent, cell = window.height_map_data()
         height_map = map_image(grid, extent, cell, window.change_result.areas, window.inspections.offset)
+        wall_map = map_image(*window.wall_map_data(), wall=True)
     charts = []
     if info.get("series") and info["series"]["compared"] >= len(window.series.names) - 1:
         charts = [chart_image(track, window.series.names, window.series.dates) for track in window.series_tracks[:6]]
-    return write_pdf(path, info, overview, close_ups, height_map, charts)
+    return write_pdf(path, info, overview, close_ups, height_map, charts, wall_map=wall_map)
