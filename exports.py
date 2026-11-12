@@ -114,6 +114,7 @@ def write_scan(path, points, intensity=None):
 
 SCAN_EXPORT_FILTER = ("LAZ point cloud (*.laz);;LAS point cloud (*.las);;PLY point cloud (*.ply);;"
                       "XYZ text (*.xyz);;CSV text (*.csv)")
+BROWSER_MAX_POINTS_PER_SCAN = 100_000
 
 def write_browser_view(path, scan_a, scan_b, result):
     """Save two scans and their detected changes as an interactive HTML file."""
@@ -141,6 +142,13 @@ def write_browser_view(path, scan_a, scan_b, result):
         ("Scan B (after)", scan_b, result.distance_b),
     ):
         points = np.asarray(scan, dtype=float)
+        if len(points) > BROWSER_MAX_POINTS_PER_SCAN:
+            indices = np.random.default_rng(0).choice(
+                len(points), BROWSER_MAX_POINTS_PER_SCAN, replace=False,
+            )
+            # Apply the same selection to the geometry and its change values.
+            points = points[indices]
+            distances = np.asarray(distances)[indices]
         figure.add_trace(
             go.Scatter3d(
                 x=points[:, 0],
