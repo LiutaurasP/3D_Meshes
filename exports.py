@@ -114,3 +114,74 @@ def write_scan(path, points, intensity=None):
 
 SCAN_EXPORT_FILTER = ("LAZ point cloud (*.laz);;LAS point cloud (*.las);;PLY point cloud (*.ply);;"
                       "XYZ text (*.xyz);;CSV text (*.csv)")
+
+def write_browser_view(path, scan_a, scan_b, result):
+    """Save two scans and their detected changes as an interactive HTML file."""
+    import plotly.graph_objects as go
+    from matplotlib import colormaps
+    from matplotlib.colors import to_hex
+
+    figure = go.Figure()
+
+    # Match the app's change colors and keep zero at the center of the scale.
+    limit = max(
+        (abs(area.peak) for area in result.areas),
+        default=3 * result.threshold,
+    )
+    limit = max(limit, 0.001)
+    coolwarm = colormaps["coolwarm"]
+    colorscale = [
+        (position, to_hex(coolwarm(position)))
+        for position in np.linspace(0, 1, 33)
+    ]
+
+    # Each point gets the color for its signed change in metres.
+    for name, scan, distances in (
+        ("Scan A (before)", scan_a, result.distance_a),
+        ("Scan B (after)", scan_b, result.distance_b),
+    ):
+        points = np.asarray(scan, dtype=float)
+        figure.add_trace(
+            go.Scatter3d(
+                x=points[:, 0],
+                y=points[:, 1],
+                z=points[:, 2],
+                mode="markers",
+                marker=dict(size=2, color=distances, coloraxis="coloraxis"),
+                name=name,
+            )
+        )
+
+    # Place an arrow at the center of each of the ten largest detected areas.
+    annotations = [
+        dict(
+            x=area.center[0],
+            y=area.center[1],
+            z=area.center[2],
+            text=f"{number}. {area.kind.capitalize()}",
+            showarrow=True,
+            ay=-30,
+            bgcolor="white",
+        )
+        for number, area in enumerate(result.areas[:10], start=1)
+    ]
+
+    figure.update_layout(
+        scene=dict(aspectmode="data", annotations=annotations),
+        legend=dict(orientation="h", x=0, y=1.02, yanchor="bottom"),
+        coloraxis=dict(
+            colorscale=colorscale,
+            cmin=-limit,
+            cmax=limit,
+            colorbar=dict(
+                title=dict(text=(
+                    "Change from Scan A to B<br>"
+                    "Red (+) means material was added<br>"
+                    "Near 0 means little or no change<br>"
+                    "Blue (−) means material was removed"
+                ), side="top"),
+                ticksuffix=" m",
+            ),
+        ),
+    )
+    figure.write_html(str(path), include_plotlyjs=True)

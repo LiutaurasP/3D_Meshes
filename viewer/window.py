@@ -1737,6 +1737,39 @@ class MainWindow(SeriesMixin, QMainWindow):
         self.notify("Changed areas exported", f"{Path(path).name} · {len(rows)} areas", "success")
         return True
 
+    def export_browser_view(self, path=None):
+        """Save the current scan comparison as an offline HTML file."""
+        from exports import write_browser_view
+
+        result = self.change_result
+        if result is None:
+            self.notify("No change result yet", "Run Detect Changes first", "warning")
+            return False
+
+        if path is None:
+            path = self._export_path(
+                "3D View for Browser", ".html", "HTML file (*.html)"
+            )
+            if not path:
+                return False
+
+        scan_a = np.asarray(self.clouds[self.target_name].points)
+        scan_b = np.asarray(self.clouds[self.source_name].points)
+        matrix = np.asarray(self.scene.matrices[self.source_name])
+        aligned_b = scan_b @ matrix[:3, :3].T + matrix[:3, 3]
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            write_browser_view(path, scan_a, aligned_b, result)
+        except (OSError, ImportError, ValueError) as error:
+            self.notify("Browser export failed", str(error), "warning")
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self.notify("3D view exported", Path(path).name, "success")
+        return True
+    
     def export_aligned_scan(self, path=None):
         """Scan B in its aligned position, in real coordinates (for other software)."""
         from exports import SCAN_EXPORT_FILTER, write_scan

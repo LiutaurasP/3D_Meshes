@@ -80,6 +80,9 @@ def build_menus(window):
     examples.addAction(action(window, "Scan Series: Wind Turbine Through a Stormy Year",
                               lambda: window.open_example_series("wind_turbine_storm")))
     export = file_menu.addMenu("Export")
+    export.addAction(
+        action(window, "3D view for browser…", lambda: window.export_browser_view())
+    )
     export.addAction(action(window, "Screenshot…", window.export_screenshot, "Ctrl+Shift+E"))
     export.addAction(action(window, "Change Report (PDF)…", lambda: window.export_report(), "Ctrl+Shift+R"))
     export.addAction(action(window, "Report Details…", lambda: window.edit_report_details()))
