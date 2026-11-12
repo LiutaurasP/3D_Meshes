@@ -201,6 +201,7 @@ def build_menus(window):
     analyze.addAction(link_checkbox(action(window, "Automatic Threshold"), side.auto_threshold))
     analyze.addSeparator()
     analyze.addAction(action(window, "Height Difference Map", window.show_height_map, "H"))
+    analyze.addAction(action(window, "Unrolled Wall View", window.show_wall_map))
     analyze.addAction(action(window, "Play Change Animation", lambda: window.play_change_animation(), "P"))
     analyze.addAction(action(window, "Cross Section", lambda: window.start_tool("section"), "X"))
     analyze.addAction(action(window, "Measure Distance", lambda: window.start_tool("measure"), "T"))
