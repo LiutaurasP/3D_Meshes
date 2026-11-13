@@ -80,6 +80,7 @@ class SceneView:
         self.when_values = {}  # name -> scan in which each point first changed (-1 = never), "When changed"
         self.when_colors = []  # colour per scan for the "When changed" colours
         self.legend_actor = None
+        self.context_actor = None  # huge scans in full detail: the overview around it, dimmed
 
     # Geometry
 
@@ -1055,6 +1056,20 @@ class SceneView:
         self.legend_actor = self.plotter.add_legend([[label, tuple(color[:3])] for label, color in entries],
                                                     bcolor=(0.08, 0.09, 0.12), border=False, loc="lower right",
                                                     size=(0.22, 0.04 * len(entries) + 0.02), face="circle")
+
+    # Huge scans: the overview around a part shown in full detail
+
+    def set_context(self, points, color=(0.42, 0.44, 0.5)):
+        """Draw points (the overview outside the part in full detail) small and grey, or remove them (None)."""
+        if self.context_actor is not None:
+            self.plotter.remove_actor(self.context_actor, render=False)
+            self.context_actor = None
+        if points is not None and len(points):
+            self.context_actor = self.plotter.add_points(
+                pv.PolyData(np.asarray(points, dtype=float)), color=color, opacity=0.35,
+                point_size=max(1.0, self._screen_point_size() * 0.6), render_points_as_spheres=False,
+                name="overview around", reset_camera=False, pickable=False)
+        self.plotter.render()
 
     def close(self):
         self.fly.shutdown()

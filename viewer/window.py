@@ -26,6 +26,7 @@ from scan_formats import ALL_TYPES, ImportOptions
 from scan_formats import FILE_FILTER as SCAN_FILES
 from viewer import prefs, project
 from viewer.animation import AlignmentAnimation, AlignWorker, ChangeWorker, DataWorker
+from viewer.large_view import LargeScanMixin
 from viewer.branding import APP_NAME, LOGO_PATH, PROJECT_EXTENSION, PROJECT_FILTER, VERSION
 from viewer.menus import build_menus
 from viewer.pipeline import Inspections, build_inspections, load_inspections
@@ -62,7 +63,7 @@ def to_cloud(points):
     return cloud
 
 
-class MainWindow(SeriesMixin, QMainWindow):
+class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
     """Main application window: 3D scene in the middle, side panel on the right."""
 
     def __init__(self, settings):
@@ -135,6 +136,12 @@ class MainWindow(SeriesMixin, QMainWindow):
                 "series_scene": self.open_example_series,
                 "show_track": self.show_track,
                 "area_edit": self.edit_area,
+                "large_cell": self.large_set_cell,
+                "large_sections": self.large_show_sections,
+                "large_section": self.large_open_section,
+                "large_detail_here": self.large_detail_here,
+                "large_overview": self.large_back_to_overview,
+                "large_sweep": self.large_sweep,
                 "tutorial": self.start_tutorial,
                 "advanced_tutorial": lambda: self.start_tutorial(advanced=True),
             },
@@ -148,6 +155,7 @@ class MainWindow(SeriesMixin, QMainWindow):
         self.series_visible = []  # per scan, in "Show all"
         self.series_tracks = []  # changed areas followed through the scans, see series_analysis.track_areas
         self._compare_all_worker = None
+        self._large_setup()
         self._when_cache = None  # (key, values) for the "When changed" colours
         self._detect_after_align = False
         self.notes = []  # [{"text": ..., "point": [x, y, z]}], pinned in 3D and listed in the report
@@ -683,6 +691,8 @@ class MainWindow(SeriesMixin, QMainWindow):
         if event.key() == Qt.Key_Escape and self.clear_measurements():
             self.statusBar().showMessage("Lines removed", 2500)
             return
+        if event.key() == Qt.Key_Escape and self.large_back_to_overview():
+            return
         super().keyPressEvent(event)
 
     # Change animation
@@ -932,6 +942,8 @@ class MainWindow(SeriesMixin, QMainWindow):
             self._record_scene_change("Change Scene")
         if self._data_worker is not None and self._data_worker.isRunning():
             self._generate_again = True
+            self._data_worker.stopped = True  # (Qt forgets the request once the thread has ended)
+            self._data_worker.requestInterruption()  # writing a huge example stops; small ones just finish
             return
         self._generate_again = False
         self.sidebar.read_data_settings(self.settings.data)
@@ -995,7 +1007,21 @@ class MainWindow(SeriesMixin, QMainWindow):
         self._data_worker = worker
         worker.done.connect(self._on_data_ready)
         worker.failed.connect(self._on_data_failed)
+        worker.progress.connect(self._on_data_progress)
+        worker.finished.connect(lambda w=worker: self._data_worker_finished(w))
         worker.start()
+
+    def _on_data_progress(self, fraction, text):
+        self.sidebar.show_data_progress(fraction, text)
+        self.statusBar().showMessage(text)
+
+    def _data_worker_finished(self, worker):
+        """A build that was stopped (another scene was picked while a huge one was being written)."""
+        if getattr(worker, "stopped", False) and worker is self._data_worker:
+            self.sidebar.set_generating(False)
+            self.statusBar().clearMessage()
+            if self._generate_again:
+                self.generate(record=False)
 
     def _on_data_ready(self, inspections):
         seconds = self._clock.elapsed() / 1000
@@ -1006,7 +1032,7 @@ class MainWindow(SeriesMixin, QMainWindow):
         drawn, total = self.scene.shown_count()
         thinned = f" · drawing {short_count(drawn)} for speed" if drawn < total else ""
         self.sidebar.show_data_status(f"{counts} points · ready in {seconds:.1f} s{thinned}")
-        if not inspections.truth:
+        if not inspections.truth and not inspections.truth_changes:
             total = sum(len(c.points) for c in inspections.clouds.values())
             self.sidebar.show_loaded_files(inspections.title, total)
         if not self._generate_again:
@@ -1048,6 +1074,7 @@ class MainWindow(SeriesMixin, QMainWindow):
         if reset_camera:
             self.scene.look_from("Iso")
         self._update_status()
+        self._large_new_data(inspections)
 
     # Both only change values in the panel, the panel then updates the scene by itself
 
@@ -1139,7 +1166,8 @@ class MainWindow(SeriesMixin, QMainWindow):
         self.statusBar().showMessage("Running ICP...")
         self._clock.start()
 
-        self._worker = AlignWorker(self.clouds[self.source_name], self.clouds[self.target_name], self.settings.data)
+        self._worker = AlignWorker(self.clouds[self.source_name], self.clouds[self.target_name], self.settings.data,
+                                   fine=self.large_pair() is not None)
         self._worker.progress.connect(self.sidebar.show_icp_progress)
         self._worker.done.connect(self._on_aligned)
         self._worker.start()
@@ -1158,7 +1186,8 @@ class MainWindow(SeriesMixin, QMainWindow):
 
         before = self._align_before
         after = {"matrix": np.array(steps[-1].transformation), "steps": steps, "changes": None}
-        self.history.push("Align B to A", lambda: self.apply_pose(after), lambda: self.apply_pose(before))
+        if not self.in_large_detail():  # a part in full detail is a temporary look, not an undo step
+            self.history.push("Align B to A", lambda: self.apply_pose(after), lambda: self.apply_pose(before))
 
         n = len(self.clouds[self.source_name].points)
         limit = self.settings.data.max_icp_points
@@ -1239,10 +1268,13 @@ class MainWindow(SeriesMixin, QMainWindow):
         self.sidebar.set_detecting(True)
         self.statusBar().showMessage("Detecting changes...")
         self._clock.start()
+        threshold = None if data.auto_threshold else data.change_threshold
+        if threshold is None and self.in_large_detail() and self._large_threshold is not None:
+            threshold = self._large_threshold  # the same threshold in every part shown in full detail
         self._change_worker = ChangeWorker(
-            self.clouds[self.target_name], aligned_b,
-            None if data.auto_threshold else data.change_threshold,
-            data.min_area_points,
+            self.clouds[self.target_name], aligned_b, threshold, data.min_area_points,
+            overview=self.large_pair() is not None and not self.in_large_detail(),
+            find_moves=data.find_moves, detail=self.in_large_detail(),
         )
         self._change_worker.done.connect(self._on_changes)
         self._change_worker.start()
@@ -1265,8 +1297,10 @@ class MainWindow(SeriesMixin, QMainWindow):
         self.notify(f"{count} changed area{'s' if count != 1 else ''} found" if count else "No changes found",
                     f"threshold {result.threshold * 100:.1f} cm · {seconds:.1f} s", "success" if count else "info")
         before, after = self._detect_before, self.pose_state()
-        self.history.push("Detect Changes", lambda: self.apply_pose(after), lambda: self.apply_pose(before))
+        if not self.in_large_detail():
+            self.history.push("Detect Changes", lambda: self.apply_pose(after), lambda: self.apply_pose(before))
         self._series_analysis_changed()
+        self._large_after_detect(result)
 
     def _show_change_result(self, result):
         from change_detection import score
@@ -1307,6 +1341,19 @@ class MainWindow(SeriesMixin, QMainWindow):
                             f"false alarms <b>{found.false_alarms:.0%}</b>")
             else:
                 summary += "<br>(nothing really changed in this scene)"
+        if self.inspections.truth_changes:
+            from large_scans import true_change_score
+
+            found, total, missed, extra = true_change_score(result.areas, self.inspections.truth_changes)
+            summary += f"<br>Compared to the true changes: found <b>{found} of {total}</b>"
+            if missed:
+                summary += f" (not yet: {', '.join(missed)})"
+            if extra:
+                summary += f" · {len(extra)} other area{'s' if len(extra) != 1 else ''}"
+        detailed = sum(1 for area in result.areas if (getattr(area, "detail", 0) or 0) > 0)
+        if self.large_pair() is not None and not self.in_large_detail():
+            summary += (f"<br>{detailed} of {len(result.areas)} measured in full detail" if detailed
+                        else "<br>Measured on the overview")
         if self.align_steps is None:
             summary += "<br><b>Scan B is not aligned:</b> most of this is the misalignment. Align first."
 
@@ -1415,6 +1462,9 @@ class MainWindow(SeriesMixin, QMainWindow):
             data["offset"] = [float(v) for v in self.inspections.offset]
             data["kinds"] = dict(self.inspections.kinds)
             data["import"] = self.import_options_json()
+            large = self._large_project_state()
+            if large:
+                data["large"] = large
         return {
             "data": data,
             "view": {
@@ -1455,6 +1505,7 @@ class MainWindow(SeriesMixin, QMainWindow):
         }
 
     def write_project(self, path):
+        self.large_back_to_overview()  # the project keeps the overview (full detail stays in the files)
         scans = None
         if self.loaded_files and self.series is None:  # a series is stored as a whole instead
             scans = {name: np.asarray(cloud.points) for name, cloud in self.clouds.items()}
@@ -1549,9 +1600,11 @@ class MainWindow(SeriesMixin, QMainWindow):
                     self.colors[name] = tuple(rgba)
                     self.sidebar.swatches[name].set_color(rgba)
             self._show_inspections(inspections, reset_camera=False)
-            if not inspections.truth:
+            if not inspections.truth and not inspections.truth_changes:
                 total = sum(len(c.points) for c in inspections.clouds.values())
                 self.sidebar.show_loaded_files(inspections.title, total)
+            if scans and data.get("large"):
+                self._large_reopen(data["large"])
 
             if "background" in view:
                 self._apply_background(tuple(view["background"]))
@@ -1913,7 +1966,11 @@ class MainWindow(SeriesMixin, QMainWindow):
         self._stop_animation()
         if self._compare_all_worker is not None:
             self._compare_all_worker.requestInterruption()
-        for worker in (self._worker, self._data_worker, self._change_worker, self._compare_all_worker):
+        for worker in (self._large_worker, self._data_worker):
+            if worker is not None:
+                worker.requestInterruption()
+        for worker in (self._worker, self._data_worker, self._change_worker, self._compare_all_worker,
+                       self._large_worker):
             if worker is not None:
                 worker.wait()
         self.scene.close()

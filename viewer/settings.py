@@ -46,6 +46,7 @@ class DataSettings:
     change_threshold: float = 0.10  # metres, used when auto_threshold is off
     auto_threshold: bool = True
     min_area_points: int = 15
+    find_moves: bool = True  # recognise objects that moved (removed + added of the same shape), see displaced.py
 
 
 @dataclass

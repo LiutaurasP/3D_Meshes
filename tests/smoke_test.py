@@ -43,6 +43,11 @@ parser.add_argument("--skip-tutorials", action="store_true",
                     help="leave out playing both tutorials (a few minutes); GitHub always runs everything")
 args = parser.parse_args()
 
+# Huge example scans and scan stores go to a folder of their own, never into the user's cache
+import tempfile  # noqa: E402
+
+os.environ["SUBDRON_CACHE"] = tempfile.mkdtemp(prefix="subdron-smoke-cache-")
+
 from tests.no_dialogs import block_dialogs  # noqa: E402
 
 block_dialogs()  # a Save / Open window would wait for a click forever: never show one in the test
@@ -1214,6 +1219,99 @@ def orbit_checks():
 
 def orbit_released():
     check("the orbit marker goes away after letting go", window.scene.pivot_actor is None)
+    large_scan_checks()
+
+
+# Huge scans: overview, full detail of a section, projects of scans that stay on disk
+
+LARGE = {}
+
+
+def large_ready():
+    return data_ready() and window.large_pair() is not None
+
+
+def large_scan_checks():
+    window.pick_scene("quay_with_ships")
+    window.sidebar.n_points.setValue(600_000)  # smaller than the default, so the test stays quick
+    wait_until(lambda: large_ready() and window.large_pair().stores["Scan A"].n_points == 600_000,
+               large_opened, limit_ms=180_000)
+
+
+def large_opened():
+    pair = window.large_pair()
+    check("the Subdron size example opens as an overview of scans on disk",
+          pair is not None and pair.stores["Scan A"].n_points == 600_000
+          and len(window.clouds["Scan A"].points) < 600_000)
+    check("…with the Large scan card and its sections", window.sidebar.large_card.isVisible()
+          and window.sidebar.large_sections.count() >= 5)
+    window.align()
+    wait_until(lambda: window.is_aligned() and not window._worker.isRunning(), large_aligned, limit_ms=120_000)
+
+
+def large_aligned():
+    check("huge scans align (with a close final step)", window.align_steps is not None)
+    window.detect_changes()
+    wait_until(lambda: window.change_result is not None and window._large_worker is not None
+               and window._large_worker.isFinished(), large_detected, limit_ms=180_000)
+
+
+def large_detected():
+    from large_scans import true_change_score
+
+    result = window.change_result
+    found, total, missed, _ = true_change_score(result.areas, window.inspections.truth_changes)
+    check(f"changes found on the overview ({found} of {total} true changes)", found >= 7)
+    detailed = [a for a in result.areas if (getattr(a, "detail", 0) or 0) > 0]
+    check(f"…and measured again in full detail in the background ({len(detailed)} areas)", len(detailed) >= 5)
+    LARGE["areas"] = len(result.areas)
+    rows = [window.sidebar.large_sections.item(i).text() for i in range(window.sidebar.large_sections.count())]
+    row = next((i for i, text in enumerate(rows) if "change" in text and "no changes" not in text), 0)
+    window.large_open_section(row)
+    wait_until(lambda: window.sidebar.large_back_button.isEnabled() and window.change_result is not None
+               and window._change_worker.isFinished(), large_in_detail, limit_ms=120_000)
+
+
+def large_in_detail():
+    check("a section opens in full detail, with the overview dimmed around it",
+          window.in_large_detail() and window.scene.context_actor is not None
+          and window.sidebar.large_back_button.isEnabled())
+    check("…and is compared right away", window.change_result is not None)
+    QTest.keyClick(window, Qt.Key_Escape) if state.get("shortcuts") else window.large_back_to_overview()
+    wait_until(lambda: not window.in_large_detail(), large_back, limit_ms=10_000)
+
+
+def large_back():
+    check("Esc goes back to the whole scan with its changes", not window.in_large_detail()
+          and window.scene.context_actor is None and window.change_result is not None
+          and len(window.change_result.areas) >= LARGE["areas"])
+    # The same files imported by hand as an overview, saved, and opened again
+    import tempfile
+
+    pair = window.large_pair()
+    options = {name: ImportOptions(depth_down=False, mode="overview") for name in ("Scan A", "Scan B")}
+    window.open_scan_files(pair.paths["Scan A"], pair.paths["Scan B"], options)
+    LARGE["project"] = Path(tempfile.mkdtemp()) / "huge.subdron"
+    wait_until(large_ready, large_imported, limit_ms=120_000)
+
+
+def large_imported():
+    check("big files can be imported as an overview", window.large_pair() is not None and window.loaded_files)
+    window.write_project(LARGE["project"])
+    window.open_project(LARGE["project"], ask=False)
+    wait_until(lambda: window.large_pair() is not None, large_reopened, limit_ms=60_000)
+
+
+def large_reopened():
+    check("a project of huge scans opens with full detail from the original files",
+          window.large_pair() is not None and window.sidebar.large_card.isVisible())
+    window.pick_scene(DEFAULT_SCENE)
+    wait_until(lambda: data_ready() and window.inspections.title == SCENES[DEFAULT_SCENE].title, large_done,
+               limit_ms=60_000)
+
+
+def large_done():
+    check("…and leaving them hides the Large scan card", not window.sidebar.large_card.isVisible())
     if args.skip_tutorials:
         skip("both tutorials", "--skip-tutorials")
         finish()

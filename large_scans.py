@@ -296,8 +296,11 @@ def refine_areas(pair, result, matrix, viewpoint=None, threshold=None, on_progre
         local = detail_change_detection(a, b, threshold, viewpoint)
         same = [p for p in local.areas if _overlaps(p.low, p.high, area.low, area.high, gap=0.1)
                 and np.sign(p.peak) == np.sign(area.peak)]
-        if not same:  # what the overview saw is too faint in full detail: keep the overview numbers
+        if not same:  # not there in full detail: the way points fell into the overview's cubes
             area.detail = -1
+            if not area.tag:
+                area.tag = "False alarm"
+                area.comment = area.comment or "Not found in full detail"
             continue
         _combine(area, same)
         area.detail = len(a) + len(b)

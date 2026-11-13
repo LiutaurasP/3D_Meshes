@@ -43,6 +43,9 @@ SETTINGS_PAGE, AREAS_PAGE, GUIDE_PAGE, HISTORY_PAGE = range(4)
 
 
 def scene_label(scene):
+    if getattr(scene, "on_disk", False):
+        sizes = list(scene.disk_sizes.values())
+        return f"Huge · {scene.title} · {short_count(scene.default_points)} to {short_count(sizes[-1])} points"
     names = getattr(scene, "scan_names", None)
     if names:  # a scene made of several scans opens as a scan series
         return f"{len(names)} scans · {scene.title} · {short_count(scene.default_points)} points each"
@@ -98,6 +101,7 @@ class Sidebar(QWidget):
             self._scene_card(data_settings),  # always on top
             self._timeline_card(),  # below the scene, when a series of scans is open
             self._scans_card(),  # every scan of the series: show them all, align and compare all, dates
+            self._large_card(),  # huge scans: overview, sections, full detail
             self._offset_card(data_settings),
             self._clouds_card(cloud_names, colors, view_settings),
             self._align_card(cloud_names, data_settings),
@@ -297,6 +301,7 @@ class Sidebar(QWidget):
 
         self._previous_scene = index
         scene = SCENES[key]
+        self._show_scene_info(key)
         self.n_points.blockSignals(True)
         self.n_points.setValue(scene.default_points)
         self.n_points.blockSignals(False)
@@ -314,7 +319,18 @@ class Sidebar(QWidget):
 
     def _show_scene_info(self, key):
         scene = SCENES[key]
-        self.scene_info.setText(f"{scene.description}<br><br><b>Change:</b> {scene.change}")
+        text = f"{scene.description}<br><br><b>Change:</b> {scene.change}"
+        on_disk = getattr(scene, "on_disk", False)
+        if on_disk:
+            sizes = " · ".join(f"{name} {short_count(n)}" for name, n in scene.disk_sizes.items())
+            text += (f"<br><br>Written to files once and opened like a real survey: an overview, full detail "
+                     f"where it matters. Size in Scan settings ({sizes}); 100M points take a few minutes "
+                     f"the first time and about 5 GB on disk.")
+        self.scene_info.setText(text)
+        self.n_points.blockSignals(True)
+        self.n_points.setMaximum(max(getattr(scene, "disk_sizes", {"": 5_000_000}).values()) if on_disk else 5_000_000)
+        self.n_points.setSingleStep(1_000_000 if on_disk else 5_000)
+        self.n_points.blockSignals(False)
         for widget in self._data_widgets():
             widget.setEnabled(not scene.fixed_points)
 
@@ -422,6 +438,13 @@ class Sidebar(QWidget):
         self.data_progress.setVisible(busy)
         if busy:
             self.data_status.setText("Updating…")
+
+    def show_data_progress(self, fraction, text):
+        """Building or reading something big: a real progress bar and what it is doing."""
+        self.data_progress.setRange(0, 1000)
+        self.data_progress.setValue(int(1000 * fraction))
+        self.data_progress.setVisible(True)
+        self.data_status.setText(text)
 
     def show_data_status(self, text):
         self.data_status.setText(text)
@@ -800,6 +823,104 @@ class Sidebar(QWidget):
         card.add(self.scans_status)
         card.setVisible(False)
         return card
+
+    # Huge scans (100 million points and more): overview, sections, full detail
+
+    def _large_card(self):
+        card = Card("Large scan")
+        self.large_card = card
+        self.large_info = QLabel()
+        self.large_info.setWordWrap(True)
+        self.large_info.setTextFormat(Qt.RichText)
+        card.add(self.large_info)
+        form = Form()
+        self.large_cell = guard_wheel(QComboBox())
+        for cell in (0.05, 0.10, 0.20):
+            self.large_cell.addItem(f"One point per {cell * 100:.0f} cm", cell)
+        self.large_cell.activated.connect(lambda index: self.callbacks["large_cell"](self.large_cell.itemData(index)))
+        form.row("Overview", self.large_cell, "How finely the whole scan is shown and compared. Finer shows more, "
+                                             "coarser is faster. Full detail is always kept on disk.")
+        self.large_section_length = guard_wheel(QComboBox())
+        for length in (10, 20, 50):
+            self.large_section_length.addItem(f"{length} m", float(length))
+        self.large_section_length.setCurrentIndex(1)
+        self.large_section_length.activated.connect(lambda index: self.callbacks["large_sections"]())
+        form.row("Sections", self.large_section_length, "The scan cut into pieces along its length")
+        card.add(form)
+        self.large_sections = QListWidget()
+        self.large_sections.setToolTip("Click a section to look at it in full detail")
+        self.large_sections.setMaximumHeight(170)
+        self.large_sections.itemClicked.connect(
+            lambda item: self.callbacks["large_section"](self.large_sections.row(item)))
+        card.add(self.large_sections)
+        row = QHBoxLayout()
+        row.setSpacing(SPACING)
+        self.large_detail_button = button("Full detail here",
+                                          tooltip="Load every point of both scans around the middle of the view "
+                                                  "(or the selected area) and compare them there (Ctrl+Shift+D)")
+        self.large_detail_button.clicked.connect(lambda: self.callbacks["large_detail_here"]())
+        row.addWidget(self.large_detail_button, 1)
+        self.large_back_button = button("Back to overview", tooltip="Show the whole scan again (Esc)")
+        self.large_back_button.clicked.connect(lambda: self.callbacks["large_overview"]())
+        self.large_back_button.setEnabled(False)
+        row.addWidget(self.large_back_button, 1)
+        card.add(row)
+        self.large_auto_refine = QCheckBox("Measure changed areas in full detail")
+        self.large_auto_refine.setChecked(True)
+        self.large_auto_refine.setToolTip("After Detect Changes on the overview, load both scans in full detail "
+                                          "around every changed area and measure it again there")
+        card.add(self.large_auto_refine)
+        self.large_sweep_button = button("Search everything in full detail",
+                                         tooltip="Go through the whole scan piece by piece in full detail. Finds "
+                                                 "changes smaller than the overview shows, but takes a while")
+        self.large_sweep_button.clicked.connect(lambda: self.callbacks["large_sweep"]())
+        card.add(self.large_sweep_button)
+        self.large_progress = thin_progress()
+        card.add(self.large_progress)
+        self.large_status = hint()
+        card.add(self.large_status)
+        card.setVisible(False)
+        return card
+
+    def show_large(self, info, cell, sections):
+        """Fill the Large scan card (info None hides it)."""
+        self.large_card.setVisible(info is not None)
+        if info is None:
+            return
+        self.large_info.setText(info)
+        index = self.large_cell.findData(cell)
+        if index >= 0:
+            self.large_cell.setCurrentIndex(index)
+        self.set_large_sections(sections)
+
+    def set_large_sections(self, rows):
+        self.large_sections.clear()
+        self.large_sections.addItems(rows)
+
+    def large_section_length_value(self):
+        return self.large_section_length.currentData()
+
+    def set_large_detail(self, in_detail, text=""):
+        self.large_back_button.setEnabled(in_detail)
+        self.large_cell.setEnabled(not in_detail)
+        self.large_sweep_button.setEnabled(not in_detail)
+        if text:
+            self.large_status.setText(text)
+
+    def set_large_busy(self, busy, text="", fraction=None, stoppable=False):
+        self.large_progress.setVisible(busy)
+        if busy:
+            if fraction is None:
+                self.large_progress.setRange(0, 0)
+            else:
+                self.large_progress.setRange(0, 1000)
+                self.large_progress.setValue(int(1000 * fraction))
+        self.large_detail_button.setEnabled(not busy)
+        self.large_sections.setEnabled(not busy)
+        self.large_sweep_button.setText("Stop" if busy and stoppable else "Search everything in full detail")
+        self.large_sweep_button.setEnabled(stoppable or not busy)
+        if text:
+            self.large_status.setText(text)
 
     def show_scans(self, names, colors, dates=None):
         """Fill the Scans card for a series (None hides it)."""
