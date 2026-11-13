@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -28,7 +28,7 @@ from viewer import prefs
 from viewer.branding import APP_NAME, LOGO_PATH, VERSION
 from viewer import style
 from viewer.style import PANEL_STYLE
-from viewer.widgets import Card, Form, button, hint, spin
+from viewer.widgets import LABEL_WIDTH, Card, Form, button, hint, spin
 
 # Keys that are not menu entries (handled by the 3D view itself)
 EXTRA_KEYS = [
@@ -147,25 +147,14 @@ def paint_theme_preview(painter, rect, key):
     painter.restore()
 
 
-def theme_icon(key, width, height):
-    """The theme's picture as an icon for the list of themes (sharp on Retina screens)."""
-    ratio = 2.0
-    pixmap = QPixmap(int(width * ratio), int(height * ratio))
-    pixmap.setDevicePixelRatio(ratio)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    paint_theme_preview(painter, QRectF(0, 0, width, height), key)
-    painter.end()
-    return QIcon(pixmap)
-
-
 class ThemePreview(QWidget):
     """A bigger picture of the chosen theme under the list, so you see roughly what awaits you."""
 
     def __init__(self, key):
         super().__init__()
         self.key = key
-        self.setFixedHeight(48)
+        self.setFixedHeight(56)
+        self.setMinimumWidth(56 * 44 // 18)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     def show_theme(self, key):
@@ -193,14 +182,20 @@ class PreferencesDialog(QDialog):
         look = Card("Look")
         form = Form()
         self.theme = QComboBox()
-        self.theme.setIconSize(QSize(44, 18))
         for key, name in style.theme_names():
-            self.theme.addItem(theme_icon(key, 44, 18), name, key)
+            self.theme.addItem(name, key)
         self.theme.setCurrentIndex(max(0, self.theme.findData(prefs.get("theme"))))
         form.row("Theme", self.theme, "Colours of the whole app. Subdron is the look of subdron.com.")
+        look.add(form)
+        # The colours of the chosen theme, under the list and lined up with it, in a row of its own
         self.theme_preview = ThemePreview(self.theme.currentData())
         self.theme.currentIndexChanged.connect(lambda _: self.theme_preview.show_theme(self.theme.currentData()))
-        form.row("", self.theme_preview)  # under the list, lined up with it
+        preview_row = QHBoxLayout()
+        preview_row.setContentsMargins(0, 0, 0, 0)
+        preview_row.addSpacing(form.horizontalSpacing() + LABEL_WIDTH)
+        preview_row.addWidget(self.theme_preview, 1)
+        look.add(preview_row)
+        form = Form()
         self.panel_side = QComboBox()
         self.panel_side.addItem("On the right of the 3D view", "right")
         self.panel_side.addItem("On the left of the 3D view", "left")
@@ -263,6 +258,8 @@ class PreferencesDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        # Qt underestimates the height of wrapping text here: start at the full height the cards need
+        self.setMinimumHeight(self.sizeHint().height())
 
     def accept(self):
         theme = self.theme.currentData()
