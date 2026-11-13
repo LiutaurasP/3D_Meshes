@@ -12,16 +12,18 @@ import numpy as np
 
 AREA_COLUMNS = ("number", "change", "confidence", "peak_m", "volume_m3", "volume_added_m3", "volume_removed_m3",
                 "volume_error_m3", "footprint_m2", "center_x", "center_y", "depth_m", "size_x_m", "size_y_m",
-                "size_z_m", "points", "tag", "status", "comment", "moved")
+                "size_z_m", "points", "tag", "status", "comment", "moved", "measured")
 
 
 def _round(value, digits=3):
     return None if value is None else round(float(value), digits)
 
 
-def area_rows(result, offset=(0, 0, 0)):
-    """One dict per changed area, with real coordinates."""
+def area_rows(result, offset=(0, 0, 0), overview=False):
+    """One dict per changed area, with real coordinates. overview: huge scans, the areas were found on
+    the overview ("measured" says whether each one was measured again with every point)."""
     from displaced import describe
+    from large_scans import measured
 
     offset = np.asarray(offset, dtype=float)
     moved = {}
@@ -42,6 +44,7 @@ def area_rows(result, offset=(0, 0, 0)):
             "size_x_m": _round(size[0], 2), "size_y_m": _round(size[1], 2), "size_z_m": _round(size[2], 2),
             "points": int(area.n_points), "tag": area.tag, "status": area.status, "comment": area.comment,
             "moved": moved.get(number - 1, ""),
+            "measured": measured(area, overview),
             "_low": (np.asarray(area.low) + offset).tolist(), "_high": (np.asarray(area.high) + offset).tolist(),
         })
     return rows

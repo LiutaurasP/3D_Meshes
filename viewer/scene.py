@@ -1081,6 +1081,19 @@ class SceneView:
                                                     bcolor=(0.08, 0.09, 0.12), border=False, loc="lower right",
                                                     size=(0.22, 0.04 * len(entries) + 0.02), face="circle")
 
+    # Huge scans: what is shown (overview or full detail), always in a corner of the view
+
+    def set_badge(self, text):
+        """A small line of text in the top left corner of the 3D view (None removes it)."""
+        self.badge_text = text or ""
+        if getattr(self, "badge_actor", None) is not None:
+            self.plotter.remove_actor(self.badge_actor, render=False)
+            self.badge_actor = None
+        if text:
+            self.badge_actor = self.plotter.add_text(text, position="upper_left", font_size=9,
+                                                     color=(0.78, 0.8, 0.86), name="what is shown")
+        self.plotter.render()
+
     # Huge scans: the overview around a part shown in full detail
 
     def set_context(self, points, color=(0.42, 0.44, 0.5)):

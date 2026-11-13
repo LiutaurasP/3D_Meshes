@@ -47,6 +47,7 @@ class AreasPanel(QWidget):
         self.on_select, self.on_edit, self.on_track, self.on_not_move = on_select, on_edit, on_track, on_not_move
         self.tracks = []
         self.moves = []
+        self.overview = False  # huge scans: the areas were found on the overview (✓ / ≈ marks)
         self.areas = []
         self.current = None
         layout = QVBoxLayout(self)
@@ -136,7 +137,8 @@ class AreasPanel(QWidget):
 
     # Filling
 
-    def show_areas(self, areas, summary="", moves=()):
+    def show_areas(self, areas, summary="", moves=(), overview=False):
+        self.overview = overview
         self.areas = list(areas or [])
         self.moves = list(moves or [])
         for area in self.areas:
@@ -153,7 +155,14 @@ class AreasPanel(QWidget):
                 key = area.status or "Open"
                 counts[key] = counts.get(key, 0) + 1
             parts = ", ".join(f"{n} {k.lower()}" for k, n in sorted(counts.items()))
-            self.summary.setText(f"{len(self.areas)} areas: {parts}. Click one to fly there.")
+            text = f"{len(self.areas)} areas: {parts}. Click one to fly there."
+            if self.overview:
+                from large_scans import measured
+
+                done = sum(1 for area in self.areas if measured(area) == "full detail")
+                text += (f"<br>✓ measured with every point ({done} of {len(self.areas)}) · "
+                         f"≈ value from the overview, not measured in full detail yet")
+            self.summary.setText(text)
         self._fill()
 
     def _fill(self):
@@ -176,9 +185,14 @@ class AreasPanel(QWidget):
                 kind = QTableWidgetItem("moved" + ("?" if move.confidence != "clear" else ""))
                 kind.setForeground(MOVED)
                 volume = NumberItem(f"{move.distance:.1f} m", move.distance)
-            detail = getattr(area, "detail", None)
-            if detail:
-                kind.setToolTip("Measured in full detail" if detail > 0 else "Not there in full detail")
+            from large_scans import MARKS, measured
+
+            where = measured(area, self.overview)
+            if where:
+                kind.setText(f"{kind.text()} {MARKS[where]}")
+                kind.setToolTip({"full detail": "Measured with every point (full detail)",
+                                 "overview": "Value from the overview: not measured in full detail yet",
+                                 "not in full detail": "Seen on the overview, but not there in full detail"}[where])
             items = [number, kind, volume, QTableWidgetItem(area.tag), QTableWidgetItem(area.status)]
             if area.tag == "False alarm":
                 for item in items:
@@ -232,9 +246,12 @@ class AreasPanel(QWidget):
         if getattr(area, "detail_only", False):
             text += "<br><span style='color:#9a9da7'>Found in full detail (too small for the overview).</span>"
         elif detail and detail > 0:
-            text += f"<br><span style='color:#9a9da7'>Measured in full detail ({detail:,} points).</span>"
+            text += f"<br><span style='color:#9a9da7'>✓ Measured in full detail ({detail:,} points).</span>"
         elif detail == -1:
-            text += "<br><span style='color:#9a9da7'>Seen on the overview, but not there in full detail.</span>"
+            text += "<br><span style='color:#9a9da7'>✗ Seen on the overview, but not there in full detail.</span>"
+        elif self.overview:
+            text += ("<br><span style='color:#9a9da7'>≈ Values from the overview: not measured in full detail "
+                     "yet.</span>")
         self.detail.setText(text)
         self.not_move_button.setVisible(move is not None)
         self.tag.setCurrentIndex(TAGS.index(area.tag) if area.tag in TAGS else 0)

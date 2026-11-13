@@ -128,14 +128,15 @@ def write_outputs(series, run, args, folder, stem):
     from exports import area_rows, write_areas_csv, write_areas_geojson, write_scan
 
     offset = series.offset
+    overview = getattr(run.inspections, "large", None) is not None
     written = []
     if args.csv:
         path = folder / f"{stem} areas.csv"
-        write_areas_csv(path, area_rows(run.result, offset))
+        write_areas_csv(path, area_rows(run.result, offset, overview))
         written.append(path)
     if args.geojson:
         path = folder / f"{stem} areas.geojson"
-        write_areas_geojson(path, area_rows(run.result, offset), run.inspections.title)
+        write_areas_geojson(path, area_rows(run.result, offset, overview), run.inspections.title)
         written.append(path)
     if args.aligned:
         path = folder / f"{stem} aligned B{args.aligned if args.aligned.startswith('.') else '.' + args.aligned}"

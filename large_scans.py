@@ -409,6 +409,23 @@ def merge_sweep(result, swept):
     return added
 
 
+# Which numbers come from full detail
+
+
+MARKS = {"full detail": "✓", "overview": "≈", "not in full detail": "✗", "": ""}
+
+
+def measured(area, overview=True):
+    """Where an area's numbers come from: "full detail", "overview", "not in full detail", or ""
+    for normal scans (every point is in memory, there is no overview)."""
+    detail = getattr(area, "detail", None)
+    if detail and detail > 0:
+        return "full detail"
+    if detail == -1:
+        return "not in full detail"
+    return "overview" if overview else ""
+
+
 # Example scenes on disk: how much of the true change was found
 
 
@@ -428,7 +445,7 @@ def true_change_score(areas, truth, tolerance=0.5):
             matched.update(hits)
         else:
             missed.append(change["name"])
-    extra = [i for i in range(len(areas)) if i not in matched]
+    extra = [i for i, area in enumerate(areas) if i not in matched and getattr(area, "tag", "") != "False alarm"]
     return found, len(truth), missed, extra
 
 

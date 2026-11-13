@@ -1336,6 +1336,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             self.history.push("Detect Changes", lambda: self.apply_pose(after), lambda: self.apply_pose(before))
         self._series_analysis_changed()
         self._large_after_detect(result)
+        self._large_badge()
 
     def _show_change_result(self, result):
         from change_detection import score
@@ -1398,8 +1399,8 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
                 summary += f" · {len(extra)} other area{'s' if len(extra) != 1 else ''}"
         detailed = sum(1 for area in result.areas if (getattr(area, "detail", 0) or 0) > 0)
         if self.large_pair() is not None and not self.in_large_detail():
-            summary += (f"<br>{detailed} of {len(result.areas)} measured in full detail" if detailed
-                        else "<br>Measured on the overview")
+            summary += (f"<br>✓ {detailed} of {len(result.areas)} measured with every point (full detail)" if detailed
+                        else "<br>≈ Values from the overview: not measured in full detail yet")
         if self.align_steps is None:
             summary += "<br><b>Scan B is not aligned:</b> most of this is the misalignment. Align first."
 
@@ -1411,7 +1412,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             if move.added != move.removed:
                 area_lines[move.added] = f"{move.added + 1}. where the object of area {move.removed + 1} is now"
         self.sidebar.show_changes_result(summary, area_lines)
-        self.sidebar.areas_panel.show_areas(result.areas, moves=moves)
+        self.sidebar.areas_panel.show_areas(result.areas, moves=moves, overview=self.overview_shown())
 
     @staticmethod
     def _area_text(area):
@@ -1424,11 +1425,13 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         return (f"{area.kind}{sure}, {length:.1f} × {width:.1f} × {height:.1f} m, up to {area.peak:+.2f} m"
                 f"{volume}, {area.n_points:,} points")
 
-    @staticmethod
-    def _area_label(number, area):
+    def _area_label(self, number, area):
+        from large_scans import measured
         from volumes import area_volume_text
 
         volume = area_volume_text(area).split(" ±")[0]
+        if measured(area, self.overview_shown()) == "overview":  # 3D labels can't draw ≈: ~ = overview value
+            volume = f"~{volume}" if volume else volume
         label = f"{number}: {area.kind} {area.peak:+.2f} m" + (f" · {volume}" if volume else "")
         return label + (f" · {area.tag}" if area.tag else "")
 
@@ -1491,7 +1494,8 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
     def _refresh_area_info(self, index):
         result = self.change_result
         self._draw_areas(result)
-        self.sidebar.areas_panel.show_areas(result.areas, moves=getattr(result, "moves", None) or [])
+        self.sidebar.areas_panel.show_areas(result.areas, moves=getattr(result, "moves", None) or [],
+                                            overview=self.overview_shown())
         self.sidebar.areas_panel.select(index, notify=False)
 
     def focus_area(self, row):
@@ -1890,6 +1894,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         """The changed areas as a table (CSV, opens in Excel) or as outlines for GIS (GeoJSON)."""
         from exports import area_rows, write_areas_csv, write_areas_geojson
 
+        self.large_back_to_overview()  # the table is about the whole scan, not one section
         if self.change_result is None or not self.change_result.areas:
             self.notify("No changed areas yet", "Run Detect Changes first", "warning")
             return False
@@ -1898,7 +1903,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             path = self._export_path("Changed Areas", suffix, text)
             if not path:
                 return False
-        rows = area_rows(self.change_result, self.inspections.offset)
+        rows = area_rows(self.change_result, self.inspections.offset, overview=self.overview_shown())
         if str(path).lower().endswith(".csv"):
             write_areas_csv(path, rows)
         else:
@@ -1968,6 +1973,8 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             path = self._export_path("Report", ".pdf", "PDF document (*.pdf)")
             if not path:
                 return None
+        if self.large_back_to_overview():  # the report is about the whole scan, not one section
+            self.notify("Back to the overview", "The report covers the whole scan", "info")
         if self.change_result is None:
             self.notify("Report without changes", "Run Detect Changes first to list the changed areas", "info")
         QApplication.setOverrideCursor(Qt.WaitCursor)

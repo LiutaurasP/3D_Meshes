@@ -1245,6 +1245,7 @@ def large_opened():
           and len(window.clouds["Scan A"].points) < 600_000)
     check("…with the Large scan card and its sections", window.sidebar.large_card.isVisible()
           and window.sidebar.large_sections.count() >= 5)
+    check("…and the 3D view says it shows the overview", window.scene.badge_text.startswith("OVERVIEW"))
     window.align()
     wait_until(lambda: window.is_aligned() and not window._worker.isRunning(), large_aligned, limit_ms=120_000)
 
@@ -1264,6 +1265,11 @@ def large_detected():
     check(f"changes found on the overview ({found} of {total} true changes)", found >= 7)
     detailed = [a for a in result.areas if (getattr(a, "detail", 0) or 0) > 0]
     check(f"…and measured again in full detail in the background ({len(detailed)} areas)", len(detailed) >= 5)
+    table = window.sidebar.areas_panel.table
+    marks = [table.item(row, 1).text() for row in range(table.rowCount())]
+    check("…which the Areas tab marks (✓ full detail)", any("✓" in text for text in marks))
+    rows = __import__("exports").area_rows(result, overview=True)
+    check("…and the exports say it per area", any(row["measured"] == "full detail" for row in rows))
     LARGE["areas"] = len(result.areas)
     pieces = window.sidebar.large_section_length
     pieces.setCurrentIndex(pieces.findData("parts"))
@@ -1287,6 +1293,7 @@ def large_in_detail():
           window.in_large_detail() and window.scene.context_actor is not None
           and window.sidebar.large_back_button.isEnabled())
     check("…and is compared right away", window.change_result is not None)
+    check("…and the 3D view says it is full detail", window.scene.badge_text.startswith("FULL DETAIL"))
     QTest.keyClick(window, Qt.Key_Escape) if state.get("shortcuts") else window.large_back_to_overview()
     wait_until(lambda: not window.in_large_detail(), large_back, limit_ms=10_000)
 
@@ -1321,7 +1328,8 @@ def large_reopened():
 
 
 def large_done():
-    check("…and leaving them hides the Large scan card", not window.sidebar.large_card.isVisible())
+    check("…and leaving them hides the Large scan card", not window.sidebar.large_card.isVisible()
+          and not window.scene.badge_text)
     moved_checks()
 
 

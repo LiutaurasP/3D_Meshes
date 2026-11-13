@@ -26,6 +26,13 @@ MARGIN = 42.0
 # Collecting what goes into the report (plain data, also used by the tests)
 
 
+def measured_where(window, area):
+    from large_scans import measured
+
+    overview = getattr(window, "overview_shown", lambda: False)()
+    return measured(area, overview)
+
+
 def collect(window):
     """Everything the report says, as plain values."""
     clouds = window.clouds
@@ -104,7 +111,17 @@ def collect(window):
                 "volume_error": area.volume_error,
                 "confidence": area.confidence,
                 "tag": area.tag, "status": area.status, "comment": area.comment,
+                "measured": measured_where(window, area),
             })
+    pair = window.large_pair() if hasattr(window, "large_pair") else None
+    if pair is not None and not window.in_large_detail():  # huge scans: say what the numbers are based on
+        from large_scans import measured
+
+        stored = {name: store.n_points for name, store in pair.stores.items()}
+        info["large"] = {"stored": stored, "cell": pair.cell,
+                         "measured": sum(1 for a in info["areas"] if a.get("measured") == "full detail")}
+        for area in info["areas"]:
+            area.setdefault("measured", "overview")
     info["series"] = collect_series(window)
     return info
 
@@ -311,6 +328,10 @@ def areas_table(pages, areas, names):
                 volume += f" ± {format_volume(area['volume_error']).replace(' m³', '')}"
         if area.get("confidence") and area["confidence"] != "clear":
             kind = f"{kind}?"
+        from large_scans import MARKS
+
+        mark = MARKS.get(area.get("measured") or "", "")
+        kind = f"{kind} {mark}" if mark else kind
         values = [str(area["number"]), kind, f"{area['peak'] * 100:+.0f} cm", volume,
                   f"{sx:.1f} × {sy:.1f} × {sz:.1f}", f"{cx:.1f}, {cy:.1f}", f"{-cz:.1f} m"]
         x = MARGIN
@@ -440,7 +461,16 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         kinds = info.get("kinds", {})
         for name, file in zip((a, b), info["files"]):
             rows.append((f"File {name[-1]}", f"{file}" + (f"  ({kinds[name]})" if kinds.get(name) else "")))
-    rows.append(("Points", f"{a} (before): {info['points'][a]:,}   ·   {b} (after): {info['points'][b]:,}"))
+    large = info.get("large")
+    if large:
+        stored = large["stored"]
+        rows.append(("Points", f"{a} (before): {stored[a]:,}   ·   {b} (after): {stored[b]:,}"))
+        rows.append(("Compared on", f"an overview of one averaged point per {large['cell'] * 100:.0f} cm cube "
+                                    f"({info['points'][a]:,} + {info['points'][b]:,} points); "
+                                    f"{large['measured']} of {len(info['areas'])} changed areas were measured "
+                                    f"again with every point (✓ in the table)"))
+    else:
+        rows.append(("Points", f"{a} (before): {info['points'][a]:,}   ·   {b} (after): {info['points'][b]:,}"))
     alignment = info["alignment"]
     if alignment:
         rows.append(("Alignment", f"{alignment['rounds']} rounds, remaining error (RMSE) "
@@ -485,6 +515,10 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         if any(a.get("confidence") not in (None, "clear") for a in info["areas"]):
             pages.y += 4
             pages.text("? = the change is close to the level of detection: worth checking again.", 8.5, color=DIM)
+        if info.get("large"):
+            pages.y += 2
+            pages.text("✓ = measured with every point (full detail)   ≈ = value from the overview only   "
+                       "✗ = seen on the overview, but not there in full detail", 8.5, color=DIM)
         if info.get("parts"):
             from volumes import format_volume
 

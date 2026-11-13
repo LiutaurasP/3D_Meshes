@@ -61,8 +61,28 @@ class LargeScanMixin:
         self.sidebar.set_large_detail(False)
         self._large_update_card()
 
+    def overview_shown(self):
+        """True when the clouds are the overview of huge scans (not every point)."""
+        return self.large_pair() is not None and not self.in_large_detail()
+
+    def _large_badge(self):
+        pair = self.large_pair()
+        if pair is None:
+            self.scene.set_badge(None)
+        elif self.in_large_detail():
+            points = sum(len(c.points) for c in self.clouds.values())
+            self.scene.set_badge(f"FULL DETAIL · {self._large_box[2]} · {points / 1e6:.1f}M points   (Esc: overview)")
+        else:
+            total = sum(store.n_points for store in pair.stores.values())
+            result = self.change_result
+            pending = result is not None and any(getattr(a, "detail", None) is None for a in result.areas)
+            self.scene.set_badge(f"OVERVIEW · one point per {pair.cell * 100:.0f} cm · {total / 1e6:.0f}M points on disk"
+                                 + ("   (~ = value from the overview, not measured in full detail yet)"
+                                    if pending else ""))
+
     def _large_update_card(self):
         pair = self.large_pair()
+        self._large_badge()
         if pair is None:
             self.sidebar.show_large(None, None, [])
             return
@@ -235,6 +255,7 @@ class LargeScanMixin:
         outside = ~np.all((around >= low) & (around <= high), axis=1)
         self.scene.set_context(around[outside][:: max(1, int(outside.sum() // 1_500_000))])
         self.scene.focus_on(low, high)
+        self._large_badge()
         self.sidebar.set_large_busy(False)
         self.sidebar.set_large_detail(True, f"Full detail: {title}, {len(a):,} + {len(b):,} points. "
                                             f"Esc or Back to overview to see everything again.")
@@ -326,6 +347,7 @@ class LargeScanMixin:
         self._large_threshold = threshold
         result = self._large_job_result
         self.sidebar.set_large_busy(False)
+        self.sidebar.areas_panel.overview = self.overview_shown()
         measured = sum(1 for area in result.areas if (getattr(area, "detail", 0) or 0) > 0)
         extra = sum(1 for area in result.areas if getattr(area, "detail_only", False))
         unconfirmed = sum(1 for area in result.areas if getattr(area, "detail", 0) == -1)
@@ -337,6 +359,7 @@ class LargeScanMixin:
         self.sidebar.set_large_busy(False, text + ".")
         if self.change_result is result:
             self._show_change_result(result)
+            self._large_badge()
             self.notify("Measured in full detail", text, "success")
         self.large_show_sections()
 
@@ -377,6 +400,7 @@ class LargeScanMixin:
         self.sidebar.set_large_busy(False, text + ".")
         if self.change_result is result:
             self._show_change_result(result)
+            self._large_badge()
         self.notify("Full detail search", text, "success")
         self.large_show_sections()
 
