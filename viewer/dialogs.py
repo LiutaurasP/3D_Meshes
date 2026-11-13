@@ -307,7 +307,8 @@ class StartScreen(QDialog):
                        f"<span style='color:{style.TEXT_DIM}'>Version {VERSION}</span>")
         side.addWidget(title)
         side.addSpacing(18)
-        new = button("New Project", primary=True)
+        # The first time, the tutorial is the one thing in colour: New Project steps back
+        new = button("New Project", primary=bool(prefs.get("tutorial_done")))
         new.clicked.connect(lambda: self._done(self.NEW))
         side.addWidget(new)
         open_ = button("Open Project…")
@@ -361,29 +362,52 @@ class StartScreen(QDialog):
         card.setObjectName("tutorialCard")
         card.setStyleSheet("#tutorialCard QLabel { background: transparent; }")
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(16)
+        layout.setContentsMargins(*((26, 24, 24, 24) if first_time else (18, 16, 18, 16)))
+        layout.setSpacing(20 if first_time else 16)
         text = QVBoxLayout()
-        text.setSpacing(4)
+        text.setSpacing(6 if first_time else 4)
         badge = QLabel("RECOMMENDED FOR FIRST-TIME USERS" if first_time else "TUTORIAL")
-        badge.setStyleSheet(f"color: {style.ACCENT_HOVER}; font-size: {style.SIZE_TINY - 1}px; font-weight: 700;"
-                            " letter-spacing: 1.5px;")
+        badge.setStyleSheet(f"color: {style.ACCENT_HOVER}; font-size: {style.SIZE_TINY - (0 if first_time else 1)}px;"
+                            " font-weight: 700; letter-spacing: 1.5px;")
         text.addWidget(badge)
         heading = QLabel("New here? Take the 5-minute dive." if first_time else "Take the 5-minute dive again")
-        heading.setStyleSheet(f"font-size: {style.SIZE_HEADING - 1}px; font-weight: 700;")
+        heading.setStyleSheet(f"font-size: {22 if first_time else style.SIZE_HEADING - 1}px; font-weight: 700;")
+        heading.setWordWrap(True)
         text.addWidget(heading)
         detail = QLabel("Learn the controls step by step on a real-looking sonar scan, and find what fell "
                         "to the seafloor.")
         detail.setWordWrap(True)
-        detail.setStyleSheet(f"color: {style.TEXT_DIM};")
+        detail.setStyleSheet(f"color: {style.TEXT_DIM};" + (f" font-size: {style.SIZE_TITLE}px;" if first_time else ""))
         text.addWidget(detail)
         layout.addLayout(text, 1)
         start = button("Start Tutorial  →", primary=True)
-        start.setMinimumHeight(38)
         start.clicked.connect(lambda: self._done(self.TUTORIAL))
+        if first_time:  # big, the default for Enter, and the card's edge breathes slowly so the eye goes there
+            start.setStyleSheet("QPushButton { font-size: 17px; font-weight: 700; border-radius: 14px;"
+                                " min-height: 56px; min-width: 220px; padding: 0 22px; }")
+            start.setDefault(True)
+            start.setFocus()
+            self._breathe(card)
+        else:
+            start.setMinimumHeight(38)
         layout.addWidget(start, 0, Qt.AlignVCenter)
         self.tutorial_button = start
         return card
+
+    def _breathe(self, card):
+        from PySide6.QtCore import QVariantAnimation
+
+        quiet, bright = style.mix(style.ACCENT, style.CARD, 0.45), style.ACCENT
+        fill_quiet, fill_bright = style.mix(style.ACCENT, style.CARD, 0.12), style.mix(style.ACCENT, style.CARD, 0.18)
+        self.breath = QVariantAnimation(self)
+        self.breath.setDuration(2400)
+        self.breath.setStartValue(0.0)
+        self.breath.setKeyValueAt(0.5, 1.0)
+        self.breath.setEndValue(0.0)
+        self.breath.setLoopCount(-1)
+        self.breath.valueChanged.connect(lambda v: card.set_colors(
+            fill=style.mix(fill_bright, fill_quiet, v), border=style.mix(bright, quiet, v)))
+        self.breath.start()
 
     def _done(self, kind, value=None):
         self.choice = (kind, value)
