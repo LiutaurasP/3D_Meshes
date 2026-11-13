@@ -123,7 +123,8 @@ class Sidebar(QWidget):
         areas_page, areas_layout = page_layout()
         self.areas_panel = AreasPanel(lambda index: self.callbacks["focus_area"](index),
                                       lambda index, field, value: self.callbacks["area_edit"](index, field, value),
-                                      lambda number: self.callbacks["show_track"](number))
+                                      lambda number: self.callbacks["show_track"](number),
+                                      lambda index: self.callbacks["not_a_move"](index))
         areas_layout.addWidget(self.areas_panel)
         self.pages.addWidget(scrolling(areas_page))
         self.pages.addWidget(scrolling(self._guide_page()))
@@ -427,6 +428,7 @@ class Sidebar(QWidget):
         data.auto_threshold = self.auto_threshold.isChecked()
         data.change_threshold = self.threshold.value() / 100
         data.min_area_points = self.min_area_points.value()
+        data.find_moves = self.find_moves.isChecked()
         return data
 
     def set_offset(self, rotation, translation):
@@ -578,6 +580,11 @@ class Sidebar(QWidget):
         self.min_area_points = form.row("Smallest area", spin(1, 10_000, data.min_area_points, 5, suffix=" points"),
                                         "Smaller groups of changed points are treated as noise")
         card.add(form)
+        self.find_moves = QCheckBox("Recognise moved objects")
+        self.find_moves.setChecked(data.find_moves)
+        self.find_moves.setToolTip("A block or rock that moved shows up as a hole and a bump: recognise it as one "
+                                   "moved object and say how far it moved")
+        card.add(self.find_moves)
 
         self.detect_button = button("Detect changes", primary=True,
                                     tooltip="Compare the scans in their current position (align first)")

@@ -1312,6 +1312,42 @@ def large_reopened():
 
 def large_done():
     check("…and leaving them hides the Large scan card", not window.sidebar.large_card.isVisible())
+    moved_checks()
+
+
+# Moved blocks: one area per moved object, an arrow, "Not a move"
+
+
+def moved_checks():
+    window.pick_scene("quay_toe_blocks")
+    wait_until(lambda: data_ready() and window.inspections.title == SCENES["quay_toe_blocks"].title,
+               moved_scene_ready, limit_ms=60_000)
+
+
+def moved_scene_ready():
+    window.align()
+    wait_until(lambda: window.is_aligned() and not window._worker.isRunning(),
+               lambda: (window.detect_changes(), wait_until(
+                   lambda: window.change_result is not None and window._change_worker.isFinished(),
+                   moved_detected, limit_ms=60_000)), limit_ms=60_000)
+
+
+def moved_detected():
+    result = window.change_result
+    moves = getattr(result, "moves", [])
+    check(f"moved blocks are recognised ({len(moves)} of 3)", len(moves) >= 2)
+    check("…each drawn with an arrow and listed once in the Areas tab",
+          len(window.scene.move_actors) >= 2 * len(moves)
+          and window.sidebar.areas_panel.table.rowCount() == len(result.areas)
+          - sum(1 for m in moves if m.added != m.removed))
+    count = len(moves)
+    window.split_move(moves[0].removed)
+    split = len(window.change_result.moves) == count - 1
+    window.history.stack.undo()
+    check("\"Not a move\" splits a moved object into two changes, and undo brings it back",
+          split and len(window.change_result.moves) == count)
+    rows = __import__("exports").area_rows(result)
+    check("…and the area table export says how far it moved", any(row["moved"].startswith("Moved") for row in rows))
     if args.skip_tutorials:
         skip("both tutorials", "--skip-tutorials")
         finish()

@@ -136,6 +136,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
                 "series_scene": self.open_example_series,
                 "show_track": self.show_track,
                 "area_edit": self.edit_area,
+                "not_a_move": self.split_move,
                 "large_cell": self.large_set_cell,
                 "large_sections": self.large_show_sections,
                 "large_section": self.large_open_section,
@@ -1314,7 +1315,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             dict(zip(names, (result.distance_a, result.distance_b))),
             limit,
         )
-        self.scene.set_areas(result.areas, self._area_labels(result.areas))
+        self._draw_areas(result)
 
         if result.areas:
             summary = (f"<b>{len(result.areas)} changed area{'s' if len(result.areas) > 1 else ''}</b>, "
@@ -1326,12 +1327,23 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         if result.lod is not None:
             from volumes import format_volume
 
-            counted = [a for a in result.areas if a.tag != "False alarm"]
+            from displaced import moved_areas
+
+            moved = moved_areas(getattr(result, "moves", None) or [])
+            counted = [a for i, a in enumerate(result.areas) if a.tag != "False alarm" and i not in moved]
             added = sum(a.volume_added or 0 for a in counted)
             removed = sum(a.volume_removed or 0 for a in counted)
             summary += f" · level of detection {result.lod * 100:.1f} cm"
             if result.areas:
                 summary += f"<br>Volume: <b>+{format_volume(added)}</b> added, <b>−{format_volume(removed)}</b> removed"
+                if moved:
+                    summary += " (moved objects not counted)"
+        moves = getattr(result, "moves", None) or []
+        if moves:
+            from displaced import describe
+
+            listed = ", ".join(f"area {m.removed + 1} {describe(m, short=True)}" for m in moves[:4])
+            summary += f"<br><b>{len(moves)} moved object{'s' if len(moves) != 1 else ''}</b>: {listed}"
 
         truth = self.inspections.truth
         if truth:
@@ -1358,8 +1370,14 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             summary += "<br><b>Scan B is not aligned:</b> most of this is the misalignment. Align first."
 
         area_lines = [f"{i}. {self._area_text(area)}" for i, area in enumerate(result.areas, start=1)]
+        for move in moves:
+            from displaced import describe
+
+            area_lines[move.removed] = f"{move.removed + 1}. {describe(move)}"
+            if move.added != move.removed:
+                area_lines[move.added] = f"{move.added + 1}. where the object of area {move.removed + 1} is now"
         self.sidebar.show_changes_result(summary, area_lines)
-        self.sidebar.areas_panel.show_areas(result.areas)
+        self.sidebar.areas_panel.show_areas(result.areas, moves=moves)
 
     @staticmethod
     def _area_text(area):
@@ -1380,9 +1398,42 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         label = f"{number}: {area.kind} {area.peak:+.2f} m" + (f" · {volume}" if volume else "")
         return label + (f" · {area.tag}" if area.tag else "")
 
-    def _area_labels(self, areas, limit=10):
-        """Labels for the biggest areas only (the list is sorted by size), the rest get just a box."""
-        return [self._area_label(i, area) if i <= limit else "" for i, area in enumerate(areas, start=1)]
+    def _area_labels(self, areas, limit=10, moves=()):
+        """Labels for the biggest areas only (the list is sorted by size), the rest get just a box.
+        A moved object gets one label (where it was), with an arrow to where it is now."""
+        labels = [self._area_label(i, area) if i <= limit else "" for i, area in enumerate(areas, start=1)]
+        for move in moves:
+            labels[move.removed] = f"{move.removed + 1}: moved {move.distance:.1f} m"
+            if move.added != move.removed:
+                labels[move.added] = ""
+        return labels
+
+    def _draw_areas(self, result):
+        moves = getattr(result, "moves", None) or []
+        self.scene.set_areas(result.areas, self._area_labels(result.areas, moves=moves))
+        self.scene.set_moves(moves)
+
+    def split_move(self, index):
+        """"Not a move": the two areas count as a removed and an added change again (undoable)."""
+        result = self.change_result
+        moves = getattr(result, "moves", None) or []
+        move = next((m for m in moves if index in (m.removed, m.added)), None)
+        if move is None:
+            return
+
+        def put(present):
+            if self.change_result is not result:
+                return
+            listed = any(m is move for m in result.moves)
+            if present and not listed:
+                result.moves.append(move)
+            elif not present and listed:
+                result.moves = [m for m in result.moves if m is not move]
+            self._show_change_result(result)
+            self.sidebar.areas_panel.select(move.removed, notify=False)
+
+        put(False)
+        self.history.push(f"Not a Move: Area {move.removed + 1}", lambda: put(False), lambda: put(True))
 
     def edit_area(self, index, field, value):
         """Tag, status or comment of a changed area (Areas tab), undoable."""
@@ -1405,13 +1456,19 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
 
     def _refresh_area_info(self, index):
         result = self.change_result
-        self.scene.set_areas(result.areas, self._area_labels(result.areas))
-        self.sidebar.areas_panel.show_areas(result.areas)
+        self._draw_areas(result)
+        self.sidebar.areas_panel.show_areas(result.areas, moves=getattr(result, "moves", None) or [])
         self.sidebar.areas_panel.select(index, notify=False)
 
     def focus_area(self, row):
         if self.change_result and 0 <= row < len(self.change_result.areas):
             area = self.change_result.areas[row]
+            move = next((m for m in getattr(self.change_result, "moves", None) or [] if row in (m.removed, m.added)),
+                        None)
+            if move is not None:  # both places of a moved object
+                other = self.change_result.areas[move.added if row == move.removed else move.removed]
+                self.scene.focus_on(np.minimum(area.low, other.low), np.maximum(area.high, other.high))
+                return
             self.scene.focus_on(area.low, area.high)
 
     def step_area(self, direction):

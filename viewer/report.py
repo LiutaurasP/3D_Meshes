@@ -63,6 +63,17 @@ def collect(window):
             "added": sum(a.volume_added or 0 for a in result.areas if a.tag != "False alarm"),
             "removed": sum(a.volume_removed or 0 for a in result.areas if a.tag != "False alarm"),
         }
+        from displaced import describe, moved_areas
+
+        moves = getattr(result, "moves", None) or []
+        moved = moved_areas(moves)
+        counted = [a for i, a in enumerate(result.areas) if a.tag != "False alarm" and i not in moved]
+        info["detection"]["added"] = sum(a.volume_added or 0 for a in counted)
+        info["detection"]["removed"] = sum(a.volume_removed or 0 for a in counted)
+        info["moves"] = [{"where": move.removed + 1, "now": move.added + 1, "text": describe(move),
+                          "size": [float(v) for v in move.size], "confidence": move.confidence,
+                          "from": [float(v) for v in np.asarray(move.old_center) + offset],
+                          "to": [float(v) for v in np.asarray(move.new_center) + offset]} for move in moves]
         for number, area in enumerate(result.areas, start=1):
             info["areas"].append({
                 "number": number,
@@ -456,6 +467,14 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         if any(a.get("confidence") not in (None, "clear") for a in info["areas"]):
             pages.y += 4
             pages.text("? = the change is close to the level of detection: worth checking again.", 8.5, color=DIM)
+        if info.get("moves"):
+            pages.heading("Moved objects", keep=60)
+            pages.text("A block or rock that moved shows up as two changes: removed where it was and added where "
+                       "it is now. These pairs were recognised as one object (the same shape fits onto both "
+                       "places), so their volume is not counted as added or removed.", 9, color=DIM, gap=8)
+            rows = [[str(m["where"]), (f"area {m['now']}" if m["now"] != m["where"] else "–"), m["text"],
+                     " × ".join(f"{v:.1f}" for v in m["size"]) + " m", m["confidence"]] for m in info["moves"]]
+            simple_table(pages, [("Area", 40), ("Now at", 60), ("Movement", 270), ("Size", 90), ("Fit", 0)], rows)
         inspected = [a for a in info["areas"] if a.get("tag") or a.get("status") or a.get("comment")]
         if inspected:
             pages.heading("Inspection", keep=60)

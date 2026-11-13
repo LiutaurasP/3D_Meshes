@@ -81,6 +81,7 @@ class SceneView:
         self.when_colors = []  # colour per scan for the "When changed" colours
         self.legend_actor = None
         self.context_actor = None  # huge scans in full detail: the overview around it, dimmed
+        self.move_actors = []  # arrows from where a moved object was to where it is now
 
     # Geometry
 
@@ -448,13 +449,36 @@ class SceneView:
         self.set_areas_visible(self.settings.show_areas)
 
     def clear_areas(self):
-        for actor in self.area_actors:
+        for actor in self.area_actors + getattr(self, "move_actors", []):
             self.plotter.remove_actor(actor, render=False)
         self.area_actors = []
+        self.move_actors = []
+
+    def set_moves(self, moves, color=(0.35, 0.85, 1.0)):
+        """An arrow for every moved object, from where it was to where it is now (above the object)."""
+        for actor in self.move_actors:
+            self.plotter.remove_actor(actor, render=False)
+        self.move_actors = []
+        for move in moves:
+            lift = np.array([0.0, 0.0, 0.6 * float(move.size[-1]) + 0.3])
+            start = np.asarray(move.old_center, dtype=float) + lift
+            end = np.asarray(move.new_center, dtype=float) + lift
+            direction = end - start
+            length = float(np.linalg.norm(direction))
+            if length < 1e-3:
+                continue
+            arrow = pv.Arrow(start=start, direction=direction / length, tip_length=min(0.35, 0.6 / length), tip_radius=0.12,
+                             shaft_radius=0.045, scale=length)
+            self.move_actors.append(self.plotter.add_mesh(arrow, color=color, reset_camera=False, pickable=False))
+            ring = pv.Disc(center=start, inner=0.18, outer=0.26, normal=(0, 0, 1), c_res=24)
+            self.move_actors.append(self.plotter.add_mesh(ring, color=color, reset_camera=False, pickable=False))
+        for actor in self.move_actors:
+            actor.SetVisibility(self.settings.show_areas)
+        self.plotter.render()
 
     def set_areas_visible(self, visible):
         self.settings.show_areas = visible
-        for actor in self.area_actors:
+        for actor in self.area_actors + self.move_actors:
             actor.SetVisibility(visible)
         self.plotter.render()
 

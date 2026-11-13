@@ -64,15 +64,21 @@ def compare_large(paths, args, log=print):
     threshold = args.threshold or overview_threshold(np.asarray(a.points), np.asarray(aligned.points))
     result = detect_changes(a, aligned, threshold=threshold, min_area_points=defaults.min_area_points)
     measure_areas(result, np.asarray(a.points), np.asarray(aligned.points))
+    from displaced import describe, find_moves, refine_moves
+
+    result.moves = find_moves(result, np.asarray(a.points), np.asarray(aligned.points))
     log(f"  overview: {len(result.areas)} changed areas ({time.time() - start:.0f} s so far)")
     pair = inspections.large
     if pair is not None and (args.full_detail or args.sweep):
         viewpoint = default_viewpoint(np.asarray(a.points))
         threshold = refine_areas(pair, result, matrix, viewpoint, on_progress=progress)
         log(f"  full detail: {sum(1 for x in result.areas if getattr(x, 'detail', 0)) } areas measured again")
+        refine_moves(pair, result, matrix, viewpoint)
         if args.sweep:
             swept, _ = sweep(pair, matrix, viewpoint, threshold, on_progress=progress)
             log(f"  full detail search: {merge_sweep(result, swept)} more areas found")
+    for move in result.moves:
+        log(f"    area {move.removed + 1}: {describe(move)} ({move.confidence})")
     added = sum(x.volume_added or 0 for x in result.areas)
     removed = sum(x.volume_removed or 0 for x in result.areas)
     log(f"  {inspections.title}: {len(result.areas)} changed areas, +{added:.2f} m³ / -{removed:.2f} m³ "
@@ -103,12 +109,17 @@ def compare(series, older, newer, args, log=print):
     aligned.transform(matrix)
     result = detect_changes(a, aligned, threshold=args.threshold, min_area_points=defaults.min_area_points)
     measure_areas(result, np.asarray(a.points), np.asarray(aligned.points))
+    from displaced import describe, find_moves
+
+    result.moves = find_moves(result, np.asarray(a.points), np.asarray(aligned.points))
     seconds = time.time() - start
     added = sum(x.volume_added or 0 for x in result.areas)
     removed = sum(x.volume_removed or 0 for x in result.areas)
     log(f"  {inspections.title}: aligned in {len(steps) - 1} rounds (RMSE {steps[-1].inlier_rmse * 100:.1f} cm), "
         f"{len(result.areas)} changed areas, +{added:.2f} m³ / -{removed:.2f} m³, "
         f"level of detection {result.lod * 100:.1f} cm ({seconds:.1f} s)")
+    for move in result.moves:
+        log(f"    area {move.removed + 1}: {describe(move)} ({move.confidence})")
     return SimpleNamespace(inspections=inspections, steps=steps, matrix=matrix, aligned=aligned, result=result,
                            added=added, removed=removed, older=older, newer=newer)
 
