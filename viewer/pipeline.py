@@ -32,6 +32,8 @@ class Inspections:
     offset: np.ndarray = field(default_factory=lambda: np.zeros(3))  # add to get real-world coordinates
     kinds: dict = field(default_factory=dict)  # name -> what kind of file it came from
     notes: list = field(default_factory=list)  # things the user should know about the import
+    large: object = None  # large_scans.LargePair when the scans stay on disk (overview + full detail)
+    truth_changes: list = field(default_factory=list)  # true changes as boxes (examples written to disk)
 
 
 def misalign(cloud, rotation_deg, translation):
@@ -46,8 +48,23 @@ def misalign(cloud, rotation_deg, translation):
     return moved
 
 
-def build_inspections(data_settings):
-    """Create the example scene chosen in the settings, with the second scan misaligned."""
+def build_inspections(data_settings, on_progress=None, should_stop=None):
+    """Create the example scene chosen in the settings, with the second scan misaligned.
+
+    Scenes made at Subdron's size (on_disk) are written to files first and opened like real
+    huge scans: an overview, with full detail on disk.
+    """
+    from datasets import SCENES
+
+    scene = SCENES.get(data_settings.scene)
+    if getattr(scene, "on_disk", False):
+        from large_scans import example_pair
+
+        pair, title = example_pair(data_settings, on_progress, should_stop)
+        inspections = inspections_from_pair(pair, title)
+        inspections.change = scene.change
+        return inspections
+
     scan = ScanSettings(
         n_points=data_settings.n_points,
         noise=data_settings.noise,
@@ -81,7 +98,50 @@ def big_coordinate_offset(points, limit=10_000.0):
     return offset
 
 
-def load_inspections(path_a, path_b, options=None):
+def inspections_from_pair(pair, title, keep_detail=True):
+    """Inspections showing the overview of two scans on disk (large_scans.LargePair)."""
+    clouds, intensity, kinds = {}, {}, {}
+    for name in ("Scan A", "Scan B"):
+        points, strength = pair.overview(name)
+        clouds[name] = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+        if strength is not None:
+            intensity[name] = strength
+        kinds[name] = f"{pair.stores[name].info.kind}, {pair.stores[name].n_points:,} points"
+    cell = f"{pair.cell * 100:.0f} cm"
+    notes = [f"{pair.describe()}: showing one averaged point per {cell} cube"
+             + (", full detail is loaded where it is needed" if keep_detail else "")]
+    if pair.section:
+        notes.append(f"Only {pair.section[0]:.0f} to {pair.section[1]:.0f} m along the scan")
+    return Inspections(title=title, change="", clouds=clouds, intensity=intensity, offset=pair.offset.copy(),
+                       kinds=kinds, notes=notes, large=pair if keep_detail else None,
+                       truth_changes=list(pair.truth))
+
+
+def load_large_inspections(paths, options, on_progress=None, should_stop=None):
+    """Two big scans: thinned ("thin") or overview with full detail on disk ("overview")."""
+    from large_scans import open_pair, resolve_depth
+
+    resolved, down = resolve_depth(paths, options)
+    first = resolved["Scan A"]
+    cell = first.thin if first.mode == "thin" else None
+    pair = open_pair(paths, resolved, cell=cell, section=first.section, on_progress=on_progress,
+                     should_stop=should_stop)
+    title = f"{Path(paths['Scan A']).name} + {Path(paths['Scan B']).name}"
+    inspections = inspections_from_pair(pair, title, keep_detail=first.mode == "overview")
+    if down and (options.get("Scan A") is None or options["Scan A"].depth_down is None):
+        inspections.notes.append("Depth values were positive, so they were turned into heights below the surface")
+    return inspections
+
+
+def cut_section(points, section, axis=None):
+    """Keep only the part from section[0] to section[1] metres along the scan (bool per point)."""
+    from scan_store import in_section, main_axis
+
+    axis = axis or main_axis(points)
+    return in_section(points, axis, section), axis
+
+
+def load_inspections(path_a, path_b, options=None, on_progress=None, should_stop=None):
     """Read two scans from files (see scan_formats.py for all the types). No ground truth for these.
 
     options: ImportOptions for both files, or a dict {"Scan A": ..., "Scan B": ...}.
@@ -91,6 +151,8 @@ def load_inspections(path_a, path_b, options=None):
 
     if not isinstance(options, dict):
         options = {"Scan A": options, "Scan B": options}
+    if any(o is not None and o.mode in ("thin", "overview") for o in options.values()):
+        return load_large_inspections({"Scan A": path_a, "Scan B": path_b}, options, on_progress, should_stop)
     scans, notes = {}, []
     for name, path in (("Scan A", path_a), ("Scan B", path_b)):
         chosen = options.get(name) or ImportOptions(depth_down=None)
@@ -104,6 +166,16 @@ def load_inspections(path_a, path_b, options=None):
         for scan in scans.values():
             scan.points[:, 2] *= -1
         notes.append("Depth values were positive, so they were turned into heights below the surface")
+
+    section = (options.get("Scan A") or ImportOptions()).section
+    if section:
+        axis = None
+        for scan in scans.values():
+            keep, axis = cut_section(scan.points, section, axis)
+            scan.points = scan.points[keep]
+            if scan.intensity is not None:
+                scan.intensity = scan.intensity[keep]
+        notes.append(f"Only {section[0]:.0f} to {section[1]:.0f} m along the scan")
 
     offset = big_coordinate_offset(scans["Scan A"].points)
     clouds, intensity = {}, {}
@@ -148,7 +220,7 @@ class Series:
 
 def load_series(paths, options=None):
     """Read several scans of the same place. options: one ImportOptions for all, or a list."""
-    from scan_formats import ImportOptions, guess_depth_down, read_scan
+    from scan_formats import ImportOptions, Scan, guess_depth_down, read_scan
     from series_analysis import date_from_name
 
     if not isinstance(options, (list, tuple)):
@@ -157,7 +229,16 @@ def load_series(paths, options=None):
     for path, chosen in zip(paths, options):
         chosen = chosen or ImportOptions(depth_down=None)
         raw = ImportOptions(**{**chosen.to_json(), "depth_down": bool(chosen.depth_down)})
-        scan = read_scan(path, raw)
+        if chosen.mode in ("thin", "overview"):  # a series keeps every scan in memory: thin them
+            from scan_store import ScanStore
+
+            store = ScanStore.open(path, ImportOptions(**{**raw.to_json(), "mode": "all"}))
+            points, strength = store.overview(chosen.thin)
+            scan = Scan(points + store.offset, strength, f"{store.info.kind}, thinned to {chosen.thin * 100:.0f} cm")
+            scan.notes.append(f"{store.n_points:,} points thinned to {len(points):,} (one per "
+                              f"{chosen.thin * 100:.0f} cm cube)")
+        else:
+            scan = read_scan(path, raw)
         scans.append(scan)
         notes += [f"{Path(path).name}: {note}" for note in scan.notes]
     automatic = (options[0] or ImportOptions(depth_down=None)).depth_down is None
