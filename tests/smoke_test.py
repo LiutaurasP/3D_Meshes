@@ -1573,7 +1573,11 @@ def tutorial_checks():
         plan += [(lambda: key(Qt.Key_Return), 500), ("until", at(name)),
                  (lambda p=page, n=name: check(f"the tour shows the {n[4:].title()} tab",
                                                window.sidebar.pages.currentIndex() == p), 50)]
-    plan += [(lambda: key(Qt.Key_Return), 500), ("until", at("end")), (lambda: key(Qt.Key_Return), 300),
+    plan += [(lambda: key(Qt.Key_Return), 500), ("until", at("end")),
+             (lambda: check("the last card offers the advanced tutorial right away (A) next to exploring (Enter)",
+                            window.tutorial.card.second.isVisible()
+                            and window.tutorial.card.next.isVisible()), 600),
+             (lambda: key(Qt.Key_Return), 300),
              ("until", lambda: not window.in_tutorial() and data_ready())]
     run_plan(plan, tutorial_done)
 

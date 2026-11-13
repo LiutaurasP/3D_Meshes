@@ -288,6 +288,17 @@ class TutorialCard(QWidget):
             f"QPushButton {{ background: {ACCENT}; color: {ACCENT_TEXT}; border: none; border-radius: 9px; padding: 0px; }}"
             f"QPushButton:hover {{ background: {ACCENT_HOVER}; }}")
         self.next.clicked.connect(on_continue)
+        # A second way on, next to the main button (the last card: the advanced tutorial right away)
+        self.second = QPushButton()
+        self.second.setFont(self.fonts["button"])
+        self.second.setCursor(Qt.PointingHandCursor)
+        self.second.setStyleSheet(
+            f"QPushButton {{ background: none; color: {TEXT}; border: 1px solid {rgba(TEXT, 0.22)};"
+            f" border-radius: 9px; padding: 0px; }}"
+            f"QPushButton:hover {{ border-color: {ACCENT}; color: {ACCENT_HOVER}; }}")
+        self.second.hide()
+        self.on_second = None
+        self.second.clicked.connect(lambda: self.on_second and self.on_second())
 
         self.chips = {}
         self.fade = QPropertyAnimation(self, b"windowOpacity", self)
@@ -324,7 +335,7 @@ class TutorialCard(QWidget):
         while self.keys_row.count():
             item = self.keys_row.takeAt(0)
             widget = item.widget()
-            if widget is not None and widget is not self.next:
+            if widget is not None and widget is not self.next and widget is not self.second:
                 widget.hide()
                 widget.deleteLater()
         self.chips = {}
@@ -346,10 +357,17 @@ class TutorialCard(QWidget):
             self.chips[name] = chip
             self.keys_row.addWidget(chip, 0, Qt.AlignVCenter)
         self.keys_row.addStretch()
+        self.keys_row.addWidget(self.second, 0, Qt.AlignVCenter)
+        self.keys_row.addSpacing(8)
         self.keys_row.addWidget(self.next, 0, Qt.AlignVCenter)
 
         button = step.get("button")
         self._set_button(button)
+        second = step.get("second")
+        self.second.setVisible(bool(second))
+        if second:
+            self.second.setText(second)
+            self.second.setFixedSize(QFontMetrics(self.fonts["button"]).horizontalAdvance(second) + 40, 40)
         self.leave.setVisible(step.get("leave", True))
         self.leave.setText(step.get("leave_text", "Leave tutorial    Esc"))
         metrics = QFontMetrics(self.fonts["leave"])
@@ -385,7 +403,8 @@ class TutorialCard(QWidget):
         self.heading.setFixedSize(inner, heading)
         self.body.setFixedSize(inner, text)
 
-        has_row = bool(self.chips) or self.next.isVisibleTo(self) or self.keys_row.count() > 2
+        has_row = (bool(self.chips) or self.next.isVisibleTo(self) or self.second.isVisibleTo(self)
+                   or self.keys_row.count() > 4)
         press = has_row and bool(self.chips) and self._step.get("press_label", False)
         extra = self.PRESS_HEIGHT if press else 0
         self.row.setVisible(has_row)
@@ -739,6 +758,7 @@ class TutorialBase(QObject):
         self.scene = window.scene
         self.active = False
         self.card = TutorialCard(window, self.on_continue, self.ask_leave)
+        self.card.on_second = self.on_second
         self.timer = QTimer(self)
         self.timer.setInterval(40)
         self.timer.timeout.connect(self._tick)
@@ -898,6 +918,11 @@ class TutorialBase(QObject):
         elif self.step in self.CONTINUE or self.step in self.TAB_STEPS:
             self.advance()
 
+    SECOND_KEY = None  # key for the last card's second button
+
+    def on_second(self):
+        """The card's second button (only shown where a step offers one)."""
+
     # Leaving early
 
     def ask_leave(self):
@@ -1027,6 +1052,9 @@ class TutorialBase(QObject):
         if key in ENTER_KEYS:
             self.on_continue()
             return True
+        if key == self.SECOND_KEY and step == self.ORDER[-1] and not command:
+            self.on_second()  # the last card's second button (before the fly keys, A is one of them)
+            return True
         if key == Qt.Key_Shift:
             if "pan" in self.allow or "fly" in self.allow:
                 self.used.add("shift")
@@ -1135,7 +1163,22 @@ class Tutorial(TutorialBase):
             self.window.dock.show()  # they know Space now
         else:
             self.window.dock.setVisible(self.saved["dock"])
-        self.window.open_default_scene()
+        if not getattr(self, "to_advanced", False):  # the advanced tutorial brings its own scene
+            self.window.open_default_scene()
+
+    SECOND_KEY = Qt.Key_A  # A: the advanced tutorial
+
+    def on_second(self):
+        if self.step == "end" and not self.confirming:
+            self.go_advanced()
+
+    def go_advanced(self):
+        """Last card: straight on with the advanced tutorial instead of exploring."""
+        window = self.window
+        self.to_advanced = True
+        self.finish(completed=True)
+        window.history.clear()  # nothing from the tutorial's practice scene is worth saving
+        QTimer.singleShot(250, lambda: window.start_tutorial(advanced=True))
 
     def steps(self):
         aligned = getattr(self, "fit_text", "")
@@ -1229,10 +1272,12 @@ class Tutorial(TutorialBase):
                 button="Continue"),
             "end": dict(
                 big=True, position="center", eyebrow="Tutorial complete", heading="You're ready to dive in.",
-                body=body("Next up: a full-size harbour quay, 60 metres long, with seven changes hidden in it. "
-                          "Everything is unlocked now.",
-                          "You can watch this tutorial again any time from Help → Tutorial. Good hunting!"),
-                button="Let's go", leave=False),
+                body=body("Explore on your own: a full-size harbour quay, 60 metres long, with seven changes "
+                          "hidden in it. Everything is unlocked now.",
+                          "Or go straight on with the advanced tutorial, <b>The Storm Season</b>: one wind "
+                          "turbine foundation scanned four times, six chapters, about 15 minutes.",
+                          "Both tutorials are in the Help menu any time. Good hunting!"),
+                button="Explore on my own", second="Advanced tutorial   A", leave=False),
         }
 
     ORDER = ["welcome", "scan_a", "rotate", "pan", "fly", "reset", "scan_b", "difference", "toggle", "align",
