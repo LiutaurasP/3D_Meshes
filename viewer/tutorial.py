@@ -292,10 +292,11 @@ class TutorialCard(QWidget):
         self.second = QPushButton()
         self.second.setFont(self.fonts["button"])
         self.second.setCursor(Qt.PointingHandCursor)
+        # A tint of the accent with a bright edge: clearly a way on, next to the solid main button
         self.second.setStyleSheet(
-            f"QPushButton {{ background: none; color: {TEXT}; border: 1px solid {rgba(TEXT, 0.22)};"
+            f"QPushButton {{ background: {rgba(ACCENT, 0.24)}; color: {TEXT}; border: 1.5px solid {ACCENT};"
             f" border-radius: 9px; padding: 0px; }}"
-            f"QPushButton:hover {{ border-color: {ACCENT}; color: {ACCENT_HOVER}; }}")
+            f"QPushButton:hover {{ background: {rgba(ACCENT, 0.38)}; border-color: {ACCENT_HOVER}; }}")
         self.second.hide()
         self.on_second = None
         self.second.clicked.connect(lambda: self.on_second and self.on_second())
