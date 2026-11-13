@@ -178,7 +178,7 @@ def snapshot(scene):
     """The 3D view as a QImage."""
     scene.plotter.renderer.ResetCameraClippingRange()
     scene.plotter.ren_win.Render()  # the plotter's own render() is deferred to the event loop
-    pixels = np.ascontiguousarray(scene.plotter.screenshot(return_img=True)[:, :, :3])
+    pixels = np.ascontiguousarray(scene.capture(return_img=True)[:, :, :3])
     height, width, _ = pixels.shape
     return QImage(pixels.data, width, height, 3 * width, QImage.Format_RGB888).copy()
 

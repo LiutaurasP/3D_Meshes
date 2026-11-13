@@ -12,6 +12,10 @@ from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from viewer.style import BACKGROUND, CARD, CARD_BORDER, PANEL_STYLE, TEXT, TEXT_DIM
+
+from viewer import style  # noqa: E402
+
+style.chart_fonts()
 from volumes import height_difference_grid
 
 

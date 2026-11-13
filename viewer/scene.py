@@ -2,6 +2,7 @@ import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
 
+from viewer import style
 from viewer.camera import CameraFlight
 from viewer.fly import FlyController
 
@@ -215,7 +216,7 @@ class SceneView:
         if enabled and self.minimap is None:
             renderer = vtk.vtkRenderer()
             renderer.SetViewport(*self.MINIMAP_VIEWPORT)
-            renderer.SetBackground(0.07, 0.08, 0.11)
+            renderer.SetBackground(*style.rgb(style.CARD))
             renderer.InteractiveOff()
             renderer.GetActiveCamera().ParallelProjectionOn()
             self.plotter.ren_win.AddRenderer(renderer)
@@ -444,7 +445,7 @@ class SceneView:
                 continue  # small areas get a box but no label, so many areas don't clutter the view
             top = np.array([(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, high[2] + pad])
             self.area_actors.append(self.plotter.add_point_labels(
-                [top], [label], font_size=14, text_color="white", shape_color=(0.15, 0.15, 0.18),
+                [top], [label], font_size=14, text_color=style.rgb(style.TEXT), shape_color=style.LABEL_FILL,
                 shape_opacity=0.8, show_points=False, always_visible=True, reset_camera=False))
         self.set_areas_visible(self.settings.show_areas)
 
@@ -825,7 +826,8 @@ class SceneView:
     # Lines and labels of the measuring tools
 
     def add_marker_line(self, p0, p1, color=(1.0, 0.33, 0.33), label=None, label_at=0.5,
-                        label_color=(0.15, 0.15, 0.18)):
+                        label_color=None):
+        label_color = style.LABEL_FILL if label_color is None else label_color
         line = pv.Line(p0, p1)
         actor = self.plotter.add_mesh(line, color=color, line_width=3 * self.widget.devicePixelRatioF(),
                                       reset_camera=False, render_lines_as_tubes=False)
@@ -1078,8 +1080,20 @@ class SceneView:
         if not entries:
             return
         self.legend_actor = self.plotter.add_legend([[label, tuple(color[:3])] for label, color in entries],
-                                                    bcolor=(0.08, 0.09, 0.12), border=False, loc="lower right",
+                                                    bcolor=style.rgb(style.CARD), border=False, loc="lower right",
                                                     size=(0.22, 0.04 * len(entries) + 0.02), face="circle")
+
+    def capture(self, *args, **kwargs):
+        """plotter.screenshot without the line in the corner (it is for the person at the screen, not for
+        exported pictures and reports)."""
+        badge = getattr(self, "badge_actor", None)
+        if badge is not None:
+            badge.SetVisibility(False)
+        try:
+            return self.plotter.screenshot(*args, **kwargs)
+        finally:
+            if badge is not None:
+                badge.SetVisibility(True)
 
     # Huge scans: what is shown (overview or full detail), always in a corner of the view
 
@@ -1090,8 +1104,8 @@ class SceneView:
             self.plotter.remove_actor(self.badge_actor, render=False)
             self.badge_actor = None
         if text:
-            self.badge_actor = self.plotter.add_text(text, position="upper_left", font_size=9,
-                                                     color=(0.78, 0.8, 0.86), name="what is shown")
+            self.badge_actor = self.plotter.add_text(text, position=(0.012, 0.965), viewport=True, font_size=9,
+                                                     color=style.rgb(style.TEXT_DIM), name="what is shown")
         self.plotter.render()
 
     # Huge scans: the overview around a part shown in full detail

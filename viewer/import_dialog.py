@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from scan_formats import DELIMITERS, UNITS, ImportOptions, probe, sniff_text
+from viewer import style
 from viewer.dialogs import styled
 from viewer.widgets import Card, Form, hint, spin
 
@@ -199,10 +200,10 @@ class ImportDialog(QDialog):
         for name, path in self.paths.items():
             info = self.probes[name]
             card = Card(f"{name} ({roles.get(name, '')})")
-            card.add(QLabel(f"<b>{Path(path).name}</b><br><span style='color:#9a9da7'>{info.kind}</span>"))
+            card.add(QLabel(f"<b>{Path(path).name}</b><br><span style='color:{style.TEXT_DIM}'>{info.kind}</span>"))
             if info.error:
                 warning = hint(info.error)
-                warning.setStyleSheet("color: #e8796b;")
+                warning.setStyleSheet(f"color: {style.DANGER};")
                 card.add(warning)
             elif info.layout is not None:
                 columns = TextColumns(path, info.layout)
@@ -234,7 +235,7 @@ class ImportDialog(QDialog):
         outer.addWidget(scroll, 1)
 
         self.problem = QLabel()
-        self.problem.setStyleSheet("color: #e8796b;")
+        self.problem.setStyleSheet(f"color: {style.DANGER};")
         self.problem.hide()
         outer.addWidget(self.problem)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)

@@ -1,32 +1,162 @@
-"""Look of the app: one dark theme that looks the same on macOS, Windows and Linux."""
+"""Look of the app: colours, type, shapes. One place, so everything matches.
+
+Themes: each one is five colours (the background, cards, fields, the accent and the text);
+every other colour is mixed from those, so a theme can't end up with a colour that doesn't
+belong. The theme is picked in Settings and used from the next start: use_theme() runs before
+the windows are built, and the rest of the app reads the colours from here.
+
+Shapes: corners are concentric. A shape inside another one has the outer radius minus the
+gap between them (nested()), so nested corners run parallel. The big surfaces (cards,
+tutorial cards, notifications, the command palette) are drawn as squircles, see shapes.py.
+
+Type: Geist (the font Subdron uses on its website), bundled with the app, one scale of sizes.
+"""
 
 from pathlib import Path
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 
 ICONS = (Path(__file__).resolve().parent / "icons").as_posix()  # forward slashes work on Windows too
+FONTS = Path(__file__).resolve().parent / "assets" / "fonts"
 
-# Colours
-BACKGROUND = "#121317"  # behind the cards
-CARD = "#1b1c21"
-CARD_BORDER = "#26282e"
-FIELD = "#23252b"
-FIELD_BORDER = "#31333a"
-FIELD_HOVER = "#2b2d34"
-TEXT = "#e6e7eb"
-TEXT_DIM = "#9a9da7"
-TEXT_FAINT = "#62656e"
-ACCENT = "#3d7ff5"
-ACCENT_HOVER = "#5590f7"
-ACCENT_DISABLED = "#27354f"
+THEMES = {
+    # From subdron.com: deep navy background, navy panels, a bright sonar blue
+    "subdron": {"name": "Subdron", "base": "#040917", "surface": "#0e1b33", "raised": "#16243d",
+                "accent": "#3d95ff", "text": "#e9f1ff", "view": "#040917"},
+    # The app's first look, refined: neutral dark grey with a classic blue
+    "midnight": {"name": "Midnight", "base": "#111216", "surface": "#1a1b20", "raised": "#23252b",
+                 "accent": "#3d7ff5", "text": "#e6e7eb", "view": "#040509"},
+    # Neutral graphite with a calm teal
+    "graphite": {"name": "Graphite", "base": "#141415", "surface": "#1d1d1f", "raised": "#28282b",
+                 "accent": "#26a69a", "text": "#ececee", "view": "#0b0b0c"},
+}
+DEFAULT_THEME = "subdron"
 
-RADIUS = 8
-FIELD_RADIUS = 6
+# Colours that carry a meaning: the same in every theme
+ADDED = "#e8796b"  # material added (red, as in the reports)
+REMOVED = "#6a9ff0"  # material removed (blue)
+MOVED = "#5ad7ff"  # a moved object
+SUCCESS = "#3fb27f"
+WARNING = "#e0a43a"
+DANGER = "#e8796b"
+
+# Type scale (pixels)
+FONT_FAMILY = "Geist"
+SIZE_TINY = 11
+SIZE_SMALL = 12
+SIZE_BODY = 13
+SIZE_TITLE = 14
+SIZE_HEADING = 17
+
+# Shapes: radii of the outermost surfaces; everything inside is nested() from them
+CARD_RADIUS = 14
+DIALOG_RADIUS = 18  # floating surfaces: tutorial cards, the command palette
+FIELD_RADIUS = 8
+RADIUS = FIELD_RADIUS  # older name
+SMOOTHING = 0.6  # squircle corners, like Apple's (0 = plain circle arcs)
+
+
+def nested(outer, gap, minimum=3):
+    """Radius of a shape that sits `gap` pixels inside a shape with radius `outer` (concentric corners)."""
+    return max(outer - gap, minimum)
+
+
+def mix(color, other, amount):
+    """`amount` of color over other (0 = other, 1 = color), as #rrggbb."""
+    a, b = QColor(color), QColor(other)
+    channels = [round(a.red() * amount + b.red() * (1 - amount)), round(a.green() * amount + b.green() * (1 - amount)),
+                round(a.blue() * amount + b.blue() * (1 - amount))]
+    return "#" + "".join(f"{c:02x}" for c in channels)
+
+
+def rgb(color):
+    """#rrggbb -> (r, g, b) in 0..1 for the 3D view."""
+    c = QColor(color)
+    return (c.redF(), c.greenF(), c.blueF())
+
+
+def rgba(color, alpha):
+    """For style sheets: the colour with an alpha (0..1)."""
+    c = QColor(color)
+    return f"rgba({c.red()}, {c.green()}, {c.blue()}, {alpha:.2f})"
+
+
+THEME = DEFAULT_THEME
+
+
+def use_theme(key):
+    """Make a theme the current one. Call before the windows are built (they read the colours once)."""
+    global THEME, BACKGROUND, CARD, CARD_BORDER, FIELD, FIELD_BORDER, FIELD_HOVER, TEXT, TEXT_DIM, TEXT_FAINT
+    global ACCENT, ACCENT_HOVER, ACCENT_PRESSED, ACCENT_DISABLED, ACCENT_SOFT, ACCENT_TEXT, CHECK_BORDER
+    global BRAND, VIEW_BACKGROUND, LABEL_FILL, PANEL_STYLE
+    THEME = key if key in THEMES else DEFAULT_THEME
+    theme = THEMES[THEME]
+    base, surface, raised, accent, text = (theme[k] for k in ("base", "surface", "raised", "accent", "text"))
+    BACKGROUND = base  # behind the cards
+    CARD = surface
+    CARD_BORDER = mix(text, surface, 0.09)
+    FIELD = raised
+    FIELD_BORDER = mix(text, raised, 0.13)
+    FIELD_HOVER = mix(text, raised, 0.06)
+    CHECK_BORDER = mix(text, raised, 0.28)
+    TEXT = text
+    TEXT_DIM = mix(text, surface, 0.66)
+    TEXT_FAINT = mix(text, surface, 0.40)
+    ACCENT = accent
+    ACCENT_HOVER = mix("#ffffff", accent, 0.14)
+    ACCENT_PRESSED = mix("#000000", accent, 0.12)
+    ACCENT_DISABLED = mix(accent, surface, 0.30)
+    ACCENT_SOFT = mix(accent, surface, 0.16)  # a quiet tint of the accent (selected rows, highlighted cards)
+    ACCENT_TEXT = "#ffffff"
+    BRAND = surface  # start screen and splash: the theme's own navy / grey
+    VIEW_BACKGROUND = theme["view"]
+    LABEL_FILL = rgb(mix(text, surface, 0.04))  # labels in the 3D view
+    PANEL_STYLE = panel_style()
+
+
+def theme_names():
+    return [(key, theme["name"]) for key, theme in THEMES.items()]
+
+
+def load_fonts():
+    """Add the bundled Geist font (four weights). Returns True if it is available."""
+    found = False
+    for file in sorted(FONTS.glob("Geist-*.ttf")):
+        found |= QFontDatabase.addApplicationFont(str(file)) >= 0
+    return found and FONT_FAMILY in QFontDatabase.families()
+
+
+_CHART_FONT = None
+
+
+def chart_fonts():
+    """Use Geist in the matplotlib charts too (height map, cross section, trend), once."""
+    global _CHART_FONT
+    if _CHART_FONT is not None:
+        return _CHART_FONT
+    _CHART_FONT = False
+    try:
+        import matplotlib
+        from matplotlib import font_manager
+
+        files = sorted(FONTS.glob("Geist-*.ttf"))
+        for file in files:
+            font_manager.fontManager.addfont(str(file))
+        if files:
+            matplotlib.rcParams["font.family"] = [FONT_FAMILY, "DejaVu Sans"]
+            _CHART_FONT = True
+    except Exception:  # charts fall back to matplotlib's own font
+        pass
+    return _CHART_FONT
 
 
 def apply_theme(app):
-    """Fusion style with a dark palette, so dialogs and menus match the panel."""
+    """Fusion style with the theme's palette and font, so dialogs and menus match the panel."""
     app.setStyle("Fusion")
+    if load_fonts():
+        font = QFont(FONT_FAMILY)
+        font.setPixelSize(SIZE_BODY)
+        app.setFont(font)
     palette = QPalette()
     colors = {
         QPalette.Window: BACKGROUND,
@@ -37,7 +167,7 @@ def apply_theme(app):
         QPalette.Button: FIELD,
         QPalette.ButtonText: TEXT,
         QPalette.Highlight: ACCENT,
-        QPalette.HighlightedText: "#ffffff",
+        QPalette.HighlightedText: ACCENT_TEXT,
         QPalette.ToolTipBase: CARD,
         QPalette.ToolTipText: TEXT,
         QPalette.PlaceholderText: TEXT_FAINT,
@@ -50,9 +180,14 @@ def apply_theme(app):
     for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
         palette.setColor(QPalette.Disabled, role, QColor(TEXT_FAINT))
     app.setPalette(palette)
+    app.setStyleSheet(f"QToolTip {{ background: {CARD}; color: {TEXT}; border: 1px solid {FIELD_BORDER};"
+                      f" border-radius: {nested(FIELD_RADIUS, 2)}px; padding: 5px 8px; }}")
 
 
-PANEL_STYLE = f"""
+def panel_style():
+    list_padding = 4
+    segment_padding = 3
+    return f"""
 #panel, #page {{
     background: {BACKGROUND};
 }}
@@ -70,6 +205,9 @@ QScrollBar::handle:vertical {{
     border-radius: 3px;
     min-height: 30px;
 }}
+QScrollBar::handle:vertical:hover {{
+    background: {CHECK_BORDER};
+}}
 QScrollBar::add-line, QScrollBar::sub-line {{
     height: 0;
 }}
@@ -81,23 +219,22 @@ QLabel {{
     color: {TEXT};
 }}
 
-/* Cards */
+/* Cards: the shape itself is painted (a squircle, see widgets.Surface) */
 #card {{
-    background: {CARD};
-    border: 1px solid {CARD_BORDER};
-    border-radius: {RADIUS + 2}px;
+    background: transparent;
+    border: none;
 }}
 #cardHeader {{
     background: transparent;
     border: none;
     color: {TEXT};
-    font-size: 14px;
+    font-size: {SIZE_TITLE}px;
     font-weight: 600;
     padding: 0;
     text-align: left;
 }}
 #cardHeader:hover {{
-    color: #ffffff;
+    color: {ACCENT_TEXT};
 }}
 #formLabel {{
     color: {TEXT_DIM};
@@ -106,20 +243,20 @@ QLabel {{
     color: {TEXT_DIM};
 }}
 #hint {{
-    font-size: 12px;
+    font-size: {SIZE_SMALL}px;
 }}
 #axisLabel {{
     color: {TEXT_FAINT};
-    font-size: 11px;
+    font-size: {SIZE_TINY}px;
     font-weight: 600;
 }}
 #keycap {{
     color: {TEXT_DIM};
     background: {FIELD};
     border: 1px solid {FIELD_BORDER};
-    border-radius: 4px;
+    border-radius: 5px;
     padding: 0 6px;
-    font-size: 11px;
+    font-size: {SIZE_TINY}px;
 }}
 #divider {{
     background: {CARD_BORDER};
@@ -150,12 +287,16 @@ QPushButton:disabled {{
 QPushButton#primary {{
     background: {ACCENT};
     border: 1px solid {ACCENT};
-    color: #ffffff;
+    color: {ACCENT_TEXT};
     font-weight: 600;
 }}
 QPushButton#primary:hover {{
     background: {ACCENT_HOVER};
     border-color: {ACCENT_HOVER};
+}}
+QPushButton#primary:pressed {{
+    background: {ACCENT_PRESSED};
+    border-color: {ACCENT_PRESSED};
 }}
 QPushButton#primary:disabled {{
     background: {ACCENT_DISABLED};
@@ -163,11 +304,11 @@ QPushButton#primary:disabled {{
     color: {TEXT_DIM};
 }}
 
-/* Settings / Guide switch */
+/* Settings / Areas / Guide / History switch: the buttons sit {segment_padding}px inside the frame */
 #segment {{
     background: {CARD};
     border: 1px solid {CARD_BORDER};
-    border-radius: {RADIUS + 1}px;
+    border-radius: {FIELD_RADIUS + segment_padding}px;
 }}
 #segmentButton {{
     background: transparent;
@@ -186,7 +327,7 @@ QPushButton#primary:disabled {{
 }}
 
 /* Inputs */
-QSpinBox, QDoubleSpinBox, QComboBox {{
+QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {{
     background: {FIELD};
     color: {TEXT};
     border: 1px solid {FIELD_BORDER};
@@ -202,13 +343,13 @@ QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button, QDoubleSp
     border: none;
     subcontrol-origin: border;
 }}
-QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {{
+QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover, QLineEdit:hover {{
     background: {FIELD_HOVER};
 }}
-QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {{
     border-color: {ACCENT};
 }}
-QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {{
+QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled, QLineEdit:disabled {{
     color: {TEXT_FAINT};
     background: {CARD};
 }}
@@ -231,7 +372,7 @@ QComboBox QAbstractItemView {{
     border: 1px solid {FIELD_BORDER};
     selection-background-color: {ACCENT};
     outline: none;
-    padding: 4px;
+    padding: {list_padding}px;
 }}
 
 QCheckBox {{
@@ -242,8 +383,8 @@ QCheckBox {{
 QCheckBox::indicator {{
     width: 16px;
     height: 16px;
-    border-radius: 4px;
-    border: 1px solid #4a4d56;
+    border-radius: 5px;
+    border: 1px solid {CHECK_BORDER};
     background: {FIELD};
 }}
 QCheckBox::indicator:hover {{
@@ -295,29 +436,63 @@ QProgressBar::chunk {{
     border-radius: 2px;
 }}
 
+/* Lists and tables: items sit {list_padding}px inside the frame, so their corners are nested */
 QListWidget {{
     background: {FIELD};
     border: 1px solid {FIELD_BORDER};
     border-radius: {FIELD_RADIUS}px;
-    padding: 4px;
+    padding: {list_padding}px;
     outline: none;
 }}
 QListWidget::item {{
     color: {TEXT};
     padding: 6px 6px;
-    border-radius: 4px;
+    border-radius: {nested(FIELD_RADIUS, list_padding)}px;
 }}
 QListWidget::item:hover {{
     background: {FIELD_HOVER};
 }}
 QListWidget::item:selected {{
     background: {ACCENT};
-    color: #ffffff;
+    color: {ACCENT_TEXT};
+}}
+QTableWidget, QUndoView {{
+    background: {FIELD};
+    border: 1px solid {FIELD_BORDER};
+    border-radius: {FIELD_RADIUS}px;
+    gridline-color: {CARD_BORDER};
+    outline: none;
+    selection-background-color: {ACCENT_SOFT};
+}}
+QTableWidget::item {{
+    padding: 2px 4px;
+}}
+QTableWidget::item:selected {{
+    background: {ACCENT_SOFT};
+}}
+QHeaderView {{
+    background: transparent;
+}}
+QHeaderView::section {{
+    background: {FIELD};
+    color: {TEXT_DIM};
+    border: none;
+    border-bottom: 1px solid {FIELD_BORDER};
+    padding: 5px 6px;
+    font-size: {SIZE_SMALL}px;
+    font-weight: 600;
+}}
+QTableCornerButton::section {{
+    background: {FIELD};
+    border: none;
 }}
 
 /* Guide */
 #guideText {{
     color: {TEXT};
-    font-size: 13px;
+    font-size: {SIZE_BODY}px;
 }}
 """
+
+
+use_theme(DEFAULT_THEME)

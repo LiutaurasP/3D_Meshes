@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 from datasets import SCENES
 from viewer import prefs
 from viewer.branding import APP_NAME, LOGO_PATH, VERSION
+from viewer import style
 from viewer.style import PANEL_STYLE
 from viewer.widgets import Card, Form, button, hint, spin
 
@@ -121,6 +123,17 @@ class PreferencesDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
+        look = Card("Look")
+        form = Form()
+        self.theme = QComboBox()
+        for key, name in style.theme_names():
+            self.theme.addItem(name, key)
+        self.theme.setCurrentIndex(max(0, self.theme.findData(prefs.get("theme"))))
+        form.row("Theme", self.theme, "Colours of the whole app. Subdron is the look of subdron.com.")
+        look.add(form)
+        look.add(hint("A new theme is used from the next start (the app offers to restart)."))
+        layout.addWidget(look)
+
         general = Card("General")
         self.start_screen = QCheckBox("Show the start screen when the app opens")
         self.start_screen.setChecked(prefs.get("show_start_screen"))
@@ -174,6 +187,9 @@ class PreferencesDialog(QDialog):
         layout.addWidget(buttons)
 
     def accept(self):
+        theme = self.theme.currentData()
+        self.theme_changed = theme != prefs.get("theme")
+        prefs.set("theme", theme)
         prefs.set("show_start_screen", self.start_screen.isChecked())
         prefs.set("autosave_minutes", self.autosave.value())
         prefs.set("depth_shading", self.depth_shading.isChecked())
@@ -204,7 +220,7 @@ class StartScreen(QDialog):
         # Left: logo and the main actions
         left = QWidget()
         left.setObjectName("startSide")
-        left.setStyleSheet("#startSide { background: #0d162c; }")
+        left.setStyleSheet(f"#startSide {{ background: {style.BRAND}; border-right: 1px solid {style.CARD_BORDER}; }}")
         side = QVBoxLayout(left)
         side.setContentsMargins(28, 32, 28, 24)
         side.setSpacing(12)
@@ -212,7 +228,7 @@ class StartScreen(QDialog):
         logo.setPixmap(QPixmap(str(LOGO_PATH)).scaledToWidth(200, Qt.SmoothTransformation))
         side.addWidget(logo)
         title = QLabel(f"<b style='font-size:17px'>Sonar Studio</b><br>"
-                       f"<span style='color:#9a9da7'>Version {VERSION}</span>")
+                       f"<span style='color:{style.TEXT_DIM}'>Version {VERSION}</span>")
         side.addWidget(title)
         side.addSpacing(18)
         new = button("New Project", primary=True)
@@ -263,27 +279,27 @@ class StartScreen(QDialog):
     def _tutorial_card(self):
         """The invitation to the tutorial, at the top of the start screen."""
         first_time = not prefs.get("tutorial_done")
-        card = QFrame()
+        from viewer.widgets import Surface
+
+        card = Surface(fill=style.mix(style.ACCENT, style.CARD, 0.12), border=style.mix(style.ACCENT, style.CARD, 0.55))
         card.setObjectName("tutorialCard")
-        card.setStyleSheet(
-            "#tutorialCard { border: 1px solid rgba(61, 127, 245, 0.55); border-radius: 12px;"
-            " background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #17254a, stop:1 #10162a); }"
-            "#tutorialCard QLabel { background: transparent; }")
+        card.setStyleSheet("#tutorialCard QLabel { background: transparent; }")
         layout = QHBoxLayout(card)
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(16)
         text = QVBoxLayout()
         text.setSpacing(4)
         badge = QLabel("RECOMMENDED FOR FIRST-TIME USERS" if first_time else "TUTORIAL")
-        badge.setStyleSheet("color: #7fb0ff; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
+        badge.setStyleSheet(f"color: {style.ACCENT_HOVER}; font-size: {style.SIZE_TINY - 1}px; font-weight: 700;"
+                            " letter-spacing: 1.5px;")
         text.addWidget(badge)
         heading = QLabel("New here? Take the 5-minute dive." if first_time else "Take the 5-minute dive again")
-        heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        heading.setStyleSheet(f"font-size: {style.SIZE_HEADING - 1}px; font-weight: 700;")
         text.addWidget(heading)
         detail = QLabel("Learn the controls step by step on a real-looking sonar scan, and find what fell "
                         "to the seafloor.")
         detail.setWordWrap(True)
-        detail.setStyleSheet("color: #9a9da7;")
+        detail.setStyleSheet(f"color: {style.TEXT_DIM};")
         text.addWidget(detail)
         layout.addLayout(text, 1)
         start = button("Start Tutorial  →", primary=True)

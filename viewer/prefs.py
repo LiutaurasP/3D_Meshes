@@ -4,6 +4,7 @@ from PySide6.QtCore import QSettings
 
 DEFAULTS = {
     "show_start_screen": True,
+    "theme": "subdron",  # see viewer/style.py: subdron, midnight, graphite (used from the next start)
     "autosave_minutes": 2,  # 0 = off
     "depth_shading": False,
     "sphere_limit_millions": 1.5,  # above this many points, draw plain points (faster)

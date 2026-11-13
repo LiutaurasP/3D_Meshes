@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from viewer import style
 from viewer.widgets import Card, Form, hint
 from volumes import area_volume_text
 
@@ -23,8 +24,8 @@ FILTERS = (("All areas", lambda a: True), ("Open (not checked yet)", lambda a: a
            ("Added", lambda a: a.kind == "added"), ("Removed", lambda a: a.kind == "removed"),
            ("Moved objects", lambda a: getattr(a, "_move", None) is not None),
            ("Without false alarms", lambda a: a.tag != "False alarm"))
-MOVED = QColor("#5ad7ff")
-ADDED, REMOVED = QColor("#e8796b"), QColor("#6a9ff0")
+MOVED = QColor(style.MOVED)
+ADDED, REMOVED = QColor(style.ADDED), QColor(style.REMOVED)
 
 
 class NumberItem(QTableWidgetItem):
@@ -196,7 +197,7 @@ class AreasPanel(QWidget):
             items = [number, kind, volume, QTableWidgetItem(area.tag), QTableWidgetItem(area.status)]
             if area.tag == "False alarm":
                 for item in items:
-                    item.setForeground(QColor("#6b7080"))
+                    item.setForeground(QColor(style.TEXT_FAINT))
             for column, item in enumerate(items):
                 self.table.setItem(row, column, item)
         self.table.setSortingEnabled(True)
@@ -227,7 +228,7 @@ class AreasPanel(QWidget):
         volume = area_volume_text(area) or "not measured"
         sure = {"clear": "clearly real", "likely": "likely real", "uncertain": "close to the noise"}.get(area.confidence, "")
         text = (f"<b>Area {index + 1}: {area.kind}</b> {sure}<br>"
-                f"<span style='color:#9a9da7'>Up to {area.peak:+.2f} m · {volume} · "
+                f"<span style='color:{style.TEXT_DIM}'>Up to {area.peak:+.2f} m · {volume} · "
                 f"{length:.1f} × {width:.1f} × {height:.1f} m · {area.n_points:,} points</span>")
         move = getattr(area, "_move", None)
         if move is not None:
@@ -237,20 +238,20 @@ class AreasPanel(QWidget):
                     "possible": "the shape fits partly (it turned and shows other sides)"}[move.confidence]
             size = " × ".join(f"{v:.1f}" for v in move.size)
             text = (f"<b>Area {move.removed + 1}: moved object</b><br>{describe(move)}<br>"
-                    f"<span style='color:#9a9da7'>About {size} m · {sure} (within {move.fit:.0f} cm). "
+                    f"<span style='color:{style.TEXT_DIM}'>About {size} m · {sure} (within {move.fit:.0f} cm). "
                     + (f"Now at area {move.added + 1}." if move.added != move.removed
                        else "It moved less than its own size.") + "</span>")
         if getattr(area, "part", ""):
-            text += f"<br><span style='color:#9a9da7'>On: {area.part}</span>"
+            text += f"<br><span style='color:{style.TEXT_DIM}'>On: {area.part}</span>"
         detail = getattr(area, "detail", None)
         if getattr(area, "detail_only", False):
-            text += "<br><span style='color:#9a9da7'>Found in full detail (too small for the overview).</span>"
+            text += f"<br><span style='color:{style.TEXT_DIM}'>Found in full detail (too small for the overview).</span>"
         elif detail and detail > 0:
-            text += f"<br><span style='color:#9a9da7'>✓ Measured in full detail ({detail:,} points).</span>"
+            text += f"<br><span style='color:{style.TEXT_DIM}'>✓ Measured in full detail ({detail:,} points).</span>"
         elif detail == -1:
-            text += "<br><span style='color:#9a9da7'>✗ Seen on the overview, but not there in full detail.</span>"
+            text += f"<br><span style='color:{style.TEXT_DIM}'>✗ Seen on the overview, but not there in full detail.</span>"
         elif self.overview:
-            text += ("<br><span style='color:#9a9da7'>≈ Values from the overview: not measured in full detail "
+            text += (f"<br><span style='color:{style.TEXT_DIM}'>≈ Values from the overview: not measured in full detail "
                      "yet.</span>")
         self.detail.setText(text)
         self.not_move_button.setVisible(move is not None)
