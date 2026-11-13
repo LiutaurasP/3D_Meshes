@@ -1253,8 +1253,9 @@ def large_opened():
 def large_aligned():
     check("huge scans align (with a close final step)", window.align_steps is not None)
     window.detect_changes()
-    wait_until(lambda: window.change_result is not None and window._large_worker is not None
-               and window._large_worker.isFinished(), large_detected, limit_ms=180_000)
+    # Done when the card says so (the worker can be finished a moment before the window has its result)
+    wait_until(lambda: window.change_result is not None
+               and "measured in full detail" in window.sidebar.large_status.text(), large_detected, limit_ms=180_000)
 
 
 def large_detected():
@@ -1267,7 +1268,7 @@ def large_detected():
     check(f"…and measured again in full detail in the background ({len(detailed)} areas)", len(detailed) >= 5)
     table = window.sidebar.areas_panel.table
     marks = [table.item(row, 1).text() for row in range(table.rowCount())]
-    check("…which the Areas tab marks (✓ full detail)", any("✓" in text for text in marks))
+    check("…which the Areas tab marks (with a tick)", any("\u2713" in text for text in marks))
     rows = __import__("exports").area_rows(result, overview=True)
     check("…and the exports say it per area", any(row["measured"] == "full detail" for row in rows))
     LARGE["areas"] = len(result.areas)
