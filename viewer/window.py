@@ -1160,6 +1160,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             return
         self._align_before = self.pose_state()
         self._align_pair = self.series_pair
+        stable = self._stable_parts() if self.sidebar.align_stable.isChecked() else None
         self._stop_animation()
         self._clear_changes()
         self.sidebar.read_data_settings(self.settings.data)
@@ -1167,8 +1168,15 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         self.statusBar().showMessage("Running ICP...")
         self._clock.start()
 
-        self._worker = AlignWorker(self.clouds[self.source_name], self.clouds[self.target_name], self.settings.data,
-                                   fine=self.large_pair() is not None)
+        source, target = self.clouds[self.source_name], self.clouds[self.target_name]
+        self._align_note_stable = ""
+        if stable is not None:
+            source, target, left_out = stable
+            self._align_note_stable = f"Aligned without the {left_out:,} changed points"
+            self._detect_after_align = True  # the changes depend on the alignment: find them again
+        elif self.sidebar.align_stable.isChecked():
+            self.notify("Detect changes first", "Then Align again leaves out what changed", "info")
+        self._worker = AlignWorker(source, target, self.settings.data, fine=self.large_pair() is not None)
         self._worker.progress.connect(self.sidebar.show_icp_progress)
         self._worker.done.connect(self._on_aligned)
         self._worker.start()
@@ -1193,6 +1201,8 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         n = len(self.clouds[self.source_name].points)
         limit = self.settings.data.max_icp_points
         self._align_note = f"Aligned on {short_count(limit)} of {short_count(n)} points" if limit and n > limit else ""
+        if getattr(self, "_align_note_stable", ""):
+            self._align_note = (self._align_note + "\n" if self._align_note else "") + self._align_note_stable
         if rounds >= self.settings.data.max_iterations:
             self._align_note = (self._align_note + "\n" if self._align_note else "") + \
                 "Stopped at the round limit, it may not be finished"
@@ -1207,6 +1217,30 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         self._animation.frame.connect(self._show_step)
         self._animation.finished.connect(self._alignment_finished)
         self._animation.start()
+
+    def _stable_parts(self):
+        """Both scans without their changed points (and a margin around them), for aligning on what did
+        not change. None if no changes were found yet."""
+        result = self.change_result
+        if result is None or not result.areas:
+            return None
+        a = np.asarray(self.clouds[self.target_name].points)
+        b = np.asarray(self.clouds[self.source_name].points)
+        if len(result.changed_a) != len(a) or len(result.changed_b) != len(b):
+            return None
+        keep_a, keep_b = ~result.changed_a, ~result.changed_b
+        matrix = self.scene.matrices[self.source_name]
+        shown_b = b @ matrix[:3, :3].T + matrix[:3, 3]  # the areas are in the shown (aligned) position
+        for area in result.areas:  # leave out the whole box of every area (its edges change too)
+            if area.tag == "False alarm":
+                continue
+            keep_a &= ~np.all((a >= area.low - 0.5) & (a <= area.high + 0.5), axis=1)
+            keep_b &= ~np.all((shown_b >= area.low - 0.5) & (shown_b <= area.high + 0.5), axis=1)
+        if keep_a.sum() < 1000 or keep_b.sum() < 1000:
+            return None
+        left_out = int((~keep_a).sum() + (~keep_b).sum())
+        return (self.clouds[self.source_name].select_by_index(np.flatnonzero(keep_b)),
+                self.clouds[self.target_name].select_by_index(np.flatnonzero(keep_a)), left_out)
 
     def _show_step(self, matrix, step):
         self.scene.set_transform(self.source_name, matrix)

@@ -508,6 +508,11 @@ class Sidebar(QWidget):
         form.row("Animation", animate)
         self.animate = animate
         card.add(form)
+        self.align_stable = QCheckBox("Leave out what changed")
+        self.align_stable.setToolTip(
+            "Align on the parts that did not change only: a big change (silt, scour, a moved block) "
+            "can't pull scan B off. Uses the changes found last, then finds them again.")
+        card.add(self.align_stable)
 
         actions = QHBoxLayout()
         actions.setSpacing(SPACING)

@@ -167,3 +167,16 @@ def test_section_cuts_a_piece_along_the_scan(files):
     along = (points[:, :2] - inspections.large.axis[0]) @ inspections.large.axis[1]
     assert along.min() >= 19.9 and along.max() <= 50.1
     assert np.ptp(points[:, 0]) < 32
+
+
+def test_import_suggests_the_overview_for_big_files(files, monkeypatch):
+    from viewer import import_dialog
+
+    paths, _ = files
+    assert import_dialog.suggested_mode(paths) == "all"  # 2 x 400k points: every point fits
+    monkeypatch.setattr(import_dialog, "OVERVIEW_FROM", 500_000)
+    assert import_dialog.suggested_mode(paths) == "overview"
+    options = import_dialog.default_options({"Scan A": paths[0], "Scan B": paths[1]})
+    assert options["Scan A"].mode == "overview"
+    count, text = import_dialog.size_info(paths[0])
+    assert count == N and "points per m²" in text

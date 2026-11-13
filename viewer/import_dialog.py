@@ -4,6 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -26,6 +27,50 @@ DEPTH_CHOICES = (
     ("Heights: below the water is negative", False),
     ("Depths: positive numbers going down", True),
 )
+SIZE_CHOICES = (
+    ("Keep every point", "all"),
+    ("Thin out: one averaged point per cube", "thin"),
+    ("Overview, full detail stays on disk", "overview"),
+)
+OVERVIEW_FROM = 20_000_000  # points in both files together: suggest the overview from here
+THIN_FROM = 6_000_000
+
+
+def size_info(path):
+    """(number of points or None, text about the file's size) without reading it."""
+    from scan_store import format_bytes, header_info
+
+    path = Path(path)
+    try:
+        header = header_info(path)
+    except Exception:  # a damaged header: the import itself will say what is wrong
+        header = None
+    if header is None:
+        return None, f"{path.name}: {format_bytes(path.stat().st_size)}"
+    n = header["n_points"]
+    extent = header["high"] - header["low"]
+    area = max(extent[0] * extent[1], 1e-6)
+    return n, (f"{path.name}: <b>{n:,}</b> points, {extent[0]:.0f} × {extent[1]:.0f} m, "
+               f"about {n / area:,.0f} points per m² seen from above")
+
+
+def suggested_mode(paths):
+    """Keep every point, thin out or overview, from the number of points (or the file size)."""
+    total, unknown = 0, 0
+    for path in paths:
+        n, _ = size_info(path)
+        if n is None:
+            unknown += Path(path).stat().st_size
+        else:
+            total += n
+    total += unknown // 30  # text tables: roughly 30 bytes per point
+    if total >= OVERVIEW_FROM:
+        return "overview"
+    if total >= THIN_FROM:
+        return "thin"
+    return "all"
+
+
 UNIT_NAMES = {"m": "Metres", "cm": "Centimetres", "mm": "Millimetres", "ft": "Feet (international)",
               "US ft": "US survey feet"}
 
@@ -183,6 +228,7 @@ class ImportDialog(QDialog):
         common.add(hint("Very large coordinates (UTM and similar) are handled automatically: the status bar, "
                         "notes and exports keep showing the real coordinates."))
         layout.insertWidget(0, common)  # matters for every file, so it comes first
+        layout.insertWidget(1, self._size_card())
         layout.addStretch()
         scroll.setWidget(body)
         outer.addWidget(scroll, 1)
@@ -198,6 +244,52 @@ class ImportDialog(QDialog):
         outer.addWidget(self.buttons)
         self.buttons.button(QDialogButtonBox.Ok).setEnabled(not any(p.error for p in self.probes.values()))
         self.resize(720, min(860, 380 + 300 * len(self.text)))
+
+    def _size_card(self):
+        card = Card("Size")
+        lines = [size_info(path)[1] for path in self.paths.values()]
+        info = QLabel("<br>".join(lines))
+        info.setWordWrap(True)
+        info.setTextFormat(Qt.RichText)
+        card.add(info)
+        form = Form()
+        self.size_mode = QComboBox()
+        for label, value in SIZE_CHOICES:
+            self.size_mode.addItem(label, value)
+        self.size_mode.setCurrentIndex(self.size_mode.findData(suggested_mode(self.paths.values())))
+        form.row("Points", self.size_mode, "Huge scans (tens of millions of points): the overview is compared "
+                                           "everywhere, every point is loaded from disk where you look closer")
+        self.thin_cell = form.row("Cube size", spin(1.0, 50.0, 5.0, 1.0, decimals=0, suffix=" cm"),
+                                  "Thin out: one averaged point per cube of this size")
+        section_row = QHBoxLayout()
+        self.section_on = QCheckBox("Only a part, from")
+        self.section_from = spin(0.0, 100_000.0, 0.0, 10.0, decimals=0, suffix=" m")
+        self.section_to = spin(0.0, 100_000.0, 50.0, 10.0, decimals=0, suffix=" m")
+        section_row.addWidget(self.section_on)
+        section_row.addWidget(self.section_from, 1)
+        section_row.addWidget(QLabel("to"))
+        section_row.addWidget(self.section_to, 1)
+        form.row("Along the scan", section_row, "Only this stretch, measured along the scan's length from its start")
+        card.add(form)
+        self.size_hint = hint("")
+        card.add(self.size_hint)
+        self.size_mode.currentIndexChanged.connect(lambda _: self._size_changed())
+        self.section_on.toggled.connect(lambda _: self._size_changed())
+        self._size_changed()
+        return card
+
+    def _size_changed(self):
+        mode = self.size_mode.currentData()
+        self.thin_cell.setEnabled(mode == "thin")
+        self.section_from.setEnabled(self.section_on.isChecked())
+        self.section_to.setEnabled(self.section_on.isChecked())
+        self.size_hint.setText({
+            "all": "Every point is read into memory: best for scans up to a few million points.",
+            "thin": "Averaging also removes stray points. Detail smaller than the cube is lost.",
+            "overview": "The first time, the files are read once and stored in pieces (a few minutes for "
+                        "100 million points). After that they open in seconds, and every point is loaded "
+                        "where you look closer.",
+        }[mode])
 
     def accept(self):
         for name, columns in self.text.items():
@@ -217,6 +309,11 @@ class ImportDialog(QDialog):
                 values["mesh_points"] = int(self.mesh_points.value())
             if name in self.text:
                 values.update(self.text[name].options())
+            values["mode"] = self.size_mode.currentData()
+            values["thin"] = self.thin_cell.value() / 100
+            if self.section_on.isChecked():
+                values["section"] = [self.section_from.value(), max(self.section_to.value(),
+                                                                    self.section_from.value() + 1)]
             result[name] = ImportOptions(**values)
         return result
 
@@ -224,8 +321,9 @@ class ImportDialog(QDialog):
 def default_options(paths):
     """What the dialog would choose without any changes (used when it is not shown)."""
     result = {}
+    mode = suggested_mode(paths.values())
     for name, path in paths.items():
-        values = {"depth_down": None}
+        values = {"depth_down": None, "mode": mode}
         info = probe(path)
         if info.layout is not None:
             layout = sniff_text(path)
