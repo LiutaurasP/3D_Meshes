@@ -19,29 +19,39 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 ICONS = (Path(__file__).resolve().parent / "icons").as_posix()  # forward slashes work on Windows too
 FONTS = Path(__file__).resolve().parent / "assets" / "fonts"
 
+# Every theme also picks the colours of the two scans in the 3D view (scan A, scan B, and the steps in
+# between for a series of scans): ones that look natural with the theme, stand apart from each other
+# and from the yellow of the changed points.
 THEMES = {
     # From subdron.com: deep navy background, navy panels, a bright sonar blue
     "subdron": {"name": "Subdron", "base": "#040917", "surface": "#0e1b33", "raised": "#16243d",
-                "accent": "#3d95ff", "text": "#e9f1ff", "view": "#040917"},
+                "accent": "#3d95ff", "text": "#e9f1ff", "view": "#040917",
+                "scan_a": "#4069e0", "scan_b": "#ff8c00", "scan_mid": ["#2ebdc7", "#9ecc4d"]},
     # The app's first look, refined: neutral dark grey with a classic blue
     "midnight": {"name": "Midnight", "base": "#111216", "surface": "#1a1b20", "raised": "#23252b",
-                 "accent": "#3d7ff5", "text": "#e6e7eb", "view": "#040509"},
+                 "accent": "#3d7ff5", "text": "#e6e7eb", "view": "#040509",
+                 "scan_a": "#4069e0", "scan_b": "#ff8c00", "scan_mid": ["#2ebdc7", "#9ecc4d"]},
     # Neutral graphite with a calm teal
     "graphite": {"name": "Graphite", "base": "#141415", "surface": "#1d1d1f", "raised": "#28282b",
-                 "accent": "#26a69a", "text": "#ececee", "view": "#0b0b0c"},
+                 "accent": "#26a69a", "text": "#ececee", "view": "#0b0b0c",
+                 "scan_a": "#4aa3df", "scan_b": "#ff7b54", "scan_mid": ["#45c4b0", "#b6d36b"]},
     # Cool blue-grey with a soft periwinkle
     "slate": {"name": "Slate", "base": "#0f141b", "surface": "#18202b", "raised": "#212b38",
-              "accent": "#7a9cf2", "text": "#e4e9f1", "view": "#0a0e13"},
+              "accent": "#7a9cf2", "text": "#e4e9f1", "view": "#0a0e13",
+              "scan_a": "#7c8df5", "scan_b": "#f2a65a", "scan_mid": ["#5cc8d7", "#a8d58a"]},
     # Deep water: dark teal with a bright cyan
     "abyss": {"name": "Abyss", "base": "#03111a", "surface": "#0a2230", "raised": "#12303f",
-              "accent": "#1fb8c4", "text": "#e3f5f7", "view": "#020c12"},
+              "accent": "#1fb8c4", "text": "#e3f5f7", "view": "#020c12",
+              "scan_a": "#3fc1d0", "scan_b": "#ff7e67", "scan_mid": ["#6fd6a8", "#c8d77a"]},
     # Dark aubergine with a violet
     "violet": {"name": "Violet", "base": "#110e19", "surface": "#1b1726", "raised": "#252033",
-               "accent": "#8f73f5", "text": "#ece8f5", "view": "#0a0811"},
+               "accent": "#8f73f5", "text": "#ece8f5", "view": "#0a0811",
+               "scan_a": "#9a7cff", "scan_b": "#ffa066", "scan_mid": ["#e183d6", "#ff8f9f"]},
     # Light panels for projectors and bright rooms. The 3D view stays dark in every theme: the scan colours,
     # the yellow changes and the white overlays (logo, colour bars) need a dark background
     "daylight": {"name": "Daylight", "base": "#eef1f6", "surface": "#ffffff", "raised": "#f3f5f9",
-                 "accent": "#2563eb", "text": "#18202e", "view": "#1c2330"},
+                 "accent": "#2563eb", "text": "#18202e", "view": "#1c2330",
+                 "scan_a": "#3b82f6", "scan_b": "#f97316", "scan_mid": ["#14b8a6", "#84cc16"]},
 }
 DEFAULT_THEME = "subdron"
 
@@ -101,7 +111,7 @@ def use_theme(key):
     """Make a theme the current one. Call before the windows are built (they read the colours once)."""
     global THEME, BACKGROUND, CARD, CARD_BORDER, FIELD, FIELD_BORDER, FIELD_HOVER, TEXT, TEXT_DIM, TEXT_FAINT
     global ACCENT, ACCENT_HOVER, ACCENT_PRESSED, ACCENT_DISABLED, ACCENT_SOFT, ACCENT_TEXT, CHECK_BORDER
-    global BRAND, VIEW_BACKGROUND, LABEL_FILL, PANEL_STYLE
+    global BRAND, VIEW_BACKGROUND, LABEL_FILL, PANEL_STYLE, SCAN_A, SCAN_B, SCAN_STOPS
     THEME = key if key in THEMES else DEFAULT_THEME
     theme = THEMES[THEME]
     base, surface, raised, accent, text = (theme[k] for k in ("base", "surface", "raised", "accent", "text"))
@@ -124,6 +134,8 @@ def use_theme(key):
     BRAND = surface  # start screen and splash: the theme's own navy / grey
     VIEW_BACKGROUND = theme["view"]
     LABEL_FILL = rgb(mix(text, surface, 0.04))  # labels in the 3D view
+    SCAN_A, SCAN_B = rgb(theme["scan_a"]), rgb(theme["scan_b"])  # default colours of the two scans
+    SCAN_STOPS = [SCAN_A, *(rgb(c) for c in theme["scan_mid"]), SCAN_B]  # a series: oldest to newest
     PANEL_STYLE = panel_style()
 
 
@@ -133,7 +145,8 @@ def theme_colors(key):
     base, surface, raised, accent, text = (theme[k] for k in ("base", "surface", "raised", "accent", "text"))
     return {"base": base, "surface": surface, "raised": raised, "accent": accent, "text": text,
             "border": mix(text, surface, 0.09), "dim": mix(text, surface, 0.45),
-            "soft": mix(accent, surface, 0.22), "view": theme["view"]}
+            "soft": mix(accent, surface, 0.22), "view": theme["view"], "scan_a": theme["scan_a"],
+            "scan_b": theme["scan_b"]}
 
 
 def theme_names():

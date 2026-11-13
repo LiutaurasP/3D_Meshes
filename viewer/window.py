@@ -216,8 +216,23 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         dock.setTitleBarWidget(QWidget())  # no title bar, the Settings / Guide switch replaces it
         dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         dock.setMinimumWidth(360)
-        self.addDockWidget(Qt.RightDockWidgetArea, dock)
+        self.addDockWidget(self._panel_area(prefs.get("panel_side")), dock)
         self.dock = dock
+
+    @staticmethod
+    def _panel_area(side):
+        return Qt.LeftDockWidgetArea if side == "left" else Qt.RightDockWidgetArea
+
+    def set_panel_side(self, side):
+        """Put the side panel to the left or the right of the 3D view (Settings → Look)."""
+        prefs.set("panel_side", side)
+        area = self._panel_area(side)
+        if self.dockWidgetArea(self.dock) == area:
+            return
+        visible = self.dock.isVisible()
+        self.removeDockWidget(self.dock)
+        self.addDockWidget(area, self.dock)
+        self.dock.setVisible(visible)
 
     def _on_clean_changed(self, clean):
         self._update_title()
@@ -887,6 +902,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             self.restart_autosave()
             self.scene._rebuild()  # point style limit may have changed
             self.notify("Settings saved")
+            self.set_panel_side(prefs.get("panel_side"))
             if getattr(dialog, "theme_changed", False):
                 self.offer_restart()
 

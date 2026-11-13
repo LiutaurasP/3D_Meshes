@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -135,6 +135,9 @@ def paint_theme_preview(painter, rect, key):
 
     block(3, 3, 25, 12, c["surface"], 2.5)  # a card
     block(5, 5, 11, 1.6, c["text"], 0.8)  # its title
+    for dot, colour in ((19.5, c["scan_a"]), (23.0, c["scan_b"])):  # the two scans in the 3D view
+        painter.setBrush(QColor(colour))
+        painter.drawEllipse(QPointF(x + dot * unit, y + 5.8 * unit), 1.3 * unit, 1.3 * unit)
     block(5, 8, 21, 2.4, c["soft"], 1.0)  # a selected row
     block(6, 8.7, 8, 1.0, c["text"], 0.5)
     block(5, 11.6, 21, 2.0, c["raised"], 1.0)  # a field
@@ -198,8 +201,15 @@ class PreferencesDialog(QDialog):
         self.theme_preview = ThemePreview(self.theme.currentData())
         self.theme.currentIndexChanged.connect(lambda _: self.theme_preview.show_theme(self.theme.currentData()))
         form.row("", self.theme_preview)  # under the list, lined up with it
+        self.panel_side = QComboBox()
+        self.panel_side.addItem("On the right of the 3D view", "right")
+        self.panel_side.addItem("On the left of the 3D view", "left")
+        self.panel_side.setCurrentIndex(max(0, self.panel_side.findData(prefs.get("panel_side"))))
+        form.row("Side panel", self.panel_side, "Where the panel that Space opens and closes sits. "
+                                                "Changes as soon as you press OK.")
         look.add(form)
-        look.add(hint("A new theme is used from the next start (the app offers to restart)."))
+        look.add(hint("A new theme is used from the next start (the app offers to restart). "
+                      "The side panel moves right away."))
         layout.addWidget(look)
 
         general = Card("General")
@@ -258,6 +268,7 @@ class PreferencesDialog(QDialog):
         theme = self.theme.currentData()
         self.theme_changed = theme != prefs.get("theme")
         prefs.set("theme", theme)
+        prefs.set("panel_side", self.panel_side.currentData())
         prefs.set("show_start_screen", self.start_screen.isChecked())
         prefs.set("autosave_minutes", self.autosave.value())
         prefs.set("depth_shading", self.depth_shading.isChecked())

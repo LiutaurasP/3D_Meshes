@@ -8,6 +8,18 @@ def theme_background():
     return (*style.rgb(style.VIEW_BACKGROUND), 1.0)
 
 
+def theme_scan_a():
+    from viewer import style
+
+    return (*style.SCAN_A, 1.0)
+
+
+def theme_scan_b():
+    from viewer import style
+
+    return (*style.SCAN_B, 1.0)
+
+
 @dataclass
 class ViewSettings:
     """How things are drawn. Nothing in here changes the data itself."""
@@ -21,8 +33,8 @@ class ViewSettings:
     background: tuple = field(default_factory=theme_background)  # the theme's, almost black
 
     # Same colors as the Plotly viewer so both views are easy to compare
-    color_a: tuple = (0.25, 0.41, 0.88, 1.0)  # royal blue
-    color_b: tuple = (1.0, 0.55, 0.0, 1.0)  # dark orange
+    color_a: tuple = field(default_factory=theme_scan_a)  # each theme picks its own (Subdron: royal blue)
+    color_b: tuple = field(default_factory=theme_scan_b)  # (Subdron: dark orange)
     color_truth: tuple = (1.0, 0.0, 0.85, 1.0)  # magenta
     color_changes: tuple = (1.0, 0.85, 0.1, 1.0)  # yellow
 

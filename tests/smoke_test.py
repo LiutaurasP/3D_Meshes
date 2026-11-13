@@ -1382,6 +1382,13 @@ def stable_aligned():
           "without the" in window.sidebar.align_info.text() and window.change_result is not None
           and len(window.change_result.moves) >= 2)
     window.sidebar.align_stable.setChecked(False)
+    window.set_panel_side("left")
+    app.processEvents()
+    left = window.dock.geometry().x() < window.centralWidget().geometry().x()
+    window.set_panel_side("right")
+    app.processEvents()
+    check("the side panel can sit on the left of the 3D view and come back",
+          left and window.dock.geometry().x() > window.centralWidget().geometry().x() and window.dock.isVisible())
     if args.skip_tutorials:
         skip("both tutorials", "--skip-tutorials")
         finish()
