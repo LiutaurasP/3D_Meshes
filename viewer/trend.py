@@ -9,9 +9,12 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
+from viewer import style
+
+style.chart_fonts()
 from viewer.style import BACKGROUND, CARD, CARD_BORDER, PANEL_STYLE, TEXT, TEXT_DIM
 
-ADDED, REMOVED = "#e8796b", "#6a9ff0"
+ADDED, REMOVED = style.ADDED, style.REMOVED
 ESTIMATE_MONTHS = 6
 
 

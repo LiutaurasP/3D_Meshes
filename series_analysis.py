@@ -25,11 +25,11 @@ from scipy.spatial import cKDTree
 PALETTE_STOPS = [(0.25, 0.41, 0.88), (0.18, 0.74, 0.78), (0.62, 0.80, 0.30), (1.0, 0.55, 0.0)]
 
 
-def scan_palette(count):
-    """One colour per scan, from the oldest (blue) to the newest (orange)."""
+def scan_palette(count, stops=None):
+    """One colour per scan, from the oldest (blue) to the newest (orange), or along other stops."""
+    stops = np.array(stops or PALETTE_STOPS)
     if count <= 1:
-        return [PALETTE_STOPS[0]]
-    stops = np.array(PALETTE_STOPS)
+        return [tuple(float(v) for v in stops[0])]
     positions = np.linspace(0, len(stops) - 1, count)
     colours = []
     for position in positions:

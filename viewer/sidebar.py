@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from datasets import SCENES, short_count, size_label
 from viewer.guide import CHAPTERS
 from viewer.scene import CAMERA_PRESETS, COLOR_MODES, NAVIGATION_MODES
+from viewer import style
 from viewer.style import PANEL_STYLE
 from viewer.widgets import (
     SPACING,
@@ -184,8 +185,8 @@ class Sidebar(QWidget):
         self.scan_settings_toggle.setCursor(Qt.PointingHandCursor)
         self.scan_settings_toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scan_settings_toggle.setStyleSheet(
-            "QToolButton { background: none; border: none; color: #9a9da7; font-weight: 600; padding: 2px 0; }"
-            "QToolButton:hover { color: #e6e7eb; }")
+            f"QToolButton {{ background: none; border: none; color: {style.TEXT_DIM}; font-weight: 600; padding: 2px 0; }}"
+            f"QToolButton:hover {{ color: {style.TEXT}; }}")
         card.add(self.scan_settings_toggle)
         self.scan_settings = QWidget()
         settings_layout = QVBoxLayout(self.scan_settings)
@@ -1039,7 +1040,7 @@ class Sidebar(QWidget):
             return name
         if stacked:
             return f"{name}<br>{when}"
-        return f"{name} <span style='color:#9a9da7'>· {when}</span>" if html else f"{name}, {when}"
+        return f"{name} <span style='color:{style.TEXT_DIM}'>· {when}</span>" if html else f"{name}, {when}"
 
     def set_series_pair(self, older, newer, mode):
         for widget, value in ((self.timeline, newer), (self.timeline_mode, self.timeline_mode.findData(mode))):
@@ -1047,7 +1048,7 @@ class Sidebar(QWidget):
             widget.setValue(value) if widget is self.timeline else widget.setCurrentIndex(value)
             widget.blockSignals(False)
         names = self.series_names
-        self.timeline_title.setText(f"<b>{self._scan_label(newer, html=True)}</b><br><span style='color:#9a9da7'>"
+        self.timeline_title.setText(f"<b>{self._scan_label(newer, html=True)}</b><br><span style='color:{style.TEXT_DIM}'>"
                                     f"compared with {self._scan_label(older, html=True)} · scan {newer + 1} of "
                                     f"{len(names)}</span>")
 
@@ -1082,25 +1083,29 @@ class Sidebar(QWidget):
 
     def _tutorial_row(self, advanced=False):
         """Invitations to the tutorials at the top of the Quick start chapter."""
-        row = QFrame()
+        from viewer.widgets import Surface
+
+        strength = 0.6 if advanced else 1.0
+        row = Surface(fill=style.mix(style.ACCENT, style.CARD, 0.08 * strength),
+                      border=style.mix(style.ACCENT, style.CARD, 0.45 * strength), radius=style.FIELD_RADIUS + 2)
         row.setObjectName("tutorialRow")
-        border, fill = ("0.3", "0.04") if advanced else ("0.45", "0.08")
-        row.setStyleSheet(f"#tutorialRow {{ border: 1px solid rgba(61, 127, 245, {border}); border-radius: 8px;"
-                          f" background: rgba(61, 127, 245, {fill}); }} #tutorialRow QLabel {{ background: transparent; }}")
+        row.setStyleSheet("#tutorialRow QLabel { background: transparent; }")
         layout = QHBoxLayout(row)
         layout.setContentsMargins(12, 10, 10, 10)
         layout.setSpacing(10)
         if advanced:
-            text = QLabel("<b>Know the basics?</b><br><span style='color:#9a9da7'>The Storm Season: six chapters "
+            text = QLabel(f"<b>Know the basics?</b><br><span style='color:{style.TEXT_DIM}'>The Storm Season: six chapters "
                           "of tricks on a wind turbine foundation, about 15 minutes.</span>")
         else:
-            text = QLabel("<b>New here?</b><br><span style='color:#9a9da7'>Everything step by step in about 5 "
+            text = QLabel(f"<b>New here?</b><br><span style='color:{style.TEXT_DIM}'>Everything step by step in about 5 "
                           "minutes.</span>")
         text.setWordWrap(True)
         layout.addWidget(text, 1)
         start = button("Advanced Tutorial" if advanced else "Start Tutorial", primary=True)
         if advanced:  # blue as well, a deeper shade, so the two don't look like the same button
-            start.setStyleSheet("QPushButton { background: #4a5fe0; } QPushButton:hover { background: #5c70ea; }")
+            deeper = style.mix("#000000", style.ACCENT, 0.22)
+            start.setStyleSheet(f"QPushButton {{ background: {deeper}; border-color: {deeper}; }}"
+                                f"QPushButton:hover {{ background: {style.ACCENT}; border-color: {style.ACCENT}; }}")
         start.clicked.connect(lambda: self.callbacks["advanced_tutorial" if advanced else "tutorial"]())
         layout.addWidget(start, 0, Qt.AlignVCenter)
         if advanced:

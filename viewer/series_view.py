@@ -215,8 +215,9 @@ class SeriesMixin:
 
     def _scan_colors(self):
         from series_analysis import scan_palette
+        from viewer import style
 
-        return scan_palette(len(self.series.names))
+        return scan_palette(len(self.series.names), style.SCAN_STOPS)  # from the theme's scan A to scan B
 
     def _start_scan_view(self, visible=None):
         """Fill the Scans card for a newly opened series."""

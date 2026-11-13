@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from viewer.style import ACCENT, CARD, CARD_BORDER, FIELD, FIELD_BORDER, PANEL_STYLE, TEXT, TEXT_DIM
+from viewer.style import (ACCENT, DIALOG_RADIUS, FIELD, FIELD_BORDER, PANEL_STYLE, SIZE_BODY,
+                          TEXT, TEXT_DIM, nested)
 
 
 def all_commands(menu_bar):
@@ -64,26 +65,27 @@ class CommandPalette(QDialog):
         super().__init__(window, Qt.Popup | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName("palette")
+        inset = 8  # the search field and the rows sit this far inside the box: their corners are nested
         self.setStyleSheet(PANEL_STYLE + f"""
-            #paletteBox {{ background: {CARD}; border: 1px solid {CARD_BORDER}; border-radius: 12px; }}
-            QLineEdit {{ background: {FIELD}; border: 1px solid {FIELD_BORDER}; border-radius: 8px;
+            QLineEdit {{ background: {FIELD}; border: 1px solid {FIELD_BORDER};
+                         border-radius: {nested(DIALOG_RADIUS, inset)}px;
                          padding: 8px 12px; font-size: 15px; color: {TEXT}; }}
-            QListWidget {{ background: transparent; border: none; font-size: 13px; }}
-            QListWidget::item {{ border-radius: 6px; padding: 0px; }}
+            QListWidget {{ background: transparent; border: none; padding: 0px; font-size: {SIZE_BODY}px; }}
+            QListWidget::item {{ border-radius: {nested(DIALOG_RADIUS, inset)}px; padding: 0px; }}
             QListWidget::item:selected {{ background: {ACCENT}; }}
         """)
         self.commands = all_commands(window.menuBar())
 
-        from PySide6.QtWidgets import QFrame
+        from viewer.widgets import Surface
 
-        box = QFrame(self)
+        box = Surface(radius=DIALOG_RADIUS, border=FIELD_BORDER, parent=self)
         box.setObjectName("paletteBox")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(box)
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(inset, inset, inset, inset)
+        layout.setSpacing(inset)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("Type a command, for example \"align\" or \"depth\"")

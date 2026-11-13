@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from datasets import short_count
 from scan_formats import ALL_TYPES, ImportOptions
 from scan_formats import FILE_FILTER as SCAN_FILES
-from viewer import prefs, project
+from viewer import prefs, project, style
 from viewer.animation import AlignmentAnimation, AlignWorker, ChangeWorker, DataWorker
 from viewer.large_view import LargeScanMixin
 from viewer.branding import APP_NAME, LOGO_PATH, PROJECT_EXTENSION, PROJECT_FILTER, VERSION
@@ -179,7 +179,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         self.status = QLabel()
         self.statusBar().addWidget(self.status)
         self.cursor_label = QLabel()
-        self.cursor_label.setStyleSheet("color: #9a9da7; padding-right: 8px;")
+        self.cursor_label.setStyleSheet(f"color: {style.TEXT_DIM}; padding-right: 8px;")
         self.statusBar().addPermanentWidget(self.cursor_label)
         self.toast = Toast(self)
 
@@ -216,8 +216,23 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         dock.setTitleBarWidget(QWidget())  # no title bar, the Settings / Guide switch replaces it
         dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         dock.setMinimumWidth(360)
-        self.addDockWidget(Qt.RightDockWidgetArea, dock)
+        self.addDockWidget(self._panel_area(prefs.get("panel_side")), dock)
         self.dock = dock
+
+    @staticmethod
+    def _panel_area(side):
+        return Qt.LeftDockWidgetArea if side == "left" else Qt.RightDockWidgetArea
+
+    def set_panel_side(self, side):
+        """Put the side panel to the left or the right of the 3D view (Settings → Look)."""
+        prefs.set("panel_side", side)
+        area = self._panel_area(side)
+        if self.dockWidgetArea(self.dock) == area:
+            return
+        visible = self.dock.isVisible()
+        self.removeDockWidget(self.dock)
+        self.addDockWidget(area, self.dock)
+        self.dock.setVisible(visible)
 
     def _on_clean_changed(self, clean):
         self._update_title()
@@ -882,10 +897,30 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
     def show_preferences(self):
         from viewer.dialogs import PreferencesDialog
 
-        if PreferencesDialog(self).exec():
+        dialog = PreferencesDialog(self)
+        if dialog.exec():
             self.restart_autosave()
             self.scene._rebuild()  # point style limit may have changed
             self.notify("Settings saved")
+            self.set_panel_side(prefs.get("panel_side"))
+            if getattr(dialog, "theme_changed", False):
+                self.offer_restart()
+
+    def offer_restart(self):
+        """A new theme: every window reads the colours once, so the app starts again to use it."""
+        answer = QMessageBox.question(self, "New theme", "The new theme is used after a restart. Restart now?",
+                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if answer != QMessageBox.Yes or not self.maybe_save():
+            return
+        import sys
+
+        from PySide6.QtCore import QProcess
+
+        arguments = sys.argv[1:] if getattr(sys, "frozen", False) else sys.argv
+        if QProcess.startDetached(sys.executable, arguments):
+            self.skip_save_prompt = True
+            self.close()
+            QApplication.instance().quit()
 
     def show_shortcuts(self):
         from viewer.dialogs import ShortcutsDialog
@@ -1841,7 +1876,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         start = str(Path.home() / f"{Path(self.project_path).stem if self.project_path else 'Subdron view'}.png")
         path, _ = QFileDialog.getSaveFileName(self, "Export Screenshot", start, "PNG image (*.png)")
         if path:
-            self.scene.plotter.screenshot(path)
+            self.scene.capture(path)
             self.statusBar().showMessage(f"Saved {Path(path).name}", 4000)
             self.notify("Screenshot saved", Path(path).name, "success")
 
@@ -1850,7 +1885,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         from PySide6.QtGui import QImage
 
         self.scene.plotter.ren_win.Render()  # the plotter's own render() waits for the event loop
-        pixels = np.ascontiguousarray(self.scene.plotter.screenshot(return_img=True)[:, :, :3])
+        pixels = np.ascontiguousarray(self.scene.capture(return_img=True)[:, :, :3])
         height, width, _ = pixels.shape
         image = QImage(pixels.data, width, height, 3 * width, QImage.Format_RGB888).copy()
         QApplication.clipboard().setImage(image)
@@ -2038,7 +2073,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         layout.addWidget(logo)
         text = QLabel(f"<div style='text-align:center'><b style='font-size:16px'>{APP_NAME}</b><br>"
                       f"Version {VERSION}<br><br>Alignment and change detection<br>for underwater sonar scans."
-                      f"<br><br><span style='color:#9a9da7'>© Subdron</span></div>")
+                      f"<br><br><span style='color:{style.TEXT_DIM}'>© Subdron</span></div>")
         text.setAlignment(Qt.AlignCenter)
         layout.addWidget(text)
         dialog.exec()

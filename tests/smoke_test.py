@@ -1382,6 +1382,13 @@ def stable_aligned():
           "without the" in window.sidebar.align_info.text() and window.change_result is not None
           and len(window.change_result.moves) >= 2)
     window.sidebar.align_stable.setChecked(False)
+    window.set_panel_side("left")
+    app.processEvents()
+    left = window.dock.geometry().x() < window.centralWidget().geometry().x()
+    window.set_panel_side("right")
+    app.processEvents()
+    check("the side panel can sit on the left of the 3D view and come back",
+          left and window.dock.geometry().x() > window.centralWidget().geometry().x() and window.dock.isVisible())
     if args.skip_tutorials:
         skip("both tutorials", "--skip-tutorials")
         finish()
@@ -1566,7 +1573,11 @@ def tutorial_checks():
         plan += [(lambda: key(Qt.Key_Return), 500), ("until", at(name)),
                  (lambda p=page, n=name: check(f"the tour shows the {n[4:].title()} tab",
                                                window.sidebar.pages.currentIndex() == p), 50)]
-    plan += [(lambda: key(Qt.Key_Return), 500), ("until", at("end")), (lambda: key(Qt.Key_Return), 300),
+    plan += [(lambda: key(Qt.Key_Return), 500), ("until", at("end")),
+             (lambda: check("the last card offers the advanced tutorial right away (A) next to exploring (Enter)",
+                            window.tutorial.card.second.isVisible()
+                            and window.tutorial.card.next.isVisible()), 600),
+             (lambda: key(Qt.Key_Return), 300),
              ("until", lambda: not window.in_tutorial() and data_ready())]
     run_plan(plan, tutorial_done)
 

@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -18,14 +19,16 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QSizePolicy,
     QWidget,
 )
 
 from datasets import SCENES
 from viewer import prefs
 from viewer.branding import APP_NAME, LOGO_PATH, VERSION
+from viewer import style
 from viewer.style import PANEL_STYLE
-from viewer.widgets import Card, Form, button, hint, spin
+from viewer.widgets import LABEL_WIDTH, Card, Form, button, hint, spin
 
 # Keys that are not menu entries (handled by the 3D view itself)
 EXTRA_KEYS = [
@@ -111,6 +114,61 @@ class ShortcutsDialog(QDialog):
 # Settings (preferences)
 
 
+def paint_theme_preview(painter, rect, key):
+    """A tiny picture of a theme: its background, a card with text, a selected row, a field and buttons."""
+    from viewer.shapes import squircle
+
+    c = style.theme_colors(key)
+    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+    unit = min(w / 44, h / 18)  # everything scales with the size of the picture
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(QPen(QColor(c["border"]), max(1.0, unit * 0.6)))
+    painter.setBrush(QColor(c["base"]))
+    painter.drawPath(squircle(rect.adjusted(0.5, 0.5, -0.5, -0.5), 4.5 * unit, style.SMOOTHING))
+    painter.setPen(Qt.NoPen)
+
+    def block(bx, by, bw, bh, color, radius):
+        painter.setBrush(QColor(color))
+        painter.drawPath(squircle(QRectF(x + bx * unit, y + by * unit, bw * unit, bh * unit), radius * unit,
+                                  style.SMOOTHING))
+
+    block(3, 3, 25, 12, c["surface"], 2.5)  # a card
+    block(5, 5, 11, 1.6, c["text"], 0.8)  # its title
+    for dot, colour in ((19.5, c["scan_a"]), (23.0, c["scan_b"])):  # the two scans in the 3D view
+        painter.setBrush(QColor(colour))
+        painter.drawEllipse(QPointF(x + dot * unit, y + 5.8 * unit), 1.3 * unit, 1.3 * unit)
+    block(5, 8, 21, 2.4, c["soft"], 1.0)  # a selected row
+    block(6, 8.7, 8, 1.0, c["text"], 0.5)
+    block(5, 11.6, 21, 2.0, c["raised"], 1.0)  # a field
+    block(30, 3.5, 11, 4.5, c["accent"], 2.0)  # the main button
+    block(30, 9.5, 11, 4.5, c["raised"], 2.0)  # a normal button
+    block(32.5, 11.3, 6, 1.0, c["dim"], 0.5)
+    painter.restore()
+
+
+class ThemePreview(QWidget):
+    """A bigger picture of the chosen theme under the list, so you see roughly what awaits you."""
+
+    def __init__(self, key):
+        super().__init__()
+        self.key = key
+        self.setFixedHeight(56)
+        self.setMinimumWidth(56 * 44 // 18)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def show_theme(self, key):
+        self.key = key
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        height = self.height()
+        width = min(self.width(), height * 44 / 18)
+        paint_theme_preview(painter, QRectF(0, 0, width, height), self.key)
+        painter.end()
+
+
 class PreferencesDialog(QDialog):
     def __init__(self, window):
         super().__init__(window)
@@ -120,6 +178,34 @@ class PreferencesDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
+
+        look = Card("Look")
+        form = Form()
+        self.theme = QComboBox()
+        for key, name in style.theme_names():
+            self.theme.addItem(name, key)
+        self.theme.setCurrentIndex(max(0, self.theme.findData(prefs.get("theme"))))
+        form.row("Theme", self.theme, "Colours of the whole app. Subdron is the look of subdron.com.")
+        look.add(form)
+        # The colours of the chosen theme, under the list and lined up with it, in a row of its own
+        self.theme_preview = ThemePreview(self.theme.currentData())
+        self.theme.currentIndexChanged.connect(lambda _: self.theme_preview.show_theme(self.theme.currentData()))
+        preview_row = QHBoxLayout()
+        preview_row.setContentsMargins(0, 0, 0, 0)
+        preview_row.addSpacing(form.horizontalSpacing() + LABEL_WIDTH)
+        preview_row.addWidget(self.theme_preview, 1)
+        look.add(preview_row)
+        form = Form()
+        self.panel_side = QComboBox()
+        self.panel_side.addItem("On the right of the 3D view", "right")
+        self.panel_side.addItem("On the left of the 3D view", "left")
+        self.panel_side.setCurrentIndex(max(0, self.panel_side.findData(prefs.get("panel_side"))))
+        form.row("Side panel", self.panel_side, "Where the panel that Space opens and closes sits. "
+                                                "Changes as soon as you press OK.")
+        look.add(form)
+        look.add(hint("A new theme is used from the next start (the app offers to restart). "
+                      "The side panel moves right away."))
+        layout.addWidget(look)
 
         general = Card("General")
         self.start_screen = QCheckBox("Show the start screen when the app opens")
@@ -172,8 +258,14 @@ class PreferencesDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        # Qt underestimates the height of wrapping text here: start at the full height the cards need
+        self.setMinimumHeight(self.sizeHint().height())
 
     def accept(self):
+        theme = self.theme.currentData()
+        self.theme_changed = theme != prefs.get("theme")
+        prefs.set("theme", theme)
+        prefs.set("panel_side", self.panel_side.currentData())
         prefs.set("show_start_screen", self.start_screen.isChecked())
         prefs.set("autosave_minutes", self.autosave.value())
         prefs.set("depth_shading", self.depth_shading.isChecked())
@@ -204,7 +296,7 @@ class StartScreen(QDialog):
         # Left: logo and the main actions
         left = QWidget()
         left.setObjectName("startSide")
-        left.setStyleSheet("#startSide { background: #0d162c; }")
+        left.setStyleSheet(f"#startSide {{ background: {style.BRAND}; border-right: 1px solid {style.CARD_BORDER}; }}")
         side = QVBoxLayout(left)
         side.setContentsMargins(28, 32, 28, 24)
         side.setSpacing(12)
@@ -212,10 +304,11 @@ class StartScreen(QDialog):
         logo.setPixmap(QPixmap(str(LOGO_PATH)).scaledToWidth(200, Qt.SmoothTransformation))
         side.addWidget(logo)
         title = QLabel(f"<b style='font-size:17px'>Sonar Studio</b><br>"
-                       f"<span style='color:#9a9da7'>Version {VERSION}</span>")
+                       f"<span style='color:{style.TEXT_DIM}'>Version {VERSION}</span>")
         side.addWidget(title)
         side.addSpacing(18)
-        new = button("New Project", primary=True)
+        # The first time, the tutorial is the one thing in colour: New Project steps back
+        new = button("New Project", primary=bool(prefs.get("tutorial_done")))
         new.clicked.connect(lambda: self._done(self.NEW))
         side.addWidget(new)
         open_ = button("Open Project…")
@@ -263,35 +356,58 @@ class StartScreen(QDialog):
     def _tutorial_card(self):
         """The invitation to the tutorial, at the top of the start screen."""
         first_time = not prefs.get("tutorial_done")
-        card = QFrame()
+        from viewer.widgets import Surface
+
+        card = Surface(fill=style.mix(style.ACCENT, style.CARD, 0.12), border=style.mix(style.ACCENT, style.CARD, 0.55))
         card.setObjectName("tutorialCard")
-        card.setStyleSheet(
-            "#tutorialCard { border: 1px solid rgba(61, 127, 245, 0.55); border-radius: 12px;"
-            " background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #17254a, stop:1 #10162a); }"
-            "#tutorialCard QLabel { background: transparent; }")
+        card.setStyleSheet("#tutorialCard QLabel { background: transparent; }")
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(16)
+        layout.setContentsMargins(*((26, 24, 24, 24) if first_time else (18, 16, 18, 16)))
+        layout.setSpacing(20 if first_time else 16)
         text = QVBoxLayout()
-        text.setSpacing(4)
+        text.setSpacing(6 if first_time else 4)
         badge = QLabel("RECOMMENDED FOR FIRST-TIME USERS" if first_time else "TUTORIAL")
-        badge.setStyleSheet("color: #7fb0ff; font-size: 10px; font-weight: 700; letter-spacing: 1.5px;")
+        badge.setStyleSheet(f"color: {style.ACCENT_HOVER}; font-size: {style.SIZE_TINY - (0 if first_time else 1)}px;"
+                            " font-weight: 700; letter-spacing: 1.5px;")
         text.addWidget(badge)
         heading = QLabel("New here? Take the 5-minute dive." if first_time else "Take the 5-minute dive again")
-        heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        heading.setStyleSheet(f"font-size: {22 if first_time else style.SIZE_HEADING - 1}px; font-weight: 700;")
+        heading.setWordWrap(True)
         text.addWidget(heading)
         detail = QLabel("Learn the controls step by step on a real-looking sonar scan, and find what fell "
                         "to the seafloor.")
         detail.setWordWrap(True)
-        detail.setStyleSheet("color: #9a9da7;")
+        detail.setStyleSheet(f"color: {style.TEXT_DIM};" + (f" font-size: {style.SIZE_TITLE}px;" if first_time else ""))
         text.addWidget(detail)
         layout.addLayout(text, 1)
         start = button("Start Tutorial  →", primary=True)
-        start.setMinimumHeight(38)
         start.clicked.connect(lambda: self._done(self.TUTORIAL))
+        if first_time:  # big, the default for Enter, and the card's edge breathes slowly so the eye goes there
+            start.setStyleSheet("QPushButton { font-size: 17px; font-weight: 700; border-radius: 14px;"
+                                " min-height: 56px; min-width: 220px; padding: 0 22px; }")
+            start.setDefault(True)
+            start.setFocus()
+            self._breathe(card)
+        else:
+            start.setMinimumHeight(38)
         layout.addWidget(start, 0, Qt.AlignVCenter)
         self.tutorial_button = start
         return card
+
+    def _breathe(self, card):
+        from PySide6.QtCore import QVariantAnimation
+
+        quiet, bright = style.mix(style.ACCENT, style.CARD, 0.45), style.ACCENT
+        fill_quiet, fill_bright = style.mix(style.ACCENT, style.CARD, 0.12), style.mix(style.ACCENT, style.CARD, 0.18)
+        self.breath = QVariantAnimation(self)
+        self.breath.setDuration(2400)
+        self.breath.setStartValue(0.0)
+        self.breath.setKeyValueAt(0.5, 1.0)
+        self.breath.setEndValue(0.0)
+        self.breath.setLoopCount(-1)
+        self.breath.valueChanged.connect(lambda v: card.set_colors(
+            fill=style.mix(fill_bright, fill_quiet, v), border=style.mix(bright, quiet, v)))
+        self.breath.start()
 
     def _done(self, kind, value=None):
         self.choice = (kind, value)
