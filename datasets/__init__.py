@@ -16,7 +16,7 @@ import numpy as np
 import open3d as o3d
 
 from datasets.big_scenes import BIG_SCENES, HarbourQuaySection
-from datasets.huge_quay import QuayWithShips
+from datasets.huge_quay import QuayToeBlocks, QuayWithShips
 from datasets.more_scenes import MORE_SCENES
 from datasets.scenes import SIMPLE_SCENES, QuayWallDroppedObject, Scene
 from datasets.sonar import ScanSettings, scan
@@ -52,7 +52,7 @@ class OriginalWall(Scene):
 
 # Order in the app's dropdown: the harbour quay section first (the default scene), then the dropped container
 _ORDER = [HarbourQuaySection, QuayWallDroppedObject] + [s for s in SIMPLE_SCENES if s is not QuayWallDroppedObject] \
-    + MORE_SCENES + [WindTurbineFoundation] + [s for s in BIG_SCENES if s is not HarbourQuaySection] \
+    + MORE_SCENES[:1] + [QuayToeBlocks] + MORE_SCENES[1:] + [WindTurbineFoundation] + [s for s in BIG_SCENES if s is not HarbourQuaySection] \
     + [QuayWithShips]
 SCENES = {scene.key: scene for scene in _ORDER + [OriginalWall]}
 DEFAULT_SCENE = HarbourQuaySection.key

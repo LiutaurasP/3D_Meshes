@@ -140,6 +140,10 @@ class QuayWithShips(HarbourWall):
     fender_radius = 0.35
     fender_y = 0.9
     container = np.array([6.06, 2.44, 2.59])
+    scour_depth = 0.8
+    bulge_height = 0.3
+    spall_size = (0.2, 0.15)  # half width, half height
+    has_lost_object = True
 
     def build_world(self, rng):
         super().build_world(rng)
@@ -177,15 +181,15 @@ class QuayWithShips(HarbourWall):
     def change_depth(self, x, y):
         x = np.asarray(x, dtype=float)
         y = np.asarray(y, dtype=float)
-        return 0.8 * np.exp(-((x - self.scour_x) / 3.5) ** 2) * np.exp(-(np.maximum(y, 0) / 3.0) ** 2)
+        return self.scour_depth * np.exp(-((x - self.scour_x) / 3.5) ** 2) * np.exp(-(np.maximum(y, 0) / 3.0) ** 2)
 
     def bulge(self, x, z):
         cx, cz = self.bulge_center
-        return 0.3 * np.exp(-((x - cx) / 2.5) ** 2 - ((z - cz) / 1.8) ** 2)
+        return self.bulge_height * np.exp(-((x - cx) / 2.5) ** 2 - ((z - cz) / 1.8) ** 2)
 
     def spalled(self, x, z):
         sx, sz = self.spall
-        return (np.abs(x - sx) < 0.2) & (np.abs(z - sz) < 0.15)
+        return (np.abs(x - sx) < self.spall_size[0]) & (np.abs(z - sz) < self.spall_size[1])
 
     def wall_offset(self, x, z, changed):
         if not changed:
@@ -202,6 +206,8 @@ class QuayWithShips(HarbourWall):
         return (np.abs(u) < self.container[0] / 2) & (np.abs(v) < self.container[1] / 2)
 
     def _under_lost(self, x, y):
+        if not self.has_lost_object:
+            return np.zeros(len(x), dtype=bool)
         return (np.abs(x - self.lost_object[0]) < self.lost_size[0] / 2) & \
                (np.abs(y - self.lost_object[1]) < self.lost_size[1] / 2)
 
@@ -239,7 +245,8 @@ class QuayWithShips(HarbourWall):
             return fenders + blocks + ships + [0.0, 0.0]
         length, width, height = self.container
         lost = self.lost_size[0] * self.lost_size[1] + 2 * (self.lost_size[0] + self.lost_size[1]) * self.lost_size[2]
-        return fenders + blocks + ships + [length * width + 2 * (length + width) * height, lost]
+        return fenders + blocks + ships + [length * width + 2 * (length + width) * height,
+                                           lost if self.has_lost_object else 0.0]
 
     def sample_extra(self, rng, counts, state):
         changed = state == "b"
@@ -262,17 +269,20 @@ class QuayWithShips(HarbourWall):
             parts.append(place(local, rotation(yaw), [*center, base]))
             masks.append(np.full(count, block.changed()))
         rest = counts[n_fenders + n_blocks:]
-        for ship, count in zip(self.ships, rest[:2]):
+        n_ships = len(self.ships)
+        for ship, count in zip(self.ships, rest[:n_ships]):
             points, mask = ship.sample(rng, count, changed)
             parts.append(points)
             masks.append(mask)
         if changed:
-            container = box_surface(rng, rest[2], self.container)
+            container_count, lost_count = rest[n_ships], rest[n_ships + 1]
+            container = box_surface(rng, container_count, self.container)
             parts.append(place(container, rotation(self.box_yaw), [*self.box_center, self.box_base]))
-            masks.append(np.ones(rest[2], dtype=bool))
-            lost = box_surface(rng, rest[3], self.lost_size)
-            parts.append(place(lost, rotation(0.4), [*self.lost_object, self.lost_base]))
-            masks.append(np.ones(rest[3], dtype=bool))
+            masks.append(np.ones(container_count, dtype=bool))
+            if lost_count:
+                lost = box_surface(rng, lost_count, self.lost_size)
+                parts.append(place(lost, rotation(0.4), [*self.lost_object, self.lost_base]))
+                masks.append(np.ones(lost_count, dtype=bool))
         return parts, masks
 
     def sonar_positions(self, points):
@@ -301,6 +311,17 @@ class QuayWithShips(HarbourWall):
                     "high": [center[0] + half[0], center[1] + half[1], z_high]}
 
         bed = lambda x, y: float(self.seabed_z(x, y, False))  # noqa: E731
+        if not self.ships:  # the small toe block scene: only the blocks and the container
+            changes = [box(self.box_center, (3.5, 3.5), self.box_base, self.box_base + 2.8, "container", "added")]
+            for block in self.moved_blocks:
+                new = block.moved_to[0]
+                changes.append({"name": f"toe block moved {np.linalg.norm(new - block.center):.1f} m",
+                                "kind": "moved", "low": [*(np.minimum(block.center, new) - 1.2), bed(*block.center) - 0.5],
+                                "high": [*(np.maximum(block.center, new) + 1.2), bed(*block.center) + 1.4],
+                                "from": [*block.center, 0.0], "to": [*new, 0.0]})
+            changes.append(box(self.gone_block.center, (1.2, 1.2), bed(*self.gone_block.center) - 0.3,
+                               bed(*self.gone_block.center) + 1.2, "toe block gone", "removed"))
+            return changes
         changes = [
             box((self.scour_x, 1.5), (5.0, 3.0), bed(self.scour_x, 1.5) - 1.0, bed(self.scour_x, 1.5) + 0.3,
                 "scour at the foot of the wall", "removed"),
@@ -326,6 +347,55 @@ class QuayWithShips(HarbourWall):
         changes.append(box(self.gone_block.center, (1.2, 1.2), bed(*self.gone_block.center) - 0.3,
                            bed(*self.gone_block.center) + 1.2, "toe block gone", "removed"))
         return changes
+
+
+class QuayToeBlocks(QuayWithShips):
+    """A short piece of the same kind of quay, small enough to try moved blocks quickly."""
+
+    key = "quay_toe_blocks"
+    title = "Quay toe – displaced blocks"
+    description = (
+        "30 m of block quay wall, 8 m deep, with a row of concrete toe blocks (1.6 x 1.2 x 0.9 m) "
+        "protecting its foot. Propeller wash of a ship moved three blocks between the scans: one "
+        "2.4 m out and turned, one slid 0.6 m (less than its own size), one pushed 2.8 m along the "
+        "wall and tipped on its side. One block is gone and a container fell in."
+    )
+    change = "three blocks moved, one gone, a container"
+    default_points = 200_000
+    on_disk = False
+    scan_dates = ()
+
+    length = 30.0
+    depth = 8.0
+    seabed_width = 10.0
+    scour_depth = 0.0
+    bulge_height = 0.0
+    spall_size = (0.0, 0.0)
+    has_lost_object = False
+
+    def build_world(self, rng):
+        HarbourWall.build_world(self, rng)
+        self.scour_x = 0.0
+        self.bulge_center = (0.0, -4.0)
+        self.spall = (0.0, -2.0)
+        self.box_center = np.array([0.5, 7.8])
+        self.box_yaw = 0.4
+        self.box_base = float(self.seabed_z(*self.box_center, False)) - 0.15
+        self.lost_object = np.array([0.0, 8.0])
+        self.lost_size = np.array([0.3, 0.2, 0.15])
+        self.lost_base = 0.0
+        self.fenders = [np.array([x, self.fender_y]) for x in np.arange(-11.25, 12.0, 7.5)]
+        self.ships = []
+        self.blocks = [ToeBlock(np.array([x + rng.uniform(-0.2, 0.2), rng.uniform(1.6, 1.9)]), rng.uniform(-0.1, 0.1))
+                       for x in np.arange(-13.0, 13.5, 2.6)]
+        nearest = lambda x: min(self.blocks, key=lambda b: abs(b.center[0] - x))  # noqa: E731
+        first, second, third, gone = nearest(-8.0), nearest(-2.5), nearest(5.0), nearest(10.0)
+        first.moved_to = (first.center + [0.4, 2.4], first.yaw + np.deg2rad(30), 0.0, 0.1)
+        second.moved_to = (second.center + [0.1, 0.6], second.yaw + np.deg2rad(8), 0.0, 0.05)
+        third.moved_to = (third.center + [1.3, 2.5], third.yaw + np.deg2rad(90), np.pi / 2, 0.0)
+        gone.gone = True
+        self.moved_blocks = [first, second, third]
+        self.gone_block = gone
 
 
 # Writing both scans to files

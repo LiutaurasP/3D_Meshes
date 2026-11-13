@@ -167,6 +167,11 @@ class LargeWorker(QThread):
             elif self.job == "refine":
                 threshold = large_scans.refine_areas(self.pair, v["result"], v["matrix"], v.get("viewpoint"),
                                                      v.get("threshold"), self.progress.emit, stop)
+                if getattr(v["result"], "moves", None) and not stop():
+                    from displaced import refine_moves
+
+                    self.progress.emit(0.98, "Measuring the moved objects in full detail")
+                    refine_moves(self.pair, v["result"], v["matrix"])
                 self.done.emit(threshold)
             elif self.job == "sweep":
                 self.done.emit(large_scans.sweep(self.pair, v["matrix"], v.get("viewpoint"), v.get("threshold"),
