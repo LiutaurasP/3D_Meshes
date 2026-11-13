@@ -5,7 +5,7 @@ from pathlib import Path
 
 APP_NAME = "Subdron Sonar Studio"
 ORGANIZATION = "Subdron"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 PROJECT_EXTENSION = ".subdron"
 PROJECT_FILTER = f"{APP_NAME} projects (*{PROJECT_EXTENSION})"
 
