@@ -3,6 +3,7 @@
     python sonar_cli.py compare before.laz after.laz --out results
     python sonar_cli.py compare a.csv b.csv --depth down --unit ft --report --csv --geojson
     python sonar_cli.py series scans/ --out results          # every scan against the first and the one before
+    python sonar_cli.py compare a.laz b.laz --overview --full-detail   # huge scans (100 million points and more)
 
 Each comparison: read both scans, align B to A (ICP), detect changes, measure volumes.
 Writes a summary to the terminal and, as asked, a PDF report, a CSV / GeoJSON of the
@@ -27,7 +28,65 @@ def options_from(args):
     from scan_formats import ImportOptions
 
     depth = {"auto": None, "down": True, "up": False}[args.depth]
-    return ImportOptions(unit=args.unit, depth_down=depth)
+    mode = "overview" if args.overview else ("thin" if args.thin else "all")
+    return ImportOptions(unit=args.unit, depth_down=depth, mode=mode, thin=(args.thin or 5.0) / 100,
+                         section=args.section)
+
+
+def compare_large(paths, args, log=print):
+    """Huge scans: align and detect on the overview, then full detail where asked for."""
+    from change_detection import default_viewpoint, detect_changes
+    from large_scans import fine_align, merge_sweep, overview_threshold, refine_areas, sweep, to_cloud
+    from viewer.pipeline import icp_steps, load_large_inspections
+    from viewer.settings import DataSettings
+    from volumes import measure_areas
+
+    defaults = DataSettings()
+    options = options_from(args)
+    last = [0.0]
+
+    def progress(fraction, text):
+        if time.time() - last[0] > 2 or fraction >= 1:
+            last[0] = time.time()
+            log(f"  {text}")
+
+    start = time.time()
+    inspections = load_large_inspections({"Scan A": paths[0], "Scan B": paths[1]},
+                                         {"Scan A": options, "Scan B": options}, progress)
+    for note in inspections.notes:
+        log(f"  note: {note}")
+    a, b = inspections.clouds["Scan A"], inspections.clouds["Scan B"]
+    steps = icp_steps(b, a, max_distance=args.match_distance, max_iterations=defaults.max_iterations,
+                      max_points=defaults.max_icp_points, method=args.method)
+    steps += fine_align(b, a, steps[-1].transformation)[1:]
+    matrix = steps[-1].transformation
+    aligned = to_cloud(np.asarray(b.points)).transform(matrix)
+    threshold = args.threshold or overview_threshold(np.asarray(a.points), np.asarray(aligned.points))
+    result = detect_changes(a, aligned, threshold=threshold, min_area_points=defaults.min_area_points)
+    measure_areas(result, np.asarray(a.points), np.asarray(aligned.points))
+    from displaced import describe, find_moves, refine_moves
+
+    result.moves = find_moves(result, np.asarray(a.points), np.asarray(aligned.points))
+    log(f"  overview: {len(result.areas)} changed areas ({time.time() - start:.0f} s so far)")
+    pair = inspections.large
+    if pair is not None and (args.full_detail or args.sweep):
+        viewpoint = default_viewpoint(np.asarray(a.points))
+        threshold = refine_areas(pair, result, matrix, viewpoint, on_progress=progress)
+        log(f"  full detail: {sum(1 for x in result.areas if getattr(x, 'detail', 0)) } areas measured again")
+        refine_moves(pair, result, matrix, viewpoint)
+        if args.sweep:
+            swept, _ = sweep(pair, matrix, viewpoint, threshold, on_progress=progress)
+            log(f"  full detail search: {merge_sweep(result, swept)} more areas found")
+    for move in result.moves:
+        log(f"    area {move.removed + 1}: {describe(move)} ({move.confidence})")
+    added = sum(x.volume_added or 0 for x in result.areas)
+    removed = sum(x.volume_removed or 0 for x in result.areas)
+    log(f"  {inspections.title}: {len(result.areas)} changed areas, +{added:.2f} m³ / -{removed:.2f} m³ "
+        f"({time.time() - start:.0f} s)")
+    series = SimpleNamespace(offset=inspections.offset, paths=[str(p) for p in paths],
+                             names=[Path(p).name for p in paths])
+    return series, SimpleNamespace(inspections=inspections, steps=steps, matrix=matrix, aligned=aligned,
+                                   result=result, added=added, removed=removed, older=0, newer=1)
 
 
 def compare(series, older, newer, args, log=print):
@@ -50,12 +109,17 @@ def compare(series, older, newer, args, log=print):
     aligned.transform(matrix)
     result = detect_changes(a, aligned, threshold=args.threshold, min_area_points=defaults.min_area_points)
     measure_areas(result, np.asarray(a.points), np.asarray(aligned.points))
+    from displaced import describe, find_moves
+
+    result.moves = find_moves(result, np.asarray(a.points), np.asarray(aligned.points))
     seconds = time.time() - start
     added = sum(x.volume_added or 0 for x in result.areas)
     removed = sum(x.volume_removed or 0 for x in result.areas)
     log(f"  {inspections.title}: aligned in {len(steps) - 1} rounds (RMSE {steps[-1].inlier_rmse * 100:.1f} cm), "
         f"{len(result.areas)} changed areas, +{added:.2f} m³ / -{removed:.2f} m³, "
         f"level of detection {result.lod * 100:.1f} cm ({seconds:.1f} s)")
+    for move in result.moves:
+        log(f"    area {move.removed + 1}: {describe(move)} ({move.confidence})")
     return SimpleNamespace(inspections=inspections, steps=steps, matrix=matrix, aligned=aligned, result=result,
                            added=added, removed=removed, older=older, newer=newer)
 
@@ -64,14 +128,15 @@ def write_outputs(series, run, args, folder, stem):
     from exports import area_rows, write_areas_csv, write_areas_geojson, write_scan
 
     offset = series.offset
+    overview = getattr(run.inspections, "large", None) is not None
     written = []
     if args.csv:
         path = folder / f"{stem} areas.csv"
-        write_areas_csv(path, area_rows(run.result, offset))
+        write_areas_csv(path, area_rows(run.result, offset, overview))
         written.append(path)
     if args.geojson:
         path = folder / f"{stem} areas.geojson"
-        write_areas_geojson(path, area_rows(run.result, offset), run.inspections.title)
+        write_areas_geojson(path, area_rows(run.result, offset, overview), run.inspections.title)
         written.append(path)
     if args.aligned:
         path = folder / f"{stem} aligned B{args.aligned if args.aligned.startswith('.') else '.' + args.aligned}"
@@ -158,6 +223,16 @@ def main(argv=None):
         command.add_argument("--csv", action="store_true", help="write the changed areas as CSV")
         command.add_argument("--geojson", action="store_true", help="write the changed areas as GeoJSON")
         command.add_argument("--aligned", default=None, help="write the aligned scan B, e.g. --aligned laz")
+        command.add_argument("--overview", action="store_true",
+                             help="huge scans: work on an overview, keep full detail on disk")
+        command.add_argument("--thin", type=float, default=None, metavar="CM",
+                             help="thin the scans to one averaged point per CM centimetres")
+        command.add_argument("--section", type=float, nargs=2, default=None, metavar=("FROM", "TO"),
+                             help="only this part, in metres along the scan")
+        command.add_argument("--full-detail", action="store_true",
+                             help="with --overview: measure every changed area again in full detail")
+        command.add_argument("--sweep", action="store_true",
+                             help="with --overview: search the whole scan in full detail (slow, complete)")
         command.add_argument("--client", default="")
         command.add_argument("--site", default="")
         command.add_argument("--inspector", default="")
@@ -176,6 +251,14 @@ def main(argv=None):
         parser.error("at least two scan files are needed")
     folder = Path(args.out)
     folder.mkdir(parents=True, exist_ok=True)
+
+    if args.command == "compare" and (args.overview or args.thin):
+        print("Reading 2 scans (huge scans: the first time takes a while, then it is reused)...")
+        series, run = compare_large([str(f) for f in files], args)
+        stem = f"{Path(series.names[1]).stem} vs {Path(series.names[0]).stem}"
+        for path in write_outputs(series, run, args, folder, stem):
+            print(f"    wrote {path}")
+        return 0
 
     print(f"Reading {len(files)} scans...")
     series = load_series([str(f) for f in files], options_from(args))

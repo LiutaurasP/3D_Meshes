@@ -21,7 +21,9 @@ TAGS = ("", "Debris", "Scour", "Sediment", "Damage", "Structure", "Marine growth
 STATUSES = ("", "Open", "Checked", "Resolved")
 FILTERS = (("All areas", lambda a: True), ("Open (not checked yet)", lambda a: a.status in ("", "Open")),
            ("Added", lambda a: a.kind == "added"), ("Removed", lambda a: a.kind == "removed"),
+           ("Moved objects", lambda a: getattr(a, "_move", None) is not None),
            ("Without false alarms", lambda a: a.tag != "False alarm"))
+MOVED = QColor("#5ad7ff")
 ADDED, REMOVED = QColor("#e8796b"), QColor("#6a9ff0")
 
 
@@ -38,11 +40,14 @@ class NumberItem(QTableWidgetItem):
 
 
 class AreasPanel(QWidget):
-    def __init__(self, on_select, on_edit, on_track=None):
-        """on_select(area index), on_edit(area index, field, value), on_track(track number)"""
+    def __init__(self, on_select, on_edit, on_track=None, on_not_move=None):
+        """on_select(area index), on_edit(area index, field, value), on_track(track number),
+        on_not_move(area index): "Not a move" was clicked for a moved object"""
         super().__init__()
-        self.on_select, self.on_edit, self.on_track = on_select, on_edit, on_track
+        self.on_select, self.on_edit, self.on_track, self.on_not_move = on_select, on_edit, on_track, on_not_move
         self.tracks = []
+        self.moves = []
+        self.overview = False  # huge scans: the areas were found on the overview (✓ / ≈ marks)
         self.areas = []
         self.current = None
         layout = QVBoxLayout(self)
@@ -96,6 +101,14 @@ class AreasPanel(QWidget):
         self.comment.editingFinished.connect(lambda: self._edit("comment", self.comment.text().strip()))
         form.row("Comment", self.comment)
         self.detail_card.add(form)
+        from viewer.widgets import button
+
+        self.not_move_button = button("Not a move", tooltip="These are two separate changes: something removed "
+                                                           "here and something added there")
+        self.not_move_button.clicked.connect(lambda: self.current is not None and self.on_not_move
+                                             and self.on_not_move(self.current))
+        self.not_move_button.setVisible(False)
+        self.detail_card.add(self.not_move_button)
         self.detail_card.add(hint("Tags, status and comments are saved in the project and listed in the report. "
                                   "Areas tagged False alarm are left out of the volume totals."))
         self.detail_card.setVisible(False)
@@ -124,8 +137,16 @@ class AreasPanel(QWidget):
 
     # Filling
 
-    def show_areas(self, areas, summary=""):
+    def show_areas(self, areas, summary="", moves=(), overview=False):
+        self.overview = overview
         self.areas = list(areas or [])
+        self.moves = list(moves or [])
+        for area in self.areas:
+            area._move = None
+        for move in self.moves:  # both areas of a moved object point to it; only "where it was" is listed
+            self.areas[move.removed]._move = move
+            if move.added != move.removed:
+                self.areas[move.added]._move = move
         if not self.areas:
             self.summary.setText(summary or "Run Detect Changes to list the changed areas here.")
         else:
@@ -134,7 +155,14 @@ class AreasPanel(QWidget):
                 key = area.status or "Open"
                 counts[key] = counts.get(key, 0) + 1
             parts = ", ".join(f"{n} {k.lower()}" for k, n in sorted(counts.items()))
-            self.summary.setText(f"{len(self.areas)} areas: {parts}. Click one to fly there.")
+            text = f"{len(self.areas)} areas: {parts}. Click one to fly there."
+            if self.overview:
+                from large_scans import measured
+
+                done = sum(1 for area in self.areas if measured(area) == "full detail")
+                text += (f"<br>✓ measured with every point ({done} of {len(self.areas)}) · "
+                         f"≈ value from the overview, not measured in full detail yet")
+            self.summary.setText(text)
         self._fill()
 
     def _fill(self):
@@ -143,7 +171,8 @@ class AreasPanel(QWidget):
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
         for index, area in enumerate(self.areas):
-            if not keep(area):
+            move = getattr(area, "_move", None)
+            if not keep(area) or (move is not None and index == move.added != move.removed):
                 continue
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -152,6 +181,18 @@ class AreasPanel(QWidget):
             kind = QTableWidgetItem(area.kind + ("?" if area.confidence not in (None, "clear") else ""))
             kind.setForeground(ADDED if area.kind == "added" else REMOVED)
             volume = NumberItem(area_volume_text(area).split(" ±")[0], area.volume)
+            if move is not None:
+                kind = QTableWidgetItem("moved" + ("?" if move.confidence != "clear" else ""))
+                kind.setForeground(MOVED)
+                volume = NumberItem(f"{move.distance:.1f} m", move.distance)
+            from large_scans import MARKS, measured
+
+            where = measured(area, self.overview)
+            if where:
+                kind.setText(f"{kind.text()} {MARKS[where]}")
+                kind.setToolTip({"full detail": "Measured with every point (full detail)",
+                                 "overview": "Value from the overview: not measured in full detail yet",
+                                 "not in full detail": "Seen on the overview, but not there in full detail"}[where])
             items = [number, kind, volume, QTableWidgetItem(area.tag), QTableWidgetItem(area.status)]
             if area.tag == "False alarm":
                 for item in items:
@@ -185,9 +226,34 @@ class AreasPanel(QWidget):
         length, width, height = area.size
         volume = area_volume_text(area) or "not measured"
         sure = {"clear": "clearly real", "likely": "likely real", "uncertain": "close to the noise"}.get(area.confidence, "")
-        self.detail.setText(f"<b>Area {index + 1}: {area.kind}</b> {sure}<br>"
-                            f"<span style='color:#9a9da7'>Up to {area.peak:+.2f} m · {volume} · "
-                            f"{length:.1f} × {width:.1f} × {height:.1f} m · {area.n_points:,} points</span>")
+        text = (f"<b>Area {index + 1}: {area.kind}</b> {sure}<br>"
+                f"<span style='color:#9a9da7'>Up to {area.peak:+.2f} m · {volume} · "
+                f"{length:.1f} × {width:.1f} × {height:.1f} m · {area.n_points:,} points</span>")
+        move = getattr(area, "_move", None)
+        if move is not None:
+            from displaced import describe
+
+            sure = {"clear": "the same shape fits closely", "likely": "the shape fits well",
+                    "possible": "the shape fits partly (it turned and shows other sides)"}[move.confidence]
+            size = " × ".join(f"{v:.1f}" for v in move.size)
+            text = (f"<b>Area {move.removed + 1}: moved object</b><br>{describe(move)}<br>"
+                    f"<span style='color:#9a9da7'>About {size} m · {sure} (within {move.fit:.0f} cm). "
+                    + (f"Now at area {move.added + 1}." if move.added != move.removed
+                       else "It moved less than its own size.") + "</span>")
+        if getattr(area, "part", ""):
+            text += f"<br><span style='color:#9a9da7'>On: {area.part}</span>"
+        detail = getattr(area, "detail", None)
+        if getattr(area, "detail_only", False):
+            text += "<br><span style='color:#9a9da7'>Found in full detail (too small for the overview).</span>"
+        elif detail and detail > 0:
+            text += f"<br><span style='color:#9a9da7'>✓ Measured in full detail ({detail:,} points).</span>"
+        elif detail == -1:
+            text += "<br><span style='color:#9a9da7'>✗ Seen on the overview, but not there in full detail.</span>"
+        elif self.overview:
+            text += ("<br><span style='color:#9a9da7'>≈ Values from the overview: not measured in full detail "
+                     "yet.</span>")
+        self.detail.setText(text)
+        self.not_move_button.setVisible(move is not None)
         self.tag.setCurrentIndex(TAGS.index(area.tag) if area.tag in TAGS else 0)
         self.status.setCurrentIndex(STATUSES.index(area.status) if area.status in STATUSES else 0)
         self.comment.setText(area.comment)

@@ -89,6 +89,8 @@ CHAPTERS = [
         (key("Cmd") + " " + key("Shift") + " " + key("R"), "export the change report (PDF)"),
         (key("Cmd") + " " + key("Shift") + " " + key("C"), "copy the view as a picture (paste it anywhere)"),
         (key("Cmd") + " " + key("1") + " … " + key("9"), "fly to a saved view"),
+        (key("Cmd") + " " + key("Shift") + " " + key("D"), "huge scans: full detail here"),
+        (key("Esc"), "huge scans: back to the overview"),
         (key("Cmd") + " " + key("/"), "list of all shortcuts (searchable)"),
         (key("Cmd") + " " + key(","), "settings"),
     ]), False),
@@ -148,10 +150,12 @@ CHAPTERS = [
          ("<b>Fitness</b>", "share of points that found a partner"),
          ("<b>Point to point</b>", "pairs points with points, best for walls"),
          ("<b>Point to plane</b>", "measures to the surface, best for open seabed and tunnels"),
+         ("<b>Leave out what changed</b>", "after Detect changes: align again on the parts that did not "
+                                           "change only, then the changes are found again"),
      ]) + '<p style="margin:8px 0 0 0;">' + dim(
          "Each scene picks the method that suits it. Long flat walls need many rounds (about 200), "
          "there is little to hold on to along the wall. Big changes can pull the alignment a few "
-         "centimetres off.") + "</p>",
+         "centimetres off: Leave out what changed fixes that.") + "</p>",
      False),
 
     ("Finding changes", P +
@@ -170,6 +174,45 @@ CHAPTERS = [
      ]) + '<p style="margin:8px 0 0 0;">' + dim(
          "Always align first, otherwise the misalignment itself looks like change. "
          "For example scenes the panel also says how much of the true change was found.") + "</p>",
+     False),
+
+    ("Moved objects", P +
+     "A block or rock that moved shows up as two changes: a hole where it was and a bump where it is now. "
+     "When the same shape fits onto both places, the app shows it as <b>one moved object</b> instead, "
+     "with an arrow from where it was to where it is.</p>" + keys_table([
+         ("<b>How far</b>", "how far its middle moved, out from the wall or along it, and whether it sank"),
+         ("<b>Turned</b>", "how much it turned, and whether it tipped over"),
+         ("<b>Less than its size</b>", "a block that slid a little is one area with both a hole and a bump; "
+                                       "it is recognised too"),
+         ("<b>Clear / likely / possible</b>", "how closely the shape fits; a rock that turned shows other "
+                                              "sides, so its fit is weaker"),
+         ("<b>Not a move</b>", "in the Areas tab: count them as a removed and an added change again"),
+     ]) + '<p style="margin:8px 0 0 0;">' + dim(
+         "Moved objects are left out of the added and removed volume. Switch it off under Change detection: "
+         "Recognise moved objects. Try it on Quay toe – displaced blocks.") + "</p>",
+     False),
+
+    ("Huge scans", P +
+     "Subdron's scans can have 100 million points and more, too many to keep in memory or to compare in "
+     "one go. Big files open as an <b>overview</b>: one averaged point per few centimetres, for the whole "
+     "scan. Every point stays on disk and is loaded where you look closer.</p>" + keys_table([
+         ("<b>Import</b>", "the Size part of the Import window suggests the overview for big files; it can "
+                           "also thin them out, or take only a stretch along the scan"),
+         ("<b>First time</b>", "the files are read once and stored in pieces (a few minutes for 100 million "
+                               "points); after that they open in seconds"),
+         ("<b>Detect changes</b>", "runs on the overview, then every changed area is measured again with all "
+                                   "its points in the background; areas that are not there in full detail "
+                                   "are tagged False alarm"),
+         ("<b>Pieces</b>", "the Large scan card cuts the scan into stretches of 10 / 20 / 50 m, or into its "
+                           "parts (seabed, wall, ships, piles); click one to see it in full detail"),
+         ("<b>Full detail here</b> " + key("Cmd") + " " + key("Shift") + " " + key("D"),
+          "every point around the selected area or the middle of the view, the rest dimmed around it; "
+          + key("Esc") + " goes back"),
+         ("<b>Search everything</b>", "goes through the whole scan in full detail: finds changes smaller than "
+                                      "the overview shows (slow, can be stopped)"),
+     ]) + '<p style="margin:8px 0 0 0;">' + dim(
+         "Try it with Quay with ships – Subdron size. The cache with the stored scans can be emptied in "
+         "Settings.") + "</p>",
      False),
 
     ("Comparing tools", keys_table([

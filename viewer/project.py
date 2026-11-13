@@ -66,8 +66,14 @@ def changes_to_files(result):
         areas.append({"low": area.low.tolist(), "high": area.high.tolist(),
                       "peak": area.peak, "n_points": area.n_points,
                       **{key: getattr(area, key) for key in AREA_MEASUREMENTS}})
+    for area, saved in zip(result.areas, areas):  # huge scans: measured in full detail or not
+        if getattr(area, "detail", None) is not None:
+            saved["detail"] = int(area.detail)
+        if getattr(area, "detail_only", False):
+            saved["detail_only"] = True
     summary = {"threshold": result.threshold, "spacing": result.spacing, "areas": areas,
-               "noise": result.noise, "lod": result.lod}
+               "noise": result.noise, "lod": result.lod,
+               "moves": [move.to_json() for move in getattr(result, "moves", None) or []]}
     return summary, arrays
 
 
@@ -77,11 +83,20 @@ def changes_from_files(summary, arrays):
                         **{key: a.get(key, "" if key in ("tag", "status", "comment") else None)
                            for key in AREA_MEASUREMENTS})
              for i, a in enumerate(summary["areas"])]
-    return ChangeResult(
+    for area, saved in zip(areas, summary["areas"]):
+        if "detail" in saved:
+            area.detail = saved["detail"]
+        if saved.get("detail_only"):
+            area.detail_only = True
+    result = ChangeResult(
         arrays["distance_a"].astype(float), arrays["distance_b"].astype(float),
         arrays["changed_a"].astype(bool), arrays["changed_b"].astype(bool),
         summary["threshold"], summary["spacing"], areas, summary.get("noise"), summary.get("lod"),
     )
+    from displaced import Move
+
+    result.moves = [Move.from_json(move) for move in summary.get("moves") or []]
+    return result
 
 
 def _npz_bytes(arrays):

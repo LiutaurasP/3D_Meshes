@@ -147,6 +147,27 @@ class PreferencesDialog(QDialog):
         drawing.add(form)
         layout.addWidget(drawing)
 
+        # Huge scans are read once and kept in pieces on disk (scan_store.py), examples too
+        from scan_store import cache_root, cache_size, clear_cache, format_bytes
+
+        storage = Card("Huge scans")
+        self.cache_info = hint(f"Stored scans and examples: {format_bytes(cache_size())} in {cache_root()}")
+        self.cache_info.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        storage.add(self.cache_info)
+        clear = button("Empty the cache", tooltip="Huge scans are read again from their files the next time "
+                                                   "they are opened; examples are written again")
+
+        def empty():
+            clear_cache()
+            self.cache_info.setText(f"Stored scans and examples: {format_bytes(cache_size())} in {cache_root()}")
+
+        clear.clicked.connect(empty)
+        if getattr(window, "large_pair", lambda: None)() is not None:
+            clear.setEnabled(False)
+            clear.setToolTip("Huge scans are open right now: open other scans first")
+        storage.add(clear)
+        layout.addWidget(storage)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
