@@ -29,6 +29,19 @@ THEMES = {
     # Neutral graphite with a calm teal
     "graphite": {"name": "Graphite", "base": "#141415", "surface": "#1d1d1f", "raised": "#28282b",
                  "accent": "#26a69a", "text": "#ececee", "view": "#0b0b0c"},
+    # Cool blue-grey with a soft periwinkle
+    "slate": {"name": "Slate", "base": "#0f141b", "surface": "#18202b", "raised": "#212b38",
+              "accent": "#7a9cf2", "text": "#e4e9f1", "view": "#0a0e13"},
+    # Deep water: dark teal with a bright cyan
+    "abyss": {"name": "Abyss", "base": "#03111a", "surface": "#0a2230", "raised": "#12303f",
+              "accent": "#1fb8c4", "text": "#e3f5f7", "view": "#020c12"},
+    # Dark aubergine with a violet
+    "violet": {"name": "Violet", "base": "#110e19", "surface": "#1b1726", "raised": "#252033",
+               "accent": "#8f73f5", "text": "#ece8f5", "view": "#0a0811"},
+    # Light panels for projectors and bright rooms. The 3D view stays dark in every theme: the scan colours,
+    # the yellow changes and the white overlays (logo, colour bars) need a dark background
+    "daylight": {"name": "Daylight", "base": "#eef1f6", "surface": "#ffffff", "raised": "#f3f5f9",
+                 "accent": "#2563eb", "text": "#18202e", "view": "#1c2330"},
 }
 DEFAULT_THEME = "subdron"
 
@@ -112,6 +125,15 @@ def use_theme(key):
     VIEW_BACKGROUND = theme["view"]
     LABEL_FILL = rgb(mix(text, surface, 0.04))  # labels in the 3D view
     PANEL_STYLE = panel_style()
+
+
+def theme_colors(key):
+    """The main colours of any theme (not only the current one), for the previews in Settings."""
+    theme = THEMES.get(key, THEMES[DEFAULT_THEME])
+    base, surface, raised, accent, text = (theme[k] for k in ("base", "surface", "raised", "accent", "text"))
+    return {"base": base, "surface": surface, "raised": raised, "accent": accent, "text": text,
+            "border": mix(text, surface, 0.09), "dim": mix(text, surface, 0.45),
+            "soft": mix(accent, surface, 0.22), "view": theme["view"]}
 
 
 def theme_names():
@@ -234,7 +256,7 @@ QLabel {{
     text-align: left;
 }}
 #cardHeader:hover {{
-    color: {ACCENT_TEXT};
+    color: {ACCENT};
 }}
 #formLabel {{
     color: {TEXT_DIM};
@@ -469,6 +491,7 @@ QTableWidget::item {{
 }}
 QTableWidget::item:selected {{
     background: {ACCENT_SOFT};
+    color: {TEXT};  /* readable on the soft tint in light and dark themes */
 }}
 QHeaderView {{
     background: transparent;

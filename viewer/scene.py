@@ -838,7 +838,8 @@ class SceneView:
             # label_at: 0 = at the start, 0.5 = in the middle, 1 = at the end
             middle = (1 - label_at) * np.asarray(p0, dtype=float) + label_at * np.asarray(p1, dtype=float)
             items.append(self.plotter.add_point_labels(
-                [middle], [label], font_size=14, text_color="white", shape_color=label_color,
+                [middle], [label], font_size=14, text_color=style.rgb(style.TEXT) if label_color is style.LABEL_FILL
+                else "white", shape_color=label_color,
                 shape_opacity=0.85, show_points=False, always_visible=True, reset_camera=False))
         self.overlays.append(items)
         self.plotter.render()

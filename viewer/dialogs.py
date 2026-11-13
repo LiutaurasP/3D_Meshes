@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QPixmap
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QSizePolicy,
     QWidget,
 )
 
@@ -113,6 +114,69 @@ class ShortcutsDialog(QDialog):
 # Settings (preferences)
 
 
+def paint_theme_preview(painter, rect, key):
+    """A tiny picture of a theme: its background, a card with text, a selected row, a field and buttons."""
+    from viewer.shapes import squircle
+
+    c = style.theme_colors(key)
+    x, y, w, h = rect.x(), rect.y(), rect.width(), rect.height()
+    unit = min(w / 44, h / 18)  # everything scales with the size of the picture
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(QPen(QColor(c["border"]), max(1.0, unit * 0.6)))
+    painter.setBrush(QColor(c["base"]))
+    painter.drawPath(squircle(rect.adjusted(0.5, 0.5, -0.5, -0.5), 4.5 * unit, style.SMOOTHING))
+    painter.setPen(Qt.NoPen)
+
+    def block(bx, by, bw, bh, color, radius):
+        painter.setBrush(QColor(color))
+        painter.drawPath(squircle(QRectF(x + bx * unit, y + by * unit, bw * unit, bh * unit), radius * unit,
+                                  style.SMOOTHING))
+
+    block(3, 3, 25, 12, c["surface"], 2.5)  # a card
+    block(5, 5, 11, 1.6, c["text"], 0.8)  # its title
+    block(5, 8, 21, 2.4, c["soft"], 1.0)  # a selected row
+    block(6, 8.7, 8, 1.0, c["text"], 0.5)
+    block(5, 11.6, 21, 2.0, c["raised"], 1.0)  # a field
+    block(30, 3.5, 11, 4.5, c["accent"], 2.0)  # the main button
+    block(30, 9.5, 11, 4.5, c["raised"], 2.0)  # a normal button
+    block(32.5, 11.3, 6, 1.0, c["dim"], 0.5)
+    painter.restore()
+
+
+def theme_icon(key, width, height):
+    """The theme's picture as an icon for the list of themes (sharp on Retina screens)."""
+    ratio = 2.0
+    pixmap = QPixmap(int(width * ratio), int(height * ratio))
+    pixmap.setDevicePixelRatio(ratio)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    paint_theme_preview(painter, QRectF(0, 0, width, height), key)
+    painter.end()
+    return QIcon(pixmap)
+
+
+class ThemePreview(QWidget):
+    """A bigger picture of the chosen theme under the list, so you see roughly what awaits you."""
+
+    def __init__(self, key):
+        super().__init__()
+        self.key = key
+        self.setFixedHeight(48)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def show_theme(self, key):
+        self.key = key
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        height = self.height()
+        width = min(self.width(), height * 44 / 18)
+        paint_theme_preview(painter, QRectF(0, 0, width, height), self.key)
+        painter.end()
+
+
 class PreferencesDialog(QDialog):
     def __init__(self, window):
         super().__init__(window)
@@ -126,10 +190,14 @@ class PreferencesDialog(QDialog):
         look = Card("Look")
         form = Form()
         self.theme = QComboBox()
+        self.theme.setIconSize(QSize(44, 18))
         for key, name in style.theme_names():
-            self.theme.addItem(name, key)
+            self.theme.addItem(theme_icon(key, 44, 18), name, key)
         self.theme.setCurrentIndex(max(0, self.theme.findData(prefs.get("theme"))))
         form.row("Theme", self.theme, "Colours of the whole app. Subdron is the look of subdron.com.")
+        self.theme_preview = ThemePreview(self.theme.currentData())
+        self.theme.currentIndexChanged.connect(lambda _: self.theme_preview.show_theme(self.theme.currentData()))
+        form.row("", self.theme_preview)  # under the list, lined up with it
         look.add(form)
         look.add(hint("A new theme is used from the next start (the app offers to restart)."))
         layout.addWidget(look)

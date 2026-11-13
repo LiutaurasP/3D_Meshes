@@ -8,10 +8,17 @@ name: Viewer check
 # software OpenGL fallback is broken on macOS 26, so nothing 3D can be
 # tested there. On a real Mac run `python tests/smoke_test.py` instead.
 
+# Branches are checked through their pull request (one run, not one for the push and one for the PR);
+# main is checked after every merge. A newer push to the same PR stops the older run.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: viewer-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke-test:
@@ -20,7 +27,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 35  # the full test with both tutorials takes about 18 minutes on the Windows machines
 
     steps:
       - uses: actions/checkout@v5
