@@ -29,6 +29,7 @@ class LargeScanMixin:
         self._large_saved = None  # the overview (inspections, pose, camera) while a part is shown in full detail
         self._large_box = None  # (low, high, title) of the part shown in full detail
         self._large_threshold = None  # change threshold in full detail, measured once per pair of scans
+        self._large_parts = []  # parts of the scan (seabed, walls, objects), see parts.py
         self._large_switching = False  # True while the clouds are swapped for full detail and back
 
     # State
@@ -54,6 +55,8 @@ class LargeScanMixin:
         self._large_saved = None
         self._large_box = None
         self._large_threshold = None
+        self._large_parts = []
+        self._large_parts_key = None
         self.scene.set_context(None)
         self.sidebar.set_large_detail(False)
         self._large_update_card()
@@ -86,38 +89,75 @@ class LargeScanMixin:
     # Sections
 
     def _large_sections(self):
+        """The pieces listed in the card: [{"title", "low", "high", "along", "part"}]."""
         pair = self.large_pair()
         if pair is None:
             return []
-        length = self.sidebar.large_section_length_value()
-        key = (id(pair), length, pair.section)
-        if getattr(self, "_large_section_cache", (None,))[0] != key:
-            self._large_section_cache = (key, pair.sections(length))
-        return self._large_section_cache[1]
+        choice = self.sidebar.large_section_length_value()
+        key = (id(pair), choice, pair.section, pair.cell)
+        if getattr(self, "_large_section_cache", (None,))[0] == key:
+            return self._large_section_cache[1]
+        if choice == "parts":
+            pieces = [{"title": part.name, "label": part.label(), "low": part.low - 0.5, "high": part.high + 0.5,
+                       "along": None, "part": part} for part in self.large_parts()]
+        else:
+            pieces = [{"title": f"{start:.0f} to {end:.0f} m", "label": f"{start:.0f} – {end:.0f} m",
+                       "low": low, "high": high, "along": (start, end), "part": None}
+                      for start, end, low, high in pair.sections(choice)]
+        self._large_section_cache = (key, pieces)
+        return pieces
+
+    def large_parts(self):
+        """Seabed, walls and objects of scan A, found on the coarse overview (once per pair of scans)."""
+        from parts import find_parts
+
+        pair = self.large_pair()
+        if pair is None:
+            return []
+        if getattr(self, "_large_parts_key", None) != id(pair):
+            self.statusBar().showMessage("Finding the parts of the scan…")
+            points, _ = pair.overview("Scan A", 0.2)
+            self._large_parts = find_parts(points)
+            self._large_parts_key = id(pair)
+            self.statusBar().showMessage(f"{len(self._large_parts)} parts found", 4000)
+        return self._large_parts
 
     def _large_section_rows(self):
         pair = self.large_pair()
         result = self._large_overview_result()
         rows = []
-        for start, end, low, high in self._large_sections():
-            text = f"{start:.0f} – {end:.0f} m"
+        for piece in self._large_sections():
+            text = piece["label"]
             if result is not None and pair is not None:
-                count = 0
-                for area in result.areas:
-                    along = float((np.asarray(area.center)[:2] - pair.axis[0]) @ pair.axis[1])
-                    count += start <= along < end
+                if piece["part"] is not None:
+                    from parts import part_of
+
+                    count = sum(1 for area in result.areas
+                                if part_of(self._large_parts, area.center) is piece["part"])
+                else:
+                    start, end = piece["along"]
+                    count = sum(1 for area in result.areas
+                                if start <= float((np.asarray(area.center)[:2] - pair.axis[0]) @ pair.axis[1]) < end)
                 text += f"  ·  {count} change{'s' if count != 1 else ''}" if count else "  ·  no changes"
             rows.append(text)
         return rows
 
     def large_show_sections(self):
         self.sidebar.set_large_sections(self._large_section_rows())
+        result = self._large_overview_result()
+        if result is not None and getattr(self, "_large_parts", None) and \
+                getattr(self, "_large_parts_key", None) == id(self.large_pair()):
+            from parts import part_of
+
+            for area in result.areas:  # every changed area says what it is on
+                part = part_of(self._large_parts, area.center)
+                area.part = part.name if part is not None else ""
 
     def large_open_section(self, row):
-        sections = self._large_sections()
-        if 0 <= row < len(sections):
-            start, end, low, high = sections[row]
-            self.large_detail_box(low, high, f"{start:.0f} to {end:.0f} m")
+        pieces = self._large_sections()
+        if 0 <= row < len(pieces):
+            piece = pieces[row]
+            self.large_detail_box(piece["low"], piece["high"], piece["title"])
 
     # Full detail of a part
 

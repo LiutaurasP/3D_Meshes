@@ -849,13 +849,15 @@ class Sidebar(QWidget):
                                              "coarser is faster. Full detail is always kept on disk.")
         self.large_section_length = guard_wheel(QComboBox())
         for length in (10, 20, 50):
-            self.large_section_length.addItem(f"{length} m", float(length))
+            self.large_section_length.addItem(f"Every {length} m", float(length))
+        self.large_section_length.addItem("Parts, found automatically", "parts")
         self.large_section_length.setCurrentIndex(1)
         self.large_section_length.activated.connect(lambda index: self.callbacks["large_sections"]())
-        form.row("Sections", self.large_section_length, "The scan cut into pieces along its length")
+        form.row("Pieces", self.large_section_length, "The scan cut into pieces along its length, or into its parts: "
+                                                      "seabed, wall, ships, piles and other objects")
         card.add(form)
         self.large_sections = QListWidget()
-        self.large_sections.setToolTip("Click a section to look at it in full detail")
+        self.large_sections.setToolTip("Click a piece to look at it in full detail")
         self.large_sections.setMaximumHeight(170)
         self.large_sections.itemClicked.connect(
             lambda item: self.callbacks["large_section"](self.large_sections.row(item)))

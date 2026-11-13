@@ -74,6 +74,24 @@ def collect(window):
                           "size": [float(v) for v in move.size], "confidence": move.confidence,
                           "from": [float(v) for v in np.asarray(move.old_center) + offset],
                           "to": [float(v) for v in np.asarray(move.new_center) + offset]} for move in moves]
+        parts = getattr(window, "_large_parts", None) or []
+        if parts:  # huge scans cut into their parts: what changed on each
+            from parts import part_of
+
+            per_part = {}
+            for index, area in enumerate(result.areas):
+                if area.tag == "False alarm":
+                    continue
+                part = part_of(parts, area.center)
+                name = part.name if part is not None else "Elsewhere"
+                entry = per_part.setdefault(name, {"count": 0, "added": 0.0, "removed": 0.0, "moved": 0})
+                entry["count"] += 1
+                if index in moved:
+                    entry["moved"] += index in {m.removed for m in moves}
+                else:
+                    entry["added"] += area.volume_added or 0
+                    entry["removed"] += area.volume_removed or 0
+            info["parts"] = [(name, entry) for name, entry in per_part.items()]
         for number, area in enumerate(result.areas, start=1):
             info["areas"].append({
                 "number": number,
@@ -467,6 +485,16 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         if any(a.get("confidence") not in (None, "clear") for a in info["areas"]):
             pages.y += 4
             pages.text("? = the change is close to the level of detection: worth checking again.", 8.5, color=DIM)
+        if info.get("parts"):
+            from volumes import format_volume
+
+            pages.heading("Changes per part", keep=60)
+            pages.text("The scan was split into its parts automatically (seabed, walls, ships, piles, other "
+                       "objects).", 9, color=DIM, gap=8)
+            rows = [[name, str(entry["count"]), f"+{format_volume(entry['added'])}",
+                     f"−{format_volume(entry['removed'])}", str(entry["moved"]) if entry["moved"] else "–"]
+                    for name, entry in info["parts"]]
+            simple_table(pages, [("Part", 200), ("Changes", 70), ("Added", 90), ("Removed", 90), ("Moved", 0)], rows)
         if info.get("moves"):
             pages.heading("Moved objects", keep=60)
             pages.text("A block or rock that moved shows up as two changes: removed where it was and added where "

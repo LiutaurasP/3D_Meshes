@@ -226,6 +226,8 @@ class AreasPanel(QWidget):
                     f"<span style='color:#9a9da7'>About {size} m · {sure} (within {move.fit:.0f} cm). "
                     + (f"Now at area {move.added + 1}." if move.added != move.removed
                        else "It moved less than its own size.") + "</span>")
+        if getattr(area, "part", ""):
+            text += f"<br><span style='color:#9a9da7'>On: {area.part}</span>"
         detail = getattr(area, "detail", None)
         if getattr(area, "detail_only", False):
             text += "<br><span style='color:#9a9da7'>Found in full detail (too small for the overview).</span>"

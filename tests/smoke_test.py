@@ -1265,6 +1265,16 @@ def large_detected():
     detailed = [a for a in result.areas if (getattr(a, "detail", 0) or 0) > 0]
     check(f"…and measured again in full detail in the background ({len(detailed)} areas)", len(detailed) >= 5)
     LARGE["areas"] = len(result.areas)
+    pieces = window.sidebar.large_section_length
+    pieces.setCurrentIndex(pieces.findData("parts"))
+    window.large_show_sections()
+    parts = [window.sidebar.large_sections.item(i).text() for i in range(window.sidebar.large_sections.count())]
+    check("the scan can be split into its parts automatically (seabed, wall, ships, …)",
+          any(t.startswith("Seabed") for t in parts) and any(t.startswith("Wall") for t in parts)
+          and any(t.startswith("Ship") for t in parts))
+    check("…and changed areas say which part they are on", any(getattr(a, "part", "") for a in result.areas))
+    pieces.setCurrentIndex(pieces.findData(20.0))
+    window.large_show_sections()
     rows = [window.sidebar.large_sections.item(i).text() for i in range(window.sidebar.large_sections.count())]
     row = next((i for i, text in enumerate(rows) if "change" in text and "no changes" not in text), 0)
     window.large_open_section(row)
