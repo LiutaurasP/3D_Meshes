@@ -64,6 +64,19 @@ def to_cloud(points):
 
 
 class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
+    @property
+    def change_result(self):
+        return self._change_result
+
+    @change_result.setter
+    def change_result(self, result):
+        self._change_result = result
+        sidebar = getattr(self, "sidebar", None)
+        if sidebar is not None:
+            # While aligning without the changes they are found again right after: no hint meanwhile
+            found = result is not None and bool(result.areas)
+            sidebar.set_stable_ready(found or getattr(self, "_detect_after_align", False))
+
     """Main application window: 3D scene in the middle, side panel on the right."""
 
     def __init__(self, settings):
@@ -1196,6 +1209,8 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         self._align_before = self.pose_state()
         self._align_pair = self.series_pair
         stable = self._stable_parts() if self.sidebar.align_stable.isChecked() else None
+        if stable is not None:
+            self._detect_after_align = True  # the changes depend on the alignment: find them again
         self._stop_animation()
         self._clear_changes()
         self.sidebar.read_data_settings(self.settings.data)
@@ -1208,7 +1223,6 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         if stable is not None:
             source, target, left_out = stable
             self._align_note_stable = f"Aligned without the {left_out:,} changed points"
-            self._detect_after_align = True  # the changes depend on the alignment: find them again
         elif self.sidebar.align_stable.isChecked():
             self.notify("Detect changes first", "Then Align again leaves out what changed", "info")
         self._worker = AlignWorker(source, target, self.settings.data, fine=self.large_pair() is not None)

@@ -1369,6 +1369,13 @@ def moved_detected():
     check("…and the area table export says how far it moved", any(row["moved"].startswith("Moved") for row in rows))
     window.sidebar.align_stable.setChecked(True)
     STABLE["before"] = window.change_result
+    hint = window.sidebar.align_stable_hint
+    hidden_with_changes = hint.isHidden()
+    window.change_result = None
+    shown_without = not hint.isHidden()
+    window.change_result = STABLE["before"]
+    check("\"Leave out what changed\" says it needs changes first when there are none",
+          hidden_with_changes and shown_without and hint.isHidden())
     window.align()
     wait_until(lambda: window.change_result is not None and window.change_result is not STABLE["before"]
                and window._change_worker.isFinished() and window.is_aligned(), stable_aligned, limit_ms=90_000)
@@ -1380,7 +1387,7 @@ STABLE = {}
 def stable_aligned():
     check("Align can leave out what changed, and finds the changes again",
           "without the" in window.sidebar.align_info.text() and window.change_result is not None
-          and len(window.change_result.moves) >= 2)
+          and len(window.change_result.moves) >= 2 and window.sidebar.align_stable_hint.isHidden())
     window.sidebar.align_stable.setChecked(False)
     window.set_panel_side("left")
     app.processEvents()

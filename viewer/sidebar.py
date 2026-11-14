@@ -514,6 +514,14 @@ class Sidebar(QWidget):
             "Align on the parts that did not change only: a big change (silt, scour, a moved block) "
             "can't pull scan B off. Uses the changes found last, then finds them again.")
         card.add(self.align_stable)
+        # Until changes were found there is nothing to leave out: say so right under the box
+        self.align_stable_hint = QLabel("Needs changes first: run Detect Changes, then Align again.")
+        self.align_stable_hint.setWordWrap(True)
+        self.align_stable_hint.setStyleSheet(f"color: {style.TEXT_DIM}; font-size: 11px; margin-left: 24px;")
+        self.align_stable_hint.setVisible(False)
+        self.align_stable.toggled.connect(lambda _: self._update_stable_hint())
+        card.add(self.align_stable_hint)
+        self._stable_ready = False
 
         actions = QHBoxLayout()
         actions.setSpacing(SPACING)
@@ -530,6 +538,14 @@ class Sidebar(QWidget):
         self.align_progress = card.add(thin_progress())
         self.align_info = card.add(hint("Not aligned yet"))
         return card
+
+    def set_stable_ready(self, ready):
+        """Whether there are changes to leave out when aligning (shows the hint when there are none)."""
+        self._stable_ready = bool(ready)
+        self._update_stable_hint()
+
+    def _update_stable_hint(self):
+        self.align_stable_hint.setVisible(self.align_stable.isChecked() and not self._stable_ready)
 
     def set_aligning(self, busy):
         self.align_button.setEnabled(not busy)
