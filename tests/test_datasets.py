@@ -21,8 +21,10 @@ WITH_CHANGE = [key for key in SYNTHETIC if key != "harbour_wall_unchanged"]
 # change detection tests (which measure along the surface) cover this scene.
 # The port approach is so big that at test size the points are ~60 cm apart,
 # more than the changes themselves, so this simple check can't see them.
+# The same goes for the ship hull: most of its marked points are marine growth
+# of 2 to 10 cm, about as much as the distance between the points at test size.
 NEAREST_POINT_VISIBLE = [key for key in WITH_CHANGE
-                         if key not in ("flooded_tunnel_settlement", "port_approach_scan")]
+                         if key not in ("flooded_tunnel_settlement", "port_approach_scan", "ship_hull_inspection")]
 
 
 def points(cloud):

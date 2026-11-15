@@ -16,6 +16,7 @@ import numpy as np
 import open3d as o3d
 
 from datasets.big_scenes import BIG_SCENES, HarbourQuaySection
+from datasets.hull_inspection import ShipHullInspection
 from datasets.huge_quay import QuayToeBlocks, QuayWithShips
 from datasets.more_scenes import MORE_SCENES
 from datasets.scenes import SIMPLE_SCENES, QuayWallDroppedObject, Scene
@@ -33,6 +34,7 @@ class ScenePair:
     b: o3d.geometry.PointCloud
     changed_a: np.ndarray  # bool per point of A
     changed_b: np.ndarray  # bool per point of B
+    from_below: bool = False  # a hull scanned from below (Scene.scanned_from_below)
 
 
 class OriginalWall(Scene):
@@ -53,7 +55,7 @@ class OriginalWall(Scene):
 # Order in the app's dropdown: the harbour quay section first (the default scene), then the dropped container
 _ORDER = [HarbourQuaySection, QuayWallDroppedObject] + [s for s in SIMPLE_SCENES if s is not QuayWallDroppedObject] \
     + MORE_SCENES[:1] + [QuayToeBlocks] + MORE_SCENES[1:] + [WindTurbineFoundation] + [s for s in BIG_SCENES if s is not HarbourQuaySection] \
-    + [QuayWithShips]
+    + [ShipHullInspection, QuayWithShips]
 SCENES = {scene.key: scene for scene in _ORDER + [OriginalWall]}
 DEFAULT_SCENE = HarbourQuaySection.key
 # Older names of scenes, so projects saved before a rename still open
@@ -117,7 +119,7 @@ def generate(key, settings=None):
     return ScenePair(
         key, scene.title, scene.change,
         to_cloud(points_a - center), to_cloud(points_b - center),
-        changed_a, changed_b,
+        changed_a, changed_b, scene.scanned_from_below,
     )
 
 

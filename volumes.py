@@ -107,6 +107,8 @@ def surface_axes(points, viewpoint):
     center = sample.mean(axis=0)
     _, _, vt = np.linalg.svd(sample - center, full_matrices=False)
     u, v, normal = vt[0], vt[1], vt[2]
+    if callable(viewpoint):  # hull scanned from below: the viewpoint depends on the place
+        viewpoint = viewpoint(center)
     if np.dot(normal, np.asarray(viewpoint) - center) < 0:
         normal = -normal
         v = -v

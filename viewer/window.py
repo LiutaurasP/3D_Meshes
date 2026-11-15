@@ -1115,6 +1115,9 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
         self.change_result = None
         self.sidebar.clear_changes_result()
         self.scene.set_clouds(self.clouds, self.colors, inspections.truth, inspections.intensity)
+        self.scene.from_below = inspections.from_below
+        self.sidebar.set_from_below(inspections.from_below)
+        self.top_view_action.setText("Bottom View" if inspections.from_below else "Top View")
         self.sidebar.set_truth_available(self.scene.has_truth())
         self.sidebar.set_intensity_available(bool(inspections.intensity))
         self.sidebar.show_not_aligned()
@@ -1359,6 +1362,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             self.clouds[self.target_name], aligned_b, threshold, data.min_area_points,
             overview=self.large_pair() is not None and not self.in_large_detail(),
             find_moves=data.find_moves, detail=self.in_large_detail(),
+            from_below=self.inspections.from_below,
         )
         self._change_worker.done.connect(self._on_changes)
         self._change_worker.start()

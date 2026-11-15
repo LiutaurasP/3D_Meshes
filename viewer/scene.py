@@ -58,6 +58,7 @@ class SceneView:
         self.fly = FlyController(self.plotter)
         self.flight = CameraFlight(self.plotter)
         self.navigation = NAVIGATION_MODES[0]
+        self.from_below = False  # a hull scanned from below: the camera presets look up at it
         self.depth_shading = False
         self.swipe = None  # before / after split, see set_swipe
         self.overlays = []  # lines and labels of the measuring tools
@@ -488,8 +489,7 @@ class SceneView:
         low, high = np.asarray(low), np.asarray(high)
         center = (low + high) / 2
         reach = max(float(np.linalg.norm(high - low)), 1.0) * 1.8
-        direction = np.asarray(CAMERA_PRESETS["Iso"], dtype=float)
-        direction /= np.linalg.norm(direction)
+        direction = self._preset_direction("Iso")
         self.go_to_view({"position": center + direction * reach, "focal_point": center, "up": (0.0, 0.0, 1.0)}, animate)
 
     # Style
@@ -603,12 +603,18 @@ class SceneView:
         low, high = self.bounds()
         return float(np.linalg.norm(high - low))
 
+    def _preset_direction(self, preset):
+        """From where a camera preset looks (unit vector from the scene to the eye)."""
+        direction = np.asarray(CAMERA_PRESETS[preset], dtype=float)
+        if self.from_below:
+            direction = direction * [1.0, 1.0, -1.0]  # the same view, but from under the hull
+        return direction / np.linalg.norm(direction)
+
     def look_from(self, preset="Iso", animate=True):
         low, high = self.bounds()
         center = (low + high) / 2
 
-        direction = np.asarray(CAMERA_PRESETS[preset], dtype=float)
-        direction /= np.linalg.norm(direction)
+        direction = self._preset_direction(preset)
         eye = center + direction * self.size()
         up = (0.0, 1.0, 0.0) if preset == "Top" else (0.0, 0.0, 1.0)
 

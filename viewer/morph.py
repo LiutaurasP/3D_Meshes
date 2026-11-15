@@ -15,7 +15,7 @@ from viewer.camera import ease
 HOLD_BEFORE, MORPH, HOLD_AFTER = 0.8, 3.2, 1.6  # seconds
 
 
-def morph_paths(points_a, points_b, result):
+def morph_paths(points_a, points_b, result, from_below=False):
     """Start and end positions of the moving points.
 
     Each changed area moves along its own surface normal (up from a seabed, out of a wall):
@@ -25,13 +25,20 @@ def morph_paths(points_a, points_b, result):
     from change_detection import default_viewpoint
     from volumes import surface_axes
 
-    viewpoint = default_viewpoint(points_a)
+    viewpoint = default_viewpoint(points_a, from_below)  # from_below: a hull, growth moves out of it
     tree_b = cKDTree(points_b)
     b_index, a_index, b_normals, a_normals, b_origins = [], [], [], [], []
     for area in result.areas:
         pad = max(0.15 * float(np.linalg.norm(area.size)), 4 * result.spacing)
         low, high = np.asarray(area.low) - pad, np.asarray(area.high) + pad
         around = points_a[np.all((points_a >= low) & (points_a <= high), axis=1)]
+        if from_below and len(around):
+            # Under a hull other parts hang close by (the shaft and propeller under growth on
+            # the plating): fit the plane only to the old surface right at the changed points
+            changed = np.vstack([points_a[area.index_a], points_b[area.index_b]])
+            near, _ = cKDTree(changed).query(around)
+            close = around[near < abs(area.peak) + 4 * result.spacing]
+            around = close if len(close) >= 10 else around
         normal = surface_axes(around, viewpoint)[2] if len(around) >= 10 else np.array([0.0, 0.0, 1.0])
         # The old surface around the area as a flat plane: everything new grows out of it evenly
         origin = np.median(around, axis=0) if len(around) else np.asarray(area.center)
@@ -77,7 +84,7 @@ class ChangeAnimation(QObject):
         matrix = np.asarray(scene.matrices[b_name])
         points_a = np.asarray(window.clouds[a_name].points)
         points_b = np.asarray(window.clouds[b_name].points) @ matrix[:3, :3].T + matrix[:3, 3]
-        b_start, b_end, a_start, a_end, b_index, a_index = morph_paths(points_a, points_b, result)
+        b_start, b_end, a_start, a_end, b_index, a_index = morph_paths(points_a, points_b, result, scene.from_below)
         self.paths = (b_start, b_end, a_start, a_end)
         moving_a = np.zeros(len(points_a), dtype=bool)
         moving_a[a_index] = True
