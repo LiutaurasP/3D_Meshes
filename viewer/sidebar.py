@@ -686,6 +686,8 @@ class Sidebar(QWidget):
             view.setMinimumWidth(0)
             view.clicked.connect(lambda _=False, p=preset: self.callbacks["camera"](p))
             presets.addWidget(view, 1)
+            if preset == "Top":
+                self.top_view = view
         card.add(presets)
 
         row = QHBoxLayout()
@@ -770,6 +772,12 @@ class Sidebar(QWidget):
         card.add(axes)
         self.axes = axes
         return card
+
+    def set_from_below(self, from_below):
+        """A hull scanned from below: the Top button looks up at it, so it is called Bottom."""
+        name = "Bottom" if from_below else "Top"
+        self.top_view.setText(name)
+        self.top_view.setToolTip(f"Look at the scene from the {name.lower()}")
 
     def set_truth_available(self, available):
         self.truth.setEnabled(available)

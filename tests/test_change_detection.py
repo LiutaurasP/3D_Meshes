@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import pytest
 
-from change_detection import auto_threshold, detect_changes, score
+from change_detection import auto_threshold, default_viewpoint, detect_changes, score
 from datasets import generate
 from datasets.sonar import ScanSettings
 
@@ -25,7 +25,9 @@ TEST_SIZE = {"harbour_quay_section": 150_000, "port_approach_scan": 600_000}
 def detect(key, n=None, seed=1):
     n = n or TEST_SIZE.get(key)
     pair = generate(key, ScanSettings(n_points=n, seed=seed) if n else None)
-    result = detect_changes(pair.a, pair.b)
+    # A hull scanned from below needs its own viewpoint, like the app gives it (None = the default)
+    viewpoint = default_viewpoint(np.asarray(pair.a.points), from_below=True) if pair.from_below else None
+    result = detect_changes(pair.a, pair.b, viewpoint=viewpoint)
     return pair, result, score(result, pair.changed_a, pair.changed_b)
 
 
@@ -45,6 +47,9 @@ EXPECTED = {
     "quay_wall_bulge": 0.5,
     "harbour_quay_section": 0.6,
     "port_approach_scan": 0.4,
+    # Low because the whole of every growth patch is marked, also its 2-3 cm thin edge,
+    # which is below the noise level
+    "ship_hull_inspection": 0.4,
 }
 
 # Scenes with one connected change (the others have several separate ones)
@@ -153,3 +158,100 @@ def test_one_stray_point_does_not_flip_an_area():
 
     mostly_added = np.concatenate([np.full(500, 0.4), [-0.9]])
     assert robust_peak(mostly_added) > 0
+
+
+# Ship hull scanned from below (Scene.scanned_from_below)
+
+
+def test_default_viewpoint_is_a_point_above_and_in_front():
+    """The from-below option must not change what every other scene gets."""
+    cloud = np.random.default_rng(0).uniform(-5, 5, (200, 3))
+    low, high = cloud.min(axis=0), cloud.max(axis=0)
+    expected = (low + high) / 2 + np.array([0.0, 1.0, 1.0]) * np.linalg.norm(high - low)
+    assert np.array_equal(default_viewpoint(cloud), expected)
+    assert np.array_equal(default_viewpoint(cloud, from_below=False), expected)
+
+
+def test_hull_normals_point_out_of_the_hull():
+    """Down under the bottom and sideways on the (vertical) sides, on both sides of the ship."""
+    from change_detection import estimate_spacing, surface_normals
+
+    pair = generate("ship_hull_inspection", ScanSettings(n_points=60_000, seed=1, outliers=0.0))
+    assert pair.from_below
+    a = np.asarray(pair.a.points)
+    normals = surface_normals(a, estimate_spacing(a), default_viewpoint(a, from_below=True))
+    midship = np.abs(a[:, 0]) < 10
+    # Plain plating only: between the keel and the sea chest and anodes further out, and on
+    # the sides above the bilge keels
+    bottom = midship & (np.abs(a[:, 1]) > 0.5) & (np.abs(a[:, 1]) < 1.5) & (a[:, 2] < -2.9)
+    high = a[:, 2] > -1.5
+    port, starboard = midship & high & (a[:, 1] > 5.4), midship & high & (a[:, 1] < -5.4)
+    assert (normals[bottom, 2] < -0.8).mean() > 0.98
+    assert (normals[port, 1] > 0.8).mean() > 0.98
+    assert (normals[starboard, 1] < -0.8).mean() > 0.98
+
+
+def hull_scene(seed=1):
+    """The hull scene as generate() builds it, to know where its changes are."""
+    from datasets.hull_inspection import ShipHullInspection
+
+    scene = ShipHullInspection()
+    scene.build_world(np.random.default_rng(seed))
+    return scene
+
+
+def test_hull_changes_have_the_right_sign():
+    """Growth and the rope are added material, the dent and the missing anode removed."""
+    _, result, _ = detect("ship_hull_inspection")
+    scene = hull_scene()
+    hull = scene.hull
+
+    def on_hull(x, metres):
+        return hull.position([x], [hull.from_metres(metres)])[0]
+
+    expected = [("dent", on_hull(*scene.dent_place), "removed"),
+                ("missing anode", scene.missing_anode.origin, "removed"),
+                ("rope", scene.rope[len(scene.rope) // 2], "added")]
+    expected += [(f"growth patch {number}", on_hull(x, metres), "added")
+                 for number, (x, metres, *_) in enumerate(scene.fouling_patches, start=1)]
+    for name, place, kind in expected:
+        areas = [area for area in result.areas if np.all(place > area.low - 0.3) and np.all(place < area.high + 0.3)]
+        assert areas, f"{name} was not found"
+        assert all(area.kind == kind for area in areas), f"{name} should be {kind}"
+    assert len(result.areas) <= len(expected) + 1  # the rope may come out as two areas (winding, loose end)
+
+
+def test_hull_missing_anode_leaves_bare_plating():
+    """Where the anode was, scan B shows plating instead of a hole."""
+    pair = generate("ship_hull_inspection", ScanSettings(n_points=300_000, seed=1, noise=0.0, noise_per_metre=0.0,
+                                                         outliers=0.0))
+    anode = hull_scene().missing_anode
+    # In anode coordinates: along it, across it, out of the hull (0 = the plating, 0.08 = its outer face)
+    local = lambda cloud: (np.asarray(cloud.points) - anode.origin) @ anode.axes  # noqa: E731
+    a, b = local(pair.a), local(pair.b)
+    footprint = lambda p: (np.abs(p[:, 0]) < 0.25) & (np.abs(p[:, 1]) < 0.07)  # noqa: E731
+    on_anode = footprint(a) & (a[:, 2] > 0.07) & (a[:, 2] < 0.09)
+    plating_a = footprint(a) & (np.abs(a[:, 2]) < 0.02)
+    plating_b = footprint(b) & (np.abs(b[:, 2]) < 0.02)
+    assert on_anode.sum() > 20 and pair.changed_a[on_anode].all()  # A: the anode, marked as gone
+    assert plating_a.sum() == 0  # A: the plating under it is hidden
+    assert plating_b.sum() > 5 and pair.changed_b[plating_b].all()  # B: bare plating, not a hole
+
+
+def test_hull_growth_and_dent_follow_the_surface_normal():
+    """On the side of the hull growth pushes the plating sideways, not down."""
+    scene = hull_scene()
+    hull = scene.hull
+    x, metres, *_ = scene.fouling_patches[0]  # a patch just under the waterline
+    t = hull.from_metres(metres)
+    before, normal = hull.surface([x], [t])
+    assert abs(normal[0, 1]) > 0.95  # the plating faces sideways there
+    thickness = scene.fouling(np.array([x]), np.array([metres]))[0]
+    assert 0.07 < thickness < 0.11
+    rng = np.random.default_rng(0)
+    points_a, _ = scene.sample(rng, 200_000, "a")
+    points_b, mask_b = scene.sample(rng, 200_000, "b")
+    close = lambda p: (np.abs(p[:, 0] - x) < 0.3) & (np.abs(p[:, 2] - before[0, 2]) < 0.2) & (p[:, 1] * normal[0, 1] > 4)  # noqa: E731
+    moved = np.median(points_b[close(points_b), 1]) - np.median(points_a[close(points_a), 1])
+    assert 0.05 < moved * normal[0, 1] < 0.11
+    assert mask_b[close(points_b)].all()

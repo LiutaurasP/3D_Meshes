@@ -192,7 +192,10 @@ def find_moves(result, points_a, points_b, viewpoint=None, axis=None, max_distan
     areas = result.areas
     if len(areas) == 0 or len(a) == 0 or len(b) == 0:
         return []
-    viewpoint = default_viewpoint(a) if viewpoint is None else np.asarray(viewpoint)
+    if viewpoint is None:
+        viewpoint = default_viewpoint(a)
+    elif not callable(viewpoint):
+        viewpoint = np.asarray(viewpoint)
     axis = axis or main_axis(a)
     spacing = result.spacing
     noise = result.noise or result.threshold / 3.5
@@ -261,6 +264,8 @@ def _changed_object(points, index, distance, sign):
 
 def _try_move(areas, r, d, a, b, viewpoint, axis, spacing, tolerance, min_height, result=None):
     old_area, new_area = areas[r], areas[d]
+    if callable(viewpoint):  # hull scanned from below: the viewpoint depends on the place
+        viewpoint = viewpoint(old_area.center)
     pad_old = max(1.0, 0.6 * float(np.max(old_area.size)))
     pad_new = max(1.0, 0.6 * float(np.max(new_area.size)))
     old_low, old_high = old_area.low - pad_old, old_area.high + pad_old
