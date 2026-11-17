@@ -22,6 +22,7 @@ from m3c2 import CYLINDER_SCALE, NORMAL_SCALE
 from datasets import SCENES, short_count, size_label
 from viewer.guide import CHAPTERS
 from viewer.scene import CAMERA_PRESETS, COLOR_MODES, NAVIGATION_MODES
+from viewer import style
 from viewer.style import PANEL_STYLE
 from viewer.widgets import (
     SPACING,
@@ -45,6 +46,9 @@ SETTINGS_PAGE, AREAS_PAGE, GUIDE_PAGE, HISTORY_PAGE = range(4)
 
 
 def scene_label(scene):
+    if getattr(scene, "on_disk", False):
+        sizes = list(scene.disk_sizes.values())
+        return f"Huge · {scene.title} · {short_count(scene.default_points)} to {short_count(sizes[-1])} points"
     names = getattr(scene, "scan_names", None)
     if names:  # a scene made of several scans opens as a scan series
         return f"{len(names)} scans · {scene.title} · {short_count(scene.default_points)} points each"
@@ -100,6 +104,7 @@ class Sidebar(QWidget):
             self._scene_card(data_settings),  # always on top
             self._timeline_card(),  # below the scene, when a series of scans is open
             self._scans_card(),  # every scan of the series: show them all, align and compare all, dates
+            self._large_card(),  # huge scans: overview, sections, full detail
             self._offset_card(data_settings),
             self._clouds_card(cloud_names, colors, view_settings),
             self._align_card(cloud_names, data_settings),
@@ -121,7 +126,8 @@ class Sidebar(QWidget):
         areas_page, areas_layout = page_layout()
         self.areas_panel = AreasPanel(lambda index: self.callbacks["focus_area"](index),
                                       lambda index, field, value: self.callbacks["area_edit"](index, field, value),
-                                      lambda number: self.callbacks["show_track"](number))
+                                      lambda number: self.callbacks["show_track"](number),
+                                      lambda index: self.callbacks["not_a_move"](index))
         areas_layout.addWidget(self.areas_panel)
         self.pages.addWidget(scrolling(areas_page))
         self.pages.addWidget(scrolling(self._guide_page()))
@@ -181,8 +187,8 @@ class Sidebar(QWidget):
         self.scan_settings_toggle.setCursor(Qt.PointingHandCursor)
         self.scan_settings_toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scan_settings_toggle.setStyleSheet(
-            "QToolButton { background: none; border: none; color: #9a9da7; font-weight: 600; padding: 2px 0; }"
-            "QToolButton:hover { color: #e6e7eb; }")
+            f"QToolButton {{ background: none; border: none; color: {style.TEXT_DIM}; font-weight: 600; padding: 2px 0; }}"
+            f"QToolButton:hover {{ color: {style.TEXT}; }}")
         card.add(self.scan_settings_toggle)
         self.scan_settings = QWidget()
         settings_layout = QVBoxLayout(self.scan_settings)
@@ -299,6 +305,7 @@ class Sidebar(QWidget):
 
         self._previous_scene = index
         scene = SCENES[key]
+        self._show_scene_info(key)
         self.n_points.blockSignals(True)
         self.n_points.setValue(scene.default_points)
         self.n_points.blockSignals(False)
@@ -316,7 +323,18 @@ class Sidebar(QWidget):
 
     def _show_scene_info(self, key):
         scene = SCENES[key]
-        self.scene_info.setText(f"{scene.description}<br><br><b>Change:</b> {scene.change}")
+        text = f"{scene.description}<br><br><b>Change:</b> {scene.change}"
+        on_disk = getattr(scene, "on_disk", False)
+        if on_disk:
+            sizes = " · ".join(f"{name} {short_count(n)}" for name, n in scene.disk_sizes.items())
+            text += (f"<br><br>Written to files once and opened like a real survey: an overview, full detail "
+                     f"where it matters. Size in Scan settings ({sizes}); 100M points take a few minutes "
+                     f"the first time and about 5 GB on disk.")
+        self.scene_info.setText(text)
+        self.n_points.blockSignals(True)
+        self.n_points.setMaximum(max(getattr(scene, "disk_sizes", {"": 5_000_000}).values()) if on_disk else 5_000_000)
+        self.n_points.setSingleStep(1_000_000 if on_disk else 5_000)
+        self.n_points.blockSignals(False)
         for widget in self._data_widgets():
             widget.setEnabled(not scene.fixed_points)
 
@@ -420,6 +438,7 @@ class Sidebar(QWidget):
         data.m3c2_auto_sizes = self.m3c2_auto_sizes.isChecked()
         data.m3c2_cylinder = self.m3c2_cylinder.value()
         data.m3c2_normals = self.m3c2_normals.value()
+        data.find_moves = self.find_moves.isChecked()
         return data
 
     def set_offset(self, rotation, translation):
@@ -431,6 +450,13 @@ class Sidebar(QWidget):
         self.data_progress.setVisible(busy)
         if busy:
             self.data_status.setText("Updating…")
+
+    def show_data_progress(self, fraction, text):
+        """Building or reading something big: a real progress bar and what it is doing."""
+        self.data_progress.setRange(0, 1000)
+        self.data_progress.setValue(int(1000 * fraction))
+        self.data_progress.setVisible(True)
+        self.data_status.setText(text)
 
     def show_data_status(self, text):
         self.data_status.setText(text)
@@ -492,6 +518,19 @@ class Sidebar(QWidget):
         form.row("Animation", animate)
         self.animate = animate
         card.add(form)
+        self.align_stable = QCheckBox("Leave out what changed")
+        self.align_stable.setToolTip(
+            "Align on the parts that did not change only: a big change (silt, scour, a moved block) "
+            "can't pull scan B off. Uses the changes found last, then finds them again.")
+        card.add(self.align_stable)
+        # Until changes were found there is nothing to leave out: say so right under the box
+        self.align_stable_hint = QLabel("Needs changes first: run Detect Changes, then Align again.")
+        self.align_stable_hint.setWordWrap(True)
+        self.align_stable_hint.setStyleSheet(f"color: {style.TEXT_DIM}; font-size: 11px; margin-left: 24px;")
+        self.align_stable_hint.setVisible(False)
+        self.align_stable.toggled.connect(lambda _: self._update_stable_hint())
+        card.add(self.align_stable_hint)
+        self._stable_ready = False
 
         actions = QHBoxLayout()
         actions.setSpacing(SPACING)
@@ -508,6 +547,14 @@ class Sidebar(QWidget):
         self.align_progress = card.add(thin_progress())
         self.align_info = card.add(hint("Not aligned yet"))
         return card
+
+    def set_stable_ready(self, ready):
+        """Whether there are changes to leave out when aligning (shows the hint when there are none)."""
+        self._stable_ready = bool(ready)
+        self._update_stable_hint()
+
+    def _update_stable_hint(self):
+        self.align_stable_hint.setVisible(self.align_stable.isChecked() and not self._stable_ready)
 
     def set_aligning(self, busy):
         self.align_button.setEnabled(not busy)
@@ -601,6 +648,11 @@ class Sidebar(QWidget):
         self.change_method.currentIndexChanged.connect(self._update_m3c2_controls)
         self._update_m3c2_controls()
         card.add(form)
+        self.find_moves = QCheckBox("Recognise moved objects")
+        self.find_moves.setChecked(data.find_moves)
+        self.find_moves.setToolTip("A block or rock that moved shows up as a hole and a bump: recognise it as one "
+                                   "moved object and say how far it moved")
+        card.add(self.find_moves)
 
         self.detect_button = button("Detect changes", primary=True,
                                     tooltip="Compare the scans in their current position (align first)")
@@ -860,6 +912,106 @@ class Sidebar(QWidget):
         card.setVisible(False)
         return card
 
+    # Huge scans (100 million points and more): overview, sections, full detail
+
+    def _large_card(self):
+        card = Card("Large scan")
+        self.large_card = card
+        self.large_info = QLabel()
+        self.large_info.setWordWrap(True)
+        self.large_info.setTextFormat(Qt.RichText)
+        card.add(self.large_info)
+        form = Form()
+        self.large_cell = guard_wheel(QComboBox())
+        for cell in (0.05, 0.10, 0.20):
+            self.large_cell.addItem(f"One point per {cell * 100:.0f} cm", cell)
+        self.large_cell.activated.connect(lambda index: self.callbacks["large_cell"](self.large_cell.itemData(index)))
+        form.row("Overview", self.large_cell, "How finely the whole scan is shown and compared. Finer shows more, "
+                                             "coarser is faster. Full detail is always kept on disk.")
+        self.large_section_length = guard_wheel(QComboBox())
+        for length in (10, 20, 50):
+            self.large_section_length.addItem(f"Every {length} m", float(length))
+        self.large_section_length.addItem("Parts, found automatically", "parts")
+        self.large_section_length.setCurrentIndex(1)
+        self.large_section_length.activated.connect(lambda index: self.callbacks["large_sections"]())
+        form.row("Pieces", self.large_section_length, "The scan cut into pieces along its length, or into its parts: "
+                                                      "seabed, wall, ships, piles and other objects")
+        card.add(form)
+        self.large_sections = QListWidget()
+        self.large_sections.setToolTip("Click a piece to look at it in full detail")
+        self.large_sections.setMaximumHeight(170)
+        self.large_sections.itemClicked.connect(
+            lambda item: self.callbacks["large_section"](self.large_sections.row(item)))
+        card.add(self.large_sections)
+        row = QHBoxLayout()
+        row.setSpacing(SPACING)
+        self.large_detail_button = button("Full detail here",
+                                          tooltip="Load every point of both scans around the middle of the view "
+                                                  "(or the selected area) and compare them there (Ctrl+Shift+D)")
+        self.large_detail_button.clicked.connect(lambda: self.callbacks["large_detail_here"]())
+        row.addWidget(self.large_detail_button, 1)
+        self.large_back_button = button("Back to overview", tooltip="Show the whole scan again (Esc)")
+        self.large_back_button.clicked.connect(lambda: self.callbacks["large_overview"]())
+        self.large_back_button.setEnabled(False)
+        row.addWidget(self.large_back_button, 1)
+        card.add(row)
+        self.large_auto_refine = QCheckBox("Measure changed areas in full detail")
+        self.large_auto_refine.setChecked(True)
+        self.large_auto_refine.setToolTip("After Detect Changes on the overview, load both scans in full detail "
+                                          "around every changed area and measure it again there")
+        card.add(self.large_auto_refine)
+        self.large_sweep_button = button("Search everything in full detail",
+                                         tooltip="Go through the whole scan piece by piece in full detail. Finds "
+                                                 "changes smaller than the overview shows, but takes a while")
+        self.large_sweep_button.clicked.connect(lambda: self.callbacks["large_sweep"]())
+        card.add(self.large_sweep_button)
+        self.large_progress = thin_progress()
+        card.add(self.large_progress)
+        self.large_status = hint()
+        card.add(self.large_status)
+        card.setVisible(False)
+        return card
+
+    def show_large(self, info, cell, sections):
+        """Fill the Large scan card (info None hides it)."""
+        self.large_card.setVisible(info is not None)
+        if info is None:
+            return
+        self.large_info.setText(info)
+        index = self.large_cell.findData(cell)
+        if index >= 0:
+            self.large_cell.setCurrentIndex(index)
+        self.set_large_sections(sections)
+
+    def set_large_sections(self, rows):
+        self.large_sections.clear()
+        self.large_sections.addItems(rows)
+
+    def large_section_length_value(self):
+        return self.large_section_length.currentData()
+
+    def set_large_detail(self, in_detail, text=""):
+        self.large_back_button.setEnabled(in_detail)
+        self.large_cell.setEnabled(not in_detail)
+        self.large_sweep_button.setEnabled(not in_detail)
+        if text:
+            self.large_status.setText(text)
+
+    def set_large_busy(self, busy, text="", fraction=None, stoppable=False):
+        self.large_progress.setVisible(busy)
+        if busy:
+            if fraction is None:
+                self.large_progress.setRange(0, 0)
+            else:
+                self.large_progress.setRange(0, 1000)
+                self.large_progress.setValue(int(1000 * fraction))
+        self.large_detail_button.setEnabled(not busy)
+        self.large_sections.setEnabled(not busy)
+        self.large_sweep_button.setText("Stop" if busy and stoppable else "Search everything in full detail")
+        self.large_sweep_button.setEnabled(stoppable or not busy)
+        if text:
+            self.large_status.setText(text)
+
     def show_scans(self, names, colors, dates=None):
         """Fill the Scans card for a series (None hides it)."""
         while self.scan_rows.count():
@@ -963,7 +1115,7 @@ class Sidebar(QWidget):
             return name
         if stacked:
             return f"{name}<br>{when}"
-        return f"{name} <span style='color:#9a9da7'>· {when}</span>" if html else f"{name}, {when}"
+        return f"{name} <span style='color:{style.TEXT_DIM}'>· {when}</span>" if html else f"{name}, {when}"
 
     def set_series_pair(self, older, newer, mode):
         for widget, value in ((self.timeline, newer), (self.timeline_mode, self.timeline_mode.findData(mode))):
@@ -971,7 +1123,7 @@ class Sidebar(QWidget):
             widget.setValue(value) if widget is self.timeline else widget.setCurrentIndex(value)
             widget.blockSignals(False)
         names = self.series_names
-        self.timeline_title.setText(f"<b>{self._scan_label(newer, html=True)}</b><br><span style='color:#9a9da7'>"
+        self.timeline_title.setText(f"<b>{self._scan_label(newer, html=True)}</b><br><span style='color:{style.TEXT_DIM}'>"
                                     f"compared with {self._scan_label(older, html=True)} · scan {newer + 1} of "
                                     f"{len(names)}</span>")
 
@@ -1006,25 +1158,29 @@ class Sidebar(QWidget):
 
     def _tutorial_row(self, advanced=False):
         """Invitations to the tutorials at the top of the Quick start chapter."""
-        row = QFrame()
+        from viewer.widgets import Surface
+
+        strength = 0.6 if advanced else 1.0
+        row = Surface(fill=style.mix(style.ACCENT, style.CARD, 0.08 * strength),
+                      border=style.mix(style.ACCENT, style.CARD, 0.45 * strength), radius=style.FIELD_RADIUS + 2)
         row.setObjectName("tutorialRow")
-        border, fill = ("0.3", "0.04") if advanced else ("0.45", "0.08")
-        row.setStyleSheet(f"#tutorialRow {{ border: 1px solid rgba(61, 127, 245, {border}); border-radius: 8px;"
-                          f" background: rgba(61, 127, 245, {fill}); }} #tutorialRow QLabel {{ background: transparent; }}")
+        row.setStyleSheet("#tutorialRow QLabel { background: transparent; }")
         layout = QHBoxLayout(row)
         layout.setContentsMargins(12, 10, 10, 10)
         layout.setSpacing(10)
         if advanced:
-            text = QLabel("<b>Know the basics?</b><br><span style='color:#9a9da7'>The Storm Season: six chapters "
+            text = QLabel(f"<b>Know the basics?</b><br><span style='color:{style.TEXT_DIM}'>The Storm Season: six chapters "
                           "of tricks on a wind turbine foundation, about 15 minutes.</span>")
         else:
-            text = QLabel("<b>New here?</b><br><span style='color:#9a9da7'>Everything step by step in about 5 "
+            text = QLabel(f"<b>New here?</b><br><span style='color:{style.TEXT_DIM}'>Everything step by step in about 5 "
                           "minutes.</span>")
         text.setWordWrap(True)
         layout.addWidget(text, 1)
         start = button("Advanced Tutorial" if advanced else "Start Tutorial", primary=True)
         if advanced:  # blue as well, a deeper shade, so the two don't look like the same button
-            start.setStyleSheet("QPushButton { background: #4a5fe0; } QPushButton:hover { background: #5c70ea; }")
+            deeper = style.mix("#000000", style.ACCENT, 0.22)
+            start.setStyleSheet(f"QPushButton {{ background: {deeper}; border-color: {deeper}; }}"
+                                f"QPushButton:hover {{ background: {style.ACCENT}; border-color: {style.ACCENT}; }}")
         start.clicked.connect(lambda: self.callbacks["advanced_tutorial" if advanced else "tutorial"]())
         layout.addWidget(start, 0, Qt.AlignVCenter)
         if advanced:

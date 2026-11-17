@@ -49,10 +49,18 @@ class ImportOptions:
     delimiter: str = None  # text files: None = found automatically
     skip_rows: int = None  # text files: header lines, None = found automatically
     mesh_points: int = 300_000  # points sampled on a mesh surface
+    # Big files (see scan_store.py and large_scans.py):
+    #   "all"       read every point into memory (normal sized scans)
+    #   "thin"      one averaged point per cube of `thin` metres
+    #   "overview"  an overview for the whole scan, full detail loaded from disk where it is needed
+    mode: str = "all"
+    thin: float = 0.05  # metres
+    section: list = None  # [from, to] metres along the scan: only that part, None = everything
 
     def to_json(self):
         return {"unit": self.unit, "depth_down": self.depth_down, "columns": self.columns,
-                "delimiter": self.delimiter, "skip_rows": self.skip_rows, "mesh_points": self.mesh_points}
+                "delimiter": self.delimiter, "skip_rows": self.skip_rows, "mesh_points": self.mesh_points,
+                "mode": self.mode, "thin": self.thin, "section": self.section}
 
     @classmethod
     def from_json(cls, data):

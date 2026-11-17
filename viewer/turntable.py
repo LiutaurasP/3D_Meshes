@@ -14,7 +14,7 @@ def frames(scene, count=72, width=720, progress=None):
     try:
         for index in range(count):
             plotter.ren_win.Render()  # the plotter's own render() is deferred to the event loop
-            pixels = plotter.screenshot(return_img=True)[:, :, :3]
+            pixels = scene.capture(return_img=True)[:, :, :3]
             image = Image.fromarray(np.ascontiguousarray(pixels))
             if image.width > width:
                 image = image.resize((width, round(image.height * width / image.width)), Image.LANCZOS)

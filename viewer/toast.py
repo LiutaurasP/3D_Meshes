@@ -1,11 +1,12 @@
 """Small notifications that fade in at the bottom of the window and disappear by themselves."""
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from viewer.style import ACCENT, CARD, TEXT, TEXT_DIM
+from viewer.style import ACCENT, CARD, CARD_RADIUS, DANGER, SIZE_BODY, SMOOTHING, SUCCESS, TEXT, TEXT_DIM, WARNING
 
-KIND_COLORS = {"info": ACCENT, "success": "#3fb27f", "warning": "#e0a43a"}
+KIND_COLORS = {"info": ACCENT, "success": SUCCESS, "warning": WARNING, "error": DANGER}
 
 
 class Toast(QWidget):
@@ -37,8 +38,8 @@ class Toast(QWidget):
         color = KIND_COLORS.get(kind, ACCENT)
         detail_html = f"<br><span style='color:{TEXT_DIM}'>{detail}</span>" if detail else ""
         self.body.setText(f"<span style='color:{TEXT}; font-weight:600'>{text}</span>{detail_html}")
-        self.body.setStyleSheet(
-            f"background:{CARD}; border:1px solid {color}; border-radius:8px; padding:10px 16px; font-size:13px;")
+        self.body.setStyleSheet(f"background: transparent; padding: 11px 18px; font-size: {SIZE_BODY}px;")
+        self.color = QColor(color)
         self.adjustSize()
         self._place()
         self.fade.stop()
@@ -50,6 +51,18 @@ class Toast(QWidget):
         self.fade.setEndValue(0.97)
         self.fade.start()
         self.timer.start(int(seconds * 1000))
+
+    def paintEvent(self, event):
+        """A squircle card with a thin border in the colour of the message."""
+        from viewer.shapes import squircle
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        border = QColor(getattr(self, "color", QColor(ACCENT)))
+        border.setAlphaF(0.75)
+        painter.setPen(QPen(border, 1.0))
+        painter.setBrush(QColor(CARD))
+        painter.drawPath(squircle(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), CARD_RADIUS, SMOOTHING))
 
     def _place(self):
         """Bottom centre of the 3D view, just above the status bar."""

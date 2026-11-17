@@ -18,6 +18,7 @@ import numpy as np
 from PySide6.QtCore import QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 
+from viewer import style
 from viewer.tutorial import COMMAND, TutorialBase, body
 
 SERIES_KEY = "wind_turbine_storm"
@@ -47,9 +48,9 @@ def chapter_card(number, story):
 
 def keycaps(*keys):
     """Keys written like small key caps inside the text (for reading, not pressing)."""
-    cap = ("<span style='background-color:#262a36; color:#e6e7eb; font-weight:600; font-size:18px;'>"
+    cap = (f"<span style='background-color:{style.FIELD}; color:{style.TEXT}; font-weight:600; font-size:18px;'>"
            "&nbsp;{}&nbsp;</span>")
-    return " <span style='color:#62656e;'>+</span> ".join(cap.format(key) for key in keys)
+    return f" <span style='color:{style.TEXT_FAINT};'>+</span> ".join(cap.format(key) for key in keys)
 
 
 def summary_card(number, learned, items):
@@ -57,7 +58,7 @@ def summary_card(number, learned, items):
     rows = "".join(
         f"<tr><td style='padding:3px 16px 3px 0; white-space:nowrap;'>"
         f"{keycaps(*what) if isinstance(what, tuple) else f'<b>{what}</b>'}</td>"
-        f"<td style='padding:3px 0; color:#9a9da7;'>{meaning}</td></tr>"
+        f"<td style='padding:3px 0; color:{style.TEXT_DIM};'>{meaning}</td></tr>"
         for what, meaning in items)
     return dict(eyebrow=f"Chapter {number} of 6  ·  what you learned", heading=f"Chapter {number} complete.",
                 body=f"<p style='margin:0px 0px 6px 0px;'>{learned}</p><table cellspacing='0'>{rows}</table>",
@@ -580,7 +581,7 @@ class AdvancedTutorial(TutorialBase):
                 eyebrow="Chapter 6  ·  Hand it over", heading="Who is it for?",
                 body=body("Every report starts with the details: client, site, inspector, remarks. We've filled "
                           "them in for this job. Normally they're asked for when you export.",
-                          "<span style='color:#62656e'>Client: North Sea Wind (example) · Site: turbine B-07 "
+                          f"<span style='color:{style.TEXT_FAINT}'>Client: North Sea Wind (example) · Site: turbine B-07 "
                           "foundation · Reference: storm season check</span>"),
                 button="Continue"),
             "c6_report": dict(

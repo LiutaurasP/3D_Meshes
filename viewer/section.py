@@ -11,6 +11,9 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 
+from viewer import style
+
+style.chart_fonts()
 from viewer.style import BACKGROUND, CARD, CARD_BORDER, PANEL_STYLE, TEXT, TEXT_DIM
 
 
@@ -102,8 +105,8 @@ class SectionWindow(QDialog):
         ax.plot(section["centers"], section["median_a"], color=color_a[:3], linewidth=1.6)
         ax.plot(section["centers"], section["median_b"], color=color_b[:3], linewidth=1.6)
         a, b = section["median_a"], section["median_b"]
-        ax.fill_between(section["centers"], a, b, where=b < a, color="#4a7bd8", alpha=0.25, interpolate=True)
-        ax.fill_between(section["centers"], a, b, where=b > a, color="#d84a4a", alpha=0.25, interpolate=True)
+        ax.fill_between(section["centers"], a, b, where=b < a, color=style.REMOVED, alpha=0.25, interpolate=True)
+        ax.fill_between(section["centers"], a, b, where=b > a, color=style.ADDED, alpha=0.25, interpolate=True)
         ax.set_xlabel("Distance along the line (m)")
         ax.set_ylabel("Height (m, 0 = water surface)")
         ax.set_xlim(0, section["length"])
@@ -120,8 +123,8 @@ class SectionWindow(QDialog):
             kind = "higher" if how_much > 0 else "lower"
             detail += f" · biggest difference: B is <b>{abs(how_much):.2f} m {kind}</b> at {where:.1f} m"
         self.summary.setText(f"<span style='color:{TEXT_DIM}'>{detail}</span><br>"
-                             f"<span style='color:#d86a6a'>red</span> = material added, "
-                             f"<span style='color:#6a8fd8'>blue</span> = material removed")
+                             f"<span style='color:{style.ADDED}'>red</span> = material added, "
+                             f"<span style='color:{style.REMOVED}'>blue</span> = material removed")
         self.show()
         self.raise_()
 

@@ -26,6 +26,13 @@ MARGIN = 42.0
 # Collecting what goes into the report (plain data, also used by the tests)
 
 
+def measured_where(window, area):
+    from large_scans import measured
+
+    overview = getattr(window, "overview_shown", lambda: False)()
+    return measured(area, overview)
+
+
 def collect(window):
     """Everything the report says, as plain values."""
     clouds = window.clouds
@@ -66,6 +73,35 @@ def collect(window):
             "added": sum(a.volume_added or 0 for a in result.areas if a.tag != "False alarm"),
             "removed": sum(a.volume_removed or 0 for a in result.areas if a.tag != "False alarm"),
         }
+        from displaced import describe, moved_areas
+
+        moves = getattr(result, "moves", None) or []
+        moved = moved_areas(moves)
+        counted = [a for i, a in enumerate(result.areas) if a.tag != "False alarm" and i not in moved]
+        info["detection"]["added"] = sum(a.volume_added or 0 for a in counted)
+        info["detection"]["removed"] = sum(a.volume_removed or 0 for a in counted)
+        info["moves"] = [{"where": move.removed + 1, "now": move.added + 1, "text": describe(move),
+                          "size": [float(v) for v in move.size], "confidence": move.confidence,
+                          "from": [float(v) for v in np.asarray(move.old_center) + offset],
+                          "to": [float(v) for v in np.asarray(move.new_center) + offset]} for move in moves]
+        parts = getattr(window, "_large_parts", None) or []
+        if parts:  # huge scans cut into their parts: what changed on each
+            from parts import part_of
+
+            per_part = {}
+            for index, area in enumerate(result.areas):
+                if area.tag == "False alarm":
+                    continue
+                part = part_of(parts, area.center)
+                name = part.name if part is not None else "Elsewhere"
+                entry = per_part.setdefault(name, {"count": 0, "added": 0.0, "removed": 0.0, "moved": 0})
+                entry["count"] += 1
+                if index in moved:
+                    entry["moved"] += index in {m.removed for m in moves}
+                else:
+                    entry["added"] += area.volume_added or 0
+                    entry["removed"] += area.volume_removed or 0
+            info["parts"] = [(name, entry) for name, entry in per_part.items()]
         for number, area in enumerate(result.areas, start=1):
             info["areas"].append({
                 "number": number,
@@ -78,7 +114,17 @@ def collect(window):
                 "volume_error": area.volume_error,
                 "confidence": area.confidence,
                 "tag": area.tag, "status": area.status, "comment": area.comment,
+                "measured": measured_where(window, area),
             })
+    pair = window.large_pair() if hasattr(window, "large_pair") else None
+    if pair is not None and not window.in_large_detail():  # huge scans: say what the numbers are based on
+        from large_scans import measured
+
+        stored = {name: store.n_points for name, store in pair.stores.items()}
+        info["large"] = {"stored": stored, "cell": pair.cell,
+                         "measured": sum(1 for a in info["areas"] if a.get("measured") == "full detail")}
+        for area in info["areas"]:
+            area.setdefault("measured", "overview")
     info["series"] = collect_series(window)
     return info
 
@@ -135,7 +181,7 @@ def snapshot(scene):
     """The 3D view as a QImage."""
     scene.plotter.renderer.ResetCameraClippingRange()
     scene.plotter.ren_win.Render()  # the plotter's own render() is deferred to the event loop
-    pixels = np.ascontiguousarray(scene.plotter.screenshot(return_img=True)[:, :, :3])
+    pixels = np.ascontiguousarray(scene.capture(return_img=True)[:, :, :3])
     height, width, _ = pixels.shape
     return QImage(pixels.data, width, height, 3 * width, QImage.Format_RGB888).copy()
 
@@ -285,6 +331,10 @@ def areas_table(pages, areas, names):
                 volume += f" ± {format_volume(area['volume_error']).replace(' m³', '')}"
         if area.get("confidence") and area["confidence"] != "clear":
             kind = f"{kind}?"
+        from large_scans import MARKS
+
+        mark = MARKS.get(area.get("measured") or "", "")
+        kind = f"{kind} {mark}" if mark else kind
         values = [str(area["number"]), kind, f"{area['peak'] * 100:+.0f} cm", volume,
                   f"{sx:.1f} × {sy:.1f} × {sz:.1f}", f"{cx:.1f}, {cy:.1f}", f"{-cz:.1f} m"]
         x = MARGIN
@@ -388,7 +438,7 @@ def series_chapter(pages, series, charts):
         pages.y += height + 10
 
 
-def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=None):
+def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=None, wall_map=None):
     pages = Pages(path, f"Change report – {info['title']}")
     painter = pages.painter
 
@@ -414,7 +464,16 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         kinds = info.get("kinds", {})
         for name, file in zip((a, b), info["files"]):
             rows.append((f"File {name[-1]}", f"{file}" + (f"  ({kinds[name]})" if kinds.get(name) else "")))
-    rows.append(("Points", f"{a} (before): {info['points'][a]:,}   ·   {b} (after): {info['points'][b]:,}"))
+    large = info.get("large")
+    if large:
+        stored = large["stored"]
+        rows.append(("Points", f"{a} (before): {stored[a]:,}   ·   {b} (after): {stored[b]:,}"))
+        rows.append(("Compared on", f"an overview of one averaged point per {large['cell'] * 100:.0f} cm cube "
+                                    f"({info['points'][a]:,} + {info['points'][b]:,} points); "
+                                    f"{large['measured']} of {len(info['areas'])} changed areas were measured "
+                                    f"again with every point (✓ in the table)"))
+    else:
+        rows.append(("Points", f"{a} (before): {info['points'][a]:,}   ·   {b} (after): {info['points'][b]:,}"))
     alignment = info["alignment"]
     if alignment:
         rows.append(("Alignment", f"{alignment['rounds']} rounds, remaining error (RMSE) "
@@ -468,6 +527,28 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         if any(a.get("confidence") not in (None, "clear") for a in info["areas"]):
             pages.y += 4
             pages.text("? = the change is close to the level of detection: worth checking again.", 8.5, color=DIM)
+        if info.get("large"):
+            pages.y += 2
+            pages.text("✓ = measured with every point (full detail)   ≈ = value from the overview only   "
+                       "✗ = seen on the overview, but not there in full detail", 8.5, color=DIM)
+        if info.get("parts"):
+            from volumes import format_volume
+
+            pages.heading("Changes per part", keep=60)
+            pages.text("The scan was split into its parts automatically (seabed, walls, ships, piles, other "
+                       "objects).", 9, color=DIM, gap=8)
+            rows = [[name, str(entry["count"]), f"+{format_volume(entry['added'])}",
+                     f"−{format_volume(entry['removed'])}", str(entry["moved"]) if entry["moved"] else "–"]
+                    for name, entry in info["parts"]]
+            simple_table(pages, [("Part", 200), ("Changes", 70), ("Added", 90), ("Removed", 90), ("Moved", 0)], rows)
+        if info.get("moves"):
+            pages.heading("Moved objects", keep=60)
+            pages.text("A block or rock that moved shows up as two changes: removed where it was and added where "
+                       "it is now. These pairs were recognised as one object (the same shape fits onto both "
+                       "places), so their volume is not counted as added or removed.", 9, color=DIM, gap=8)
+            rows = [[str(m["where"]), (f"area {m['now']}" if m["now"] != m["where"] else "–"), m["text"],
+                     " × ".join(f"{v:.1f}" for v in m["size"]) + " m", m["confidence"]] for m in info["moves"]]
+            simple_table(pages, [("Area", 40), ("Now at", 60), ("Movement", 270), ("Size", 90), ("Fit", 0)], rows)
         inspected = [a for a in info["areas"] if a.get("tag") or a.get("status") or a.get("comment")]
         if inspected:
             pages.heading("Inspection", keep=60)
@@ -491,6 +572,15 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         pages.text("Seen from above: red where scan B is higher (material added), blue where it is lower "
                    "(removed). Numbers are the changed areas. Vertical walls only show as a thin line from above.", 8.5,
                    color=DIM)
+
+    if wall_map is not None:
+        width = PAGE_W - 2 * MARGIN
+        height = width * wall_map.height() / max(wall_map.width(), 1)
+        pages.heading("Unrolled wall view", keep=height + 48)
+        pages.image(wall_map, MARGIN, width, height)
+        pages.y += height + 4
+        pages.text("Distance along the wall is horizontal and depth increases downward. Red shows added material, "
+                   "blue shows removed material, and outlines mark detected areas.", 8.5, color=DIM)
 
     if close_ups:
         width = (PAGE_W - 2 * MARGIN - 14) / 2
@@ -531,13 +621,14 @@ def export_report(window, path):
     """Make the report for the window's current state; returns the number of pages."""
     info = collect(window)
     overview, close_ups = pictures(window)
-    height_map = None
+    height_map = wall_map = None
     if window.change_result is not None:
         from viewer.heightmap import map_image
 
         grid, extent, cell = window.height_map_data()
         height_map = map_image(grid, extent, cell, window.change_result.areas, window.inspections.offset)
+        wall_map = map_image(*window.wall_map_data(), wall=True)
     charts = []
     if info.get("series") and info["series"]["compared"] >= len(window.series.names) - 1:
         charts = [chart_image(track, window.series.names, window.series.dates) for track in window.series_tracks[:6]]
-    return write_pdf(path, info, overview, close_ups, height_map, charts)
+    return write_pdf(path, info, overview, close_ups, height_map, charts, wall_map=wall_map)

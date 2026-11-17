@@ -2,6 +2,7 @@ import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
 
+from viewer import style
 from viewer.camera import CameraFlight
 from viewer.fly import FlyController
 
@@ -80,6 +81,8 @@ class SceneView:
         self.when_values = {}  # name -> scan in which each point first changed (-1 = never), "When changed"
         self.when_colors = []  # colour per scan for the "When changed" colours
         self.legend_actor = None
+        self.context_actor = None  # huge scans in full detail: the overview around it, dimmed
+        self.move_actors = []  # arrows from where a moved object was to where it is now
 
     # Geometry
 
@@ -213,7 +216,7 @@ class SceneView:
         if enabled and self.minimap is None:
             renderer = vtk.vtkRenderer()
             renderer.SetViewport(*self.MINIMAP_VIEWPORT)
-            renderer.SetBackground(0.07, 0.08, 0.11)
+            renderer.SetBackground(*style.rgb(style.CARD))
             renderer.InteractiveOff()
             renderer.GetActiveCamera().ParallelProjectionOn()
             self.plotter.ren_win.AddRenderer(renderer)
@@ -442,18 +445,41 @@ class SceneView:
                 continue  # small areas get a box but no label, so many areas don't clutter the view
             top = np.array([(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, high[2] + pad])
             self.area_actors.append(self.plotter.add_point_labels(
-                [top], [label], font_size=14, text_color="white", shape_color=(0.15, 0.15, 0.18),
+                [top], [label], font_size=14, text_color=style.rgb(style.TEXT), shape_color=style.LABEL_FILL,
                 shape_opacity=0.8, show_points=False, always_visible=True, reset_camera=False))
         self.set_areas_visible(self.settings.show_areas)
 
     def clear_areas(self):
-        for actor in self.area_actors:
+        for actor in self.area_actors + getattr(self, "move_actors", []):
             self.plotter.remove_actor(actor, render=False)
         self.area_actors = []
+        self.move_actors = []
+
+    def set_moves(self, moves, color=(0.35, 0.85, 1.0)):
+        """An arrow for every moved object, from where it was to where it is now (above the object)."""
+        for actor in self.move_actors:
+            self.plotter.remove_actor(actor, render=False)
+        self.move_actors = []
+        for move in moves:
+            lift = np.array([0.0, 0.0, 0.6 * float(move.size[-1]) + 0.3])
+            start = np.asarray(move.old_center, dtype=float) + lift
+            end = np.asarray(move.new_center, dtype=float) + lift
+            direction = end - start
+            length = float(np.linalg.norm(direction))
+            if length < 1e-3:
+                continue
+            arrow = pv.Arrow(start=start, direction=direction / length, tip_length=min(0.35, 0.6 / length), tip_radius=0.12,
+                             shaft_radius=0.045, scale=length)
+            self.move_actors.append(self.plotter.add_mesh(arrow, color=color, reset_camera=False, pickable=False))
+            ring = pv.Disc(center=start, inner=0.18, outer=0.26, normal=(0, 0, 1), c_res=24)
+            self.move_actors.append(self.plotter.add_mesh(ring, color=color, reset_camera=False, pickable=False))
+        for actor in self.move_actors:
+            actor.SetVisibility(self.settings.show_areas)
+        self.plotter.render()
 
     def set_areas_visible(self, visible):
         self.settings.show_areas = visible
-        for actor in self.area_actors:
+        for actor in self.area_actors + self.move_actors:
             actor.SetVisibility(visible)
         self.plotter.render()
 
@@ -800,7 +826,8 @@ class SceneView:
     # Lines and labels of the measuring tools
 
     def add_marker_line(self, p0, p1, color=(1.0, 0.33, 0.33), label=None, label_at=0.5,
-                        label_color=(0.15, 0.15, 0.18)):
+                        label_color=None):
+        label_color = style.LABEL_FILL if label_color is None else label_color
         line = pv.Line(p0, p1)
         actor = self.plotter.add_mesh(line, color=color, line_width=3 * self.widget.devicePixelRatioF(),
                                       reset_camera=False, render_lines_as_tubes=False)
@@ -811,7 +838,8 @@ class SceneView:
             # label_at: 0 = at the start, 0.5 = in the middle, 1 = at the end
             middle = (1 - label_at) * np.asarray(p0, dtype=float) + label_at * np.asarray(p1, dtype=float)
             items.append(self.plotter.add_point_labels(
-                [middle], [label], font_size=14, text_color="white", shape_color=label_color,
+                [middle], [label], font_size=14, text_color=style.rgb(style.TEXT) if label_color is style.LABEL_FILL
+                else "white", shape_color=label_color,
                 shape_opacity=0.85, show_points=False, always_visible=True, reset_camera=False))
         self.overlays.append(items)
         self.plotter.render()
@@ -1053,8 +1081,47 @@ class SceneView:
         if not entries:
             return
         self.legend_actor = self.plotter.add_legend([[label, tuple(color[:3])] for label, color in entries],
-                                                    bcolor=(0.08, 0.09, 0.12), border=False, loc="lower right",
+                                                    bcolor=style.rgb(style.CARD), border=False, loc="lower right",
                                                     size=(0.22, 0.04 * len(entries) + 0.02), face="circle")
+
+    def capture(self, *args, **kwargs):
+        """plotter.screenshot without the line in the corner (it is for the person at the screen, not for
+        exported pictures and reports)."""
+        badge = getattr(self, "badge_actor", None)
+        if badge is not None:
+            badge.SetVisibility(False)
+        try:
+            return self.plotter.screenshot(*args, **kwargs)
+        finally:
+            if badge is not None:
+                badge.SetVisibility(True)
+
+    # Huge scans: what is shown (overview or full detail), always in a corner of the view
+
+    def set_badge(self, text):
+        """A small line of text in the top left corner of the 3D view (None removes it)."""
+        self.badge_text = text or ""
+        if getattr(self, "badge_actor", None) is not None:
+            self.plotter.remove_actor(self.badge_actor, render=False)
+            self.badge_actor = None
+        if text:
+            self.badge_actor = self.plotter.add_text(text, position=(0.012, 0.965), viewport=True, font_size=9,
+                                                     color=style.rgb(style.TEXT_DIM), name="what is shown")
+        self.plotter.render()
+
+    # Huge scans: the overview around a part shown in full detail
+
+    def set_context(self, points, color=(0.42, 0.44, 0.5)):
+        """Draw points (the overview outside the part in full detail) small and grey, or remove them (None)."""
+        if self.context_actor is not None:
+            self.plotter.remove_actor(self.context_actor, render=False)
+            self.context_actor = None
+        if points is not None and len(points):
+            self.context_actor = self.plotter.add_points(
+                pv.PolyData(np.asarray(points, dtype=float)), color=color, opacity=0.35,
+                point_size=max(1.0, self._screen_point_size() * 0.6), render_points_as_spheres=False,
+                name="overview around", reset_camera=False, pickable=False)
+        self.plotter.render()
 
     def close(self):
         self.fly.shutdown()

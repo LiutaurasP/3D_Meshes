@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen  # noqa: 
 
 from viewer import prefs  # noqa: E402
 from viewer.settings import Settings  # noqa: E402
+from viewer import style  # noqa: E402
 from viewer.style import apply_theme  # noqa: E402
 
 
@@ -26,7 +27,7 @@ def splash_pixmap():
     width, height = 520, 300
     pixmap = QPixmap(int(width * ratio), int(height * ratio))
     pixmap.setDevicePixelRatio(ratio)
-    pixmap.fill(QColor("#0d162c"))
+    pixmap.fill(QColor(style.BRAND))
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -34,8 +35,8 @@ def splash_pixmap():
     logo_width = 300
     logo_height = logo.height() * logo_width / logo.width()
     painter.drawPixmap(int((width - logo_width) / 2), 70, int(logo_width), int(logo_height), logo)
-    painter.setPen(QColor("#e6e7eb"))
-    font = QFont()
+    painter.setPen(QColor(style.TEXT))
+    font = QFont(style.FONT_FAMILY)
     font.setPixelSize(20)
     font.setWeight(QFont.DemiBold)
     painter.setFont(font)
@@ -43,7 +44,7 @@ def splash_pixmap():
     font.setPixelSize(12)
     font.setWeight(QFont.Normal)
     painter.setFont(font)
-    painter.setPen(QColor("#9a9da7"))
+    painter.setPen(QColor(style.TEXT_DIM))
     painter.drawText(0, height - 40, width, 20, Qt.AlignHCenter, f"Version {VERSION}")
     painter.end()
     return pixmap
@@ -180,6 +181,7 @@ def main():
     apply_identity(app)
     if "--self-test" in sys.argv:
         app.setOrganizationName("SubdronSelfTest")  # own settings: never touches recent files or preferences
+    style.use_theme(prefs.get("theme"))  # before any window is built: they read the theme's colours once
     apply_theme(app)
 
     splash = QSplashScreen(splash_pixmap())

@@ -20,11 +20,12 @@ class AlignWorker(QThread):
     progress = Signal(int, int)  # round, max rounds
     done = Signal(list)
 
-    def __init__(self, source, target, data_settings):
+    def __init__(self, source, target, data_settings, fine=False):
         super().__init__()
         self.source = source
         self.target = target
         self.data = data_settings
+        self.fine = fine  # huge scans: a last close step on the (low noise) overview, see large_scans.fine_align
 
     def run(self):
         steps = icp_steps(
@@ -35,6 +36,10 @@ class AlignWorker(QThread):
             on_step=self.progress.emit,
             method=self.data.icp_method,
         )
+        if self.fine:
+            from large_scans import fine_align
+
+            steps += fine_align(self.source, self.target, steps[-1].transformation)[1:]
         self.done.emit(steps)
 
 
@@ -46,8 +51,9 @@ class ChangeWorker(QThread):
     failed = Signal(str)  # message, e.g. when py4dgeo (M3C2) is not installed
 
     def __init__(self, cloud_a, aligned_b, threshold, min_area_points, method="nearest-surface",
-                 m3c2_cylinder=None, m3c2_normals=None):
+                 m3c2_cylinder=None, m3c2_normals=None, overview=False, find_moves=True, detail=False):
         super().__init__()
+        self.detail = detail  # every point of a huge scan: the smallest area is set from the density
         self.cloud_a = cloud_a
         self.aligned_b = aligned_b
         self.threshold = threshold
@@ -55,20 +61,41 @@ class ChangeWorker(QThread):
         self.method = method
         self.m3c2_cylinder = m3c2_cylinder  # point spacings, None = default
         self.m3c2_normals = m3c2_normals
+        self.overview = overview  # huge scans: the automatic threshold is at least 4 cm on the overview
+        self.find_moves = find_moves
 
     def run(self):
         from change_detection import detect_changes
         from m3c2 import MissingPackage
         from volumes import measure_areas
 
+        threshold = self.threshold
+        if threshold is None and self.overview and self.method != "m3c2":  # M3C2 keeps its threshold per point
+            from large_scans import overview_threshold
+
+            threshold = overview_threshold(np.asarray(self.cloud_a.points), np.asarray(self.aligned_b.points))
+        min_points = self.min_area_points
+        if self.detail:
+            from change_detection import estimate_spacing
+            from large_scans import MIN_AREA_M2
+
+            spacing = estimate_spacing(np.asarray(self.cloud_a.points))
+            min_points = int(max(min_points, MIN_AREA_M2 / max(spacing, 1e-4) ** 2))
         try:
-            result = detect_changes(self.cloud_a, self.aligned_b, threshold=self.threshold,
-                                    min_area_points=self.min_area_points, method=self.method,
+            result = detect_changes(self.cloud_a, self.aligned_b, threshold=threshold,
+                                    min_area_points=min_points, method=self.method,
                                     m3c2_cylinder=self.m3c2_cylinder, m3c2_normals=self.m3c2_normals)
         except MissingPackage as error:
             self.failed.emit(str(error))
             return
         measure_areas(result, self.cloud_a.points, self.aligned_b.points)  # volumes and confidence
+        if self.find_moves:
+            try:
+                from displaced import find_moves
+
+                result.moves = find_moves(result, np.asarray(self.cloud_a.points), np.asarray(self.aligned_b.points))
+            except ImportError:
+                result.moves = []
         self.done.emit(result)
 
 
@@ -99,6 +126,7 @@ class DataWorker(QThread):
 
     done = Signal(object)  # Inspections
     failed = Signal(str)
+    progress = Signal(float, str)  # 0..1, what it is doing (huge scans: writing, reading, overview)
 
     def __init__(self, data_settings=None, files=None, options=None):
         super().__init__()
@@ -109,9 +137,61 @@ class DataWorker(QThread):
     def run(self):
         try:
             if self.files:
-                self.done.emit(load_inspections(*self.files, options=self.options))
+                self.done.emit(load_inspections(*self.files, options=self.options, on_progress=self.progress.emit,
+                                                should_stop=self.isInterruptionRequested))
             else:
-                self.done.emit(build_inspections(self.data))
+                self.done.emit(build_inspections(self.data, self.progress.emit, self.isInterruptionRequested))
+        except Exception as error:  # shown to the user instead of crashing the thread
+            if not getattr(self, "stopped", False):
+                self.failed.emit(str(error))
+
+
+class LargeWorker(QThread):
+    """Full detail of huge scans, off the GUI thread (see large_scans.py).
+
+    job "detail": load both scans in a box  -> done(dict with points)
+    job "refine": measure changed areas again -> done(threshold)
+    job "sweep":  search everything           -> done((areas, threshold))
+    job "open":   reopen the stores of a project's files -> done(LargePair)
+    """
+
+    progress = Signal(float, str)
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, job, pair=None, **values):
+        super().__init__()
+        self.job = job
+        self.pair = pair
+        self.values = values
+
+    def run(self):
+        import large_scans
+
+        v = self.values
+        stop = self.isInterruptionRequested
+        try:
+            if self.job == "detail":
+                a, ia = self.pair.detail("Scan A", v["low"], v["high"])
+                b, ib = self.pair.detail("Scan B", v["low"], v["high"], v["matrix"])
+                self.done.emit({"Scan A": a, "Scan B": b, "intensity": {k: x for k, x in
+                                                                       (("Scan A", ia), ("Scan B", ib)) if x is not None}})
+            elif self.job == "refine":
+                threshold = large_scans.refine_areas(self.pair, v["result"], v["matrix"], v.get("viewpoint"),
+                                                     v.get("threshold"), self.progress.emit, stop)
+                if getattr(v["result"], "moves", None) and not stop():
+                    from displaced import refine_moves
+
+                    self.progress.emit(0.98, "Measuring the moved objects in full detail")
+                    refine_moves(self.pair, v["result"], v["matrix"])
+                self.done.emit(threshold)
+            elif self.job == "sweep":
+                self.done.emit(large_scans.sweep(self.pair, v["matrix"], v.get("viewpoint"), v.get("threshold"),
+                                                 on_progress=self.progress.emit, should_stop=stop))
+            elif self.job == "open":
+                pair = large_scans.open_pair(v["paths"], v["options"], cell=v.get("cell"), section=v.get("section"),
+                                             on_progress=self.progress.emit, should_stop=stop)
+                self.done.emit(pair)
         except Exception as error:  # shown to the user instead of crashing the thread
             self.failed.emit(str(error))
 

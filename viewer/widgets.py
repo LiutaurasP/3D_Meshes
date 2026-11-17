@@ -1,7 +1,7 @@
 """Small building blocks for the side panel, so every section looks the same."""
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QObject, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QButtonGroup,
@@ -23,7 +23,42 @@ SPACING = 8  # base unit, everything is a multiple of it
 LABEL_WIDTH = 104
 
 
-class Card(QFrame):
+class Surface(QFrame):
+    """A panel drawn as a squircle (see viewer/shapes.py): fill, a thin border, smooth corners.
+
+    Style sheets can only round corners with plain circle arcs, so the bigger surfaces of the app
+    paint themselves. Colours and radius default to the theme's card.
+    """
+
+    def __init__(self, fill=None, border=None, radius=None, parent=None):
+        super().__init__(parent)
+        from viewer import style
+
+        self.fill = QColor(fill or style.CARD)
+        self.border = QColor(border or style.CARD_BORDER)
+        self.radius = style.CARD_RADIUS if radius is None else radius
+        self.setAttribute(Qt.WA_StyledBackground, False)
+
+    def set_colors(self, fill=None, border=None):
+        if fill is not None:
+            self.fill = QColor(fill)
+        if border is not None:
+            self.border = QColor(border)
+        self.update()
+
+    def paintEvent(self, event):
+        from viewer.shapes import squircle
+        from viewer.style import SMOOTHING
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(self.border, 1.0) if self.border.alpha() else Qt.NoPen)
+        painter.setBrush(self.fill)
+        painter.drawPath(squircle(rect, self.radius, SMOOTHING))
+
+
+class Card(Surface):
     """Rounded section with a small title. Clicking the title folds the section."""
 
     def __init__(self, title, expanded=True):

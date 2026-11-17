@@ -80,6 +80,9 @@ def build_menus(window):
     examples.addAction(action(window, "Scan Series: Wind Turbine Through a Stormy Year",
                               lambda: window.open_example_series("wind_turbine_storm")))
     export = file_menu.addMenu("Export")
+    export.addAction(
+        action(window, "3D view for browser…", lambda: window.export_browser_view())
+    )
     export.addAction(action(window, "Screenshot…", window.export_screenshot, "Ctrl+Shift+E"))
     export.addAction(action(window, "Change Report (PDF)…", lambda: window.export_report(), "Ctrl+Shift+R"))
     export.addAction(action(window, "Report Details…", lambda: window.edit_report_details()))
@@ -200,7 +203,13 @@ def build_menus(window):
                   [side.change_method.itemText(i) for i in range(side.change_method.count())])
     analyze.addAction(link_checkbox(action(window, "Automatic Threshold"), side.auto_threshold))
     analyze.addSeparator()
+    large = analyze.addMenu("Large Scan")
+    large.addAction(action(window, "Full Detail Here", window.large_detail_here, "Ctrl+Shift+D"))
+    large.addAction(action(window, "Back to Overview", window.large_back_to_overview))
+    large.addAction(action(window, "Search Everything in Full Detail", window.large_sweep))
+    analyze.addSeparator()
     analyze.addAction(action(window, "Height Difference Map", window.show_height_map, "H"))
+    analyze.addAction(action(window, "Unrolled Wall View", window.show_wall_map))
     analyze.addAction(action(window, "Play Change Animation", lambda: window.play_change_animation(), "P"))
     analyze.addAction(action(window, "Cross Section", lambda: window.start_tool("section"), "X"))
     analyze.addAction(action(window, "Measure Distance", lambda: window.start_tool("measure"), "T"))

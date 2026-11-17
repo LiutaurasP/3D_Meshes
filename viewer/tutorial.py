@@ -49,10 +49,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from viewer.style import ACCENT, TEXT, TEXT_DIM, TEXT_FAINT
+from viewer.shapes import squircle
+from viewer.style import (ACCENT, ACCENT_HOVER, ACCENT_TEXT, BACKGROUND, CARD, DIALOG_RADIUS, SMOOTHING, SUCCESS, TEXT, TEXT_DIM,
+                          TEXT_FAINT, WARNING, mix, nested, rgba)
 
-SUCCESS = "#3fb27f"
-WARNING = "#e0a43a"
+
+def tint(colour, alpha):
+    """A theme colour with an alpha (0..255)."""
+    result = QColor(colour)
+    result.setAlpha(int(alpha))
+    return result
+
 MAC = sys.platform == "darwin"
 COMMAND = "⌘" if MAC else "Ctrl"
 TUTORIAL_SCENE = "tutorial_seafloor"
@@ -137,11 +144,11 @@ class KeyChip(QWidget):
 
     def paintEvent(self, event):
         if self.state == "done":
-            fill, border, text = QColor(63, 178, 127, 56), QColor(SUCCESS), QColor("#bdf0d6")
+            fill, border, text = tint(SUCCESS, 56), QColor(SUCCESS), QColor(mix("#ffffff", SUCCESS, 0.7))
         elif self.state == "pressed":
-            fill, border, text = QColor(61, 127, 245, 115), QColor(ACCENT), QColor("#ffffff")
+            fill, border, text = tint(ACCENT, 115), QColor(ACCENT), QColor(ACCENT_TEXT)
         else:
-            fill = QColor(61, 127, 245, int(255 * (0.08 + 0.14 * self._glow)))
+            fill = tint(ACCENT, 255 * (0.08 + 0.14 * self._glow))
             border = QColor(ACCENT)
             border.setAlphaF(0.45 + 0.55 * self._glow)
             text = QColor(TEXT)
@@ -150,12 +157,14 @@ class KeyChip(QWidget):
         outer = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.setPen(Qt.NoPen)
         painter.setBrush(border)  # the thicker lower edge of a key cap
-        painter.drawRoundedRect(outer, 9, 9)
+        radius = 9
+        painter.drawPath(squircle(outer, radius, SMOOTHING))
         face = outer.adjusted(1, 1, -1, -5)
-        painter.setBrush(QColor(14, 19, 33))
-        painter.drawRoundedRect(face, 8, 8)
+        face_shape = squircle(face, nested(radius, 1), SMOOTHING)  # 1 px inside the edge: concentric
+        painter.setBrush(QColor(mix(CARD, BACKGROUND, 0.5)))
+        painter.drawPath(face_shape)
         painter.setBrush(fill)
-        painter.drawRoundedRect(face, 8, 8)
+        painter.drawPath(face_shape)
         painter.setPen(text)
         painter.setFont(self.key_font)
         painter.drawText(face, Qt.AlignCenter, self.label)
@@ -223,9 +232,9 @@ class TutorialCard(QWidget):
         self.leave.setFont(self.fonts["leave"])
         self.leave.setCursor(Qt.PointingHandCursor)
         self.leave.setStyleSheet(
-            f"QPushButton {{ background: none; color: {TEXT_DIM}; border: 1px solid rgba(255, 255, 255, 0.13);"
+            f"QPushButton {{ background: none; color: {TEXT_DIM}; border: 1px solid {rgba(TEXT, 0.13)};"
             f" border-radius: 7px; padding: 0px 10px; }}"
-            f"QPushButton:hover {{ color: {TEXT}; border-color: rgba(255, 255, 255, 0.32); }}")
+            f"QPushButton:hover {{ color: {TEXT}; border-color: {rgba(TEXT, 0.32)}; }}")
         self.leave.clicked.connect(on_leave)
         header.addWidget(self.leave, 0, Qt.AlignVCenter)
         self.header = header
@@ -276,9 +285,21 @@ class TutorialCard(QWidget):
         self.next.setFont(self.fonts["button"])
         self.next.setCursor(Qt.PointingHandCursor)
         self.next.setStyleSheet(
-            f"QPushButton {{ background: {ACCENT}; color: white; border: none; border-radius: 9px; padding: 0px; }}"
-            f"QPushButton:hover {{ background: #5590f7; }}")
+            f"QPushButton {{ background: {ACCENT}; color: {ACCENT_TEXT}; border: none; border-radius: 9px; padding: 0px; }}"
+            f"QPushButton:hover {{ background: {ACCENT_HOVER}; }}")
         self.next.clicked.connect(on_continue)
+        # A second way on, next to the main button (the last card: the advanced tutorial right away)
+        self.second = QPushButton()
+        self.second.setFont(self.fonts["button"])
+        self.second.setCursor(Qt.PointingHandCursor)
+        # A tint of the accent with a bright edge: clearly a way on, next to the solid main button
+        self.second.setStyleSheet(
+            f"QPushButton {{ background: {rgba(ACCENT, 0.24)}; color: {TEXT}; border: 1.5px solid {ACCENT};"
+            f" border-radius: 9px; padding: 0px; }}"
+            f"QPushButton:hover {{ background: {rgba(ACCENT, 0.38)}; border-color: {ACCENT_HOVER}; }}")
+        self.second.hide()
+        self.on_second = None
+        self.second.clicked.connect(lambda: self.on_second and self.on_second())
 
         self.chips = {}
         self.fade = QPropertyAnimation(self, b"windowOpacity", self)
@@ -315,7 +336,7 @@ class TutorialCard(QWidget):
         while self.keys_row.count():
             item = self.keys_row.takeAt(0)
             widget = item.widget()
-            if widget is not None and widget is not self.next:
+            if widget is not None and widget is not self.next and widget is not self.second:
                 widget.hide()
                 widget.deleteLater()
         self.chips = {}
@@ -337,10 +358,17 @@ class TutorialCard(QWidget):
             self.chips[name] = chip
             self.keys_row.addWidget(chip, 0, Qt.AlignVCenter)
         self.keys_row.addStretch()
+        self.keys_row.addWidget(self.second, 0, Qt.AlignVCenter)
+        self.keys_row.addSpacing(8)
         self.keys_row.addWidget(self.next, 0, Qt.AlignVCenter)
 
         button = step.get("button")
         self._set_button(button)
+        second = step.get("second")
+        self.second.setVisible(bool(second))
+        if second:
+            self.second.setText(second)
+            self.second.setFixedSize(QFontMetrics(self.fonts["button"]).horizontalAdvance(second) + 40, 40)
         self.leave.setVisible(step.get("leave", True))
         self.leave.setText(step.get("leave_text", "Leave tutorial    Esc"))
         metrics = QFontMetrics(self.fonts["leave"])
@@ -376,7 +404,8 @@ class TutorialCard(QWidget):
         self.heading.setFixedSize(inner, heading)
         self.body.setFixedSize(inner, text)
 
-        has_row = bool(self.chips) or self.next.isVisibleTo(self) or self.keys_row.count() > 2
+        has_row = (bool(self.chips) or self.next.isVisibleTo(self) or self.second.isVisibleTo(self)
+                   or self.keys_row.count() > 4)
         press = has_row and bool(self.chips) and self._step.get("press_label", False)
         extra = self.PRESS_HEIGHT if press else 0
         self.row.setVisible(has_row)
@@ -542,7 +571,8 @@ class TutorialCard(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(self.rect()).adjusted(6, 6, -6, -6)
-        radius = 18.0
+        radius = DIALOG_RADIUS
+        shape = squircle(rect, radius, SMOOTHING)
 
         # Soft glow around the card
         glow = QColor(self._flash_color if self._flash > 0 else self.border)
@@ -550,34 +580,33 @@ class TutorialCard(QWidget):
             glow.setAlphaF((0.035 + 0.09 * self._flash) * (7 - i) / 6)
             painter.setPen(QPen(glow, i * 1.6))
             painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(rect, radius, radius)
+            painter.drawPath(shape)
 
         gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        gradient.setColorAt(0.0, QColor(22, 30, 52, 242))
-        gradient.setColorAt(1.0, QColor(12, 15, 24, 242))
+        gradient.setColorAt(0.0, tint(mix(TEXT, CARD, 0.04), 242))
+        gradient.setColorAt(1.0, tint(mix(CARD, BACKGROUND, 0.35), 242))
         border = QColor(self._flash_color if self._flash > 0 else self.border)
         border.setAlphaF(0.45 + 0.5 * self._flash)
         painter.setPen(QPen(border, 1.2))
         painter.setBrush(gradient)
-        painter.drawRoundedRect(rect, radius, radius)
+        painter.drawPath(shape)
 
         # Progress of the current task: a brighter fill from the left with a slanted front edge
         if self.task is not None and self._fill > 0.001:
-            clip = QPainterPath()
-            clip.addRoundedRect(rect, radius, radius)
+            clip = shape
             painter.save()
             painter.setClipPath(clip)
             slant = 0.35 * rect.height()  # the front edge leans like a slash
             front = rect.left() + (rect.width() + slant) * self._fill
             finished = self.task >= 1.0 and self._fill > 0.99
-            tint = QColor(63, 178, 127, 38) if finished else QColor(120, 160, 255, 36)
+            fill_tint = tint(SUCCESS, 38) if finished else tint(ACCENT_HOVER, 36)
             fill = QPainterPath()
             fill.moveTo(rect.left(), rect.top())
             fill.lineTo(front, rect.top())
             fill.lineTo(front - slant, rect.bottom())
             fill.lineTo(rect.left(), rect.bottom())
             fill.closeSubpath()
-            painter.fillPath(fill, tint)
+            painter.fillPath(fill, fill_tint)
             edge = QColor(255, 255, 255, 0 if finished else 34)  # a faint bright line on the front edge
             painter.setPen(QPen(edge, 1.5))
             painter.drawLine(QPointF(front, rect.top()), QPointF(front - slant, rect.bottom()))
@@ -585,8 +614,7 @@ class TutorialCard(QWidget):
 
         # Done: a band of light sweeps across the card once
         if self._shine >= 0:
-            clip = QPainterPath()
-            clip.addRoundedRect(rect, radius, radius)
+            clip = shape
             painter.save()
             painter.setClipPath(clip)
             t = 1 - (1 - self._shine) ** 2  # fast start, gentle finish
@@ -607,8 +635,7 @@ class TutorialCard(QWidget):
 
         # Progress of the whole tutorial along the bottom edge
         if self.progress > 0:
-            clip = QPainterPath()
-            clip.addRoundedRect(rect, radius, radius)
+            clip = shape
             painter.setClipPath(clip)
             bar = QRectF(rect.left(), rect.bottom() - 3, rect.width() * self.progress, 3)
             painter.fillRect(bar, QColor(ACCENT))
@@ -732,6 +759,7 @@ class TutorialBase(QObject):
         self.scene = window.scene
         self.active = False
         self.card = TutorialCard(window, self.on_continue, self.ask_leave)
+        self.card.on_second = self.on_second
         self.timer = QTimer(self)
         self.timer.setInterval(40)
         self.timer.timeout.connect(self._tick)
@@ -891,6 +919,11 @@ class TutorialBase(QObject):
         elif self.step in self.CONTINUE or self.step in self.TAB_STEPS:
             self.advance()
 
+    SECOND_KEY = None  # key for the last card's second button
+
+    def on_second(self):
+        """The card's second button (only shown where a step offers one)."""
+
     # Leaving early
 
     def ask_leave(self):
@@ -1020,6 +1053,9 @@ class TutorialBase(QObject):
         if key in ENTER_KEYS:
             self.on_continue()
             return True
+        if key == self.SECOND_KEY and step == self.ORDER[-1] and not command:
+            self.on_second()  # the last card's second button (before the fly keys, A is one of them)
+            return True
         if key == Qt.Key_Shift:
             if "pan" in self.allow or "fly" in self.allow:
                 self.used.add("shift")
@@ -1128,7 +1164,22 @@ class Tutorial(TutorialBase):
             self.window.dock.show()  # they know Space now
         else:
             self.window.dock.setVisible(self.saved["dock"])
-        self.window.open_default_scene()
+        if not getattr(self, "to_advanced", False):  # the advanced tutorial brings its own scene
+            self.window.open_default_scene()
+
+    SECOND_KEY = Qt.Key_A  # A: the advanced tutorial
+
+    def on_second(self):
+        if self.step == "end" and not self.confirming:
+            self.go_advanced()
+
+    def go_advanced(self):
+        """Last card: straight on with the advanced tutorial instead of exploring."""
+        window = self.window
+        self.to_advanced = True
+        self.finish(completed=True)
+        window.history.clear()  # nothing from the tutorial's practice scene is worth saving
+        QTimer.singleShot(250, lambda: window.start_tutorial(advanced=True))
 
     def steps(self):
         aligned = getattr(self, "fit_text", "")
@@ -1222,10 +1273,12 @@ class Tutorial(TutorialBase):
                 button="Continue"),
             "end": dict(
                 big=True, position="center", eyebrow="Tutorial complete", heading="You're ready to dive in.",
-                body=body("Next up: a full-size harbour quay, 60 metres long, with seven changes hidden in it. "
-                          "Everything is unlocked now.",
-                          "You can watch this tutorial again any time from Help → Tutorial. Good hunting!"),
-                button="Let's go", leave=False),
+                body=body("Explore on your own: a full-size harbour quay, 60 metres long, with seven changes "
+                          "hidden in it. Everything is unlocked now.",
+                          "Or go straight on with the advanced tutorial, <b>The Storm Season</b>: one wind "
+                          "turbine foundation scanned four times, six chapters, about 15 minutes.",
+                          "Both tutorials are in the Help menu any time. Good hunting!"),
+                button="Explore on my own", second="Advanced tutorial   A", leave=False),
         }
 
     ORDER = ["welcome", "scan_a", "rotate", "pan", "fly", "reset", "scan_b", "difference", "toggle", "align",

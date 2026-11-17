@@ -27,9 +27,23 @@ all" follows every changed area through time (Areas tab: trend, rate per month,
 chart), Colours > When changed shows in which scan each spot first changed, and
 the PDF report gets a "Change over time" chapter.
 
+Huge scans (100 million points and more, like Subdron's): big files open as an overview,
+one averaged point per few cm, while every point stays on disk (scan_store.py). Detect
+Changes runs on the overview and then measures every changed area again in full detail
+(large_scans.py). The Large scan card cuts the scan into 10 / 20 / 50 m pieces or into its
+parts found automatically (seabed, wall, ships, piles; parts.py); click one for full detail.
+"Search everything in full detail" goes through the whole scan piece by piece. Try it with
+the scene "Quay with ships – Subdron size" (2M up to 100M points per scan, written to LAZ
+files once; Scan settings > Size).
+
+Moved objects (displaced.py): a block or rock that moved is recognised as one object instead
+of a hole plus a bump, with how far and which way it moved and how much it turned. Try
+"Quay toe – displaced blocks".
+
 Command line (no window), for many scans at once:
     python sonar_cli.py compare before.laz after.laz --out results --report --csv --geojson
     python sonar_cli.py series scans_folder --out results
+    python sonar_cli.py compare a.laz b.laz --overview --full-detail --report   # huge scans
 Reads every format the app reads (LAS/LAZ, E57, PLY, PCD, XYZ/CSV, GeoTIFF, ...),
 aligns, detects changes, measures volumes and writes reports, tables and the
 aligned scan. series compares every scan with the first and with the one
