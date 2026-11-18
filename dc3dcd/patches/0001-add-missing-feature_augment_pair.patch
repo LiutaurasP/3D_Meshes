@@ -1,0 +1,54 @@
+diff --git a/torch_points3d/core/data_transform/feature_augment_pair.py b/torch_points3d/core/data_transform/feature_augment_pair.py
+new file mode 100644
+index 0000000..e1ecd57
+--- /dev/null
++++ b/torch_points3d/core/data_transform/feature_augment_pair.py
+@@ -0,0 +1,48 @@
++"""Colour augmentation for a pair of clouds (rgb and rgb_target, values in [0, 1]).
++
++Missing from the upstream repository but imported by datasets/change_detection/pair.py.
++Same idea as ChromaticJitter / ChromaticAutoContrast / ChromaticTranslation in
++feature_augment.py; each call returns the two colour tensors. Only used when colour
++augmentation is switched on, which LiDAR data without colour never does.
++"""
++import random
++
++import torch
++
++
++class ChromaticJitter:
++    def __init__(self, std=0.01):
++        self.std = std
++
++    def __call__(self, rgb, rgb_target):
++        def jitter(c):
++            return torch.clamp(c + torch.randn(c.shape[0], 3) * self.std, 0, 1)
++
++        return jitter(rgb), jitter(rgb_target)
++
++
++class ChromaticAutoContrast:
++    def __init__(self, randomize_blend_factor=True, blend_factor=0.5):
++        self.randomize_blend_factor = randomize_blend_factor
++        self.blend_factor = blend_factor
++
++    def __call__(self, rgb, rgb_target):
++        blend = random.random() if self.randomize_blend_factor else self.blend_factor
++
++        def contrast(c):
++            lo = c.min(0, keepdim=True)[0]
++            hi = c.max(0, keepdim=True)[0]
++            scaled = (c - lo) / torch.clamp(hi - lo, min=1e-6)
++            return (1 - blend) * c + blend * scaled
++
++        return contrast(rgb), contrast(rgb_target)
++
++
++class ChromaticTranslation:
++    def __init__(self, trans_range_ratio=1e-1):
++        self.trans_range_ratio = trans_range_ratio
++
++    def __call__(self, rgb, rgb_target):
++        # the same colour shift for both epochs
++        tr = (torch.rand(1, 3) - 0.5) * 2 * self.trans_range_ratio
++        return torch.clamp(rgb + tr, 0, 1), torch.clamp(rgb_target + tr, 0, 1)

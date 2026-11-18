@@ -1,0 +1,26 @@
+diff --git a/torch_points3d/metrics/Urb3DCD_deepCluster_dualTask_tracker.py b/torch_points3d/metrics/Urb3DCD_deepCluster_dualTask_tracker.py
+index 6b198c5..fdb25da 100644
+--- a/torch_points3d/metrics/Urb3DCD_deepCluster_dualTask_tracker.py
++++ b/torch_points3d/metrics/Urb3DCD_deepCluster_dualTask_tracker.py
+@@ -13,7 +13,7 @@ from matplotlib import cm
+ from plyfile import PlyData, PlyElement
+ import torch
+ from torch_geometric.nn.unpool import knn_interpolate
+-from torch_points3d.metrics.Urb3DCD_tracker import Urb3DCDTracker
++from torch_points3d.metrics.urb3DCD_tracker import Urb3DCDTracker
+ from torch_points3d.datasets.change_detection import IGNORE_LABEL
+ from torch_points3d.metrics.Urb3DCD_deepCluster_tracker import MplColorHelper, Metric, adjusted_rand_score_manual, \
+     to_ply
+diff --git a/torch_points3d/metrics/Urb3DCD_deepCluster_tracker.py b/torch_points3d/metrics/Urb3DCD_deepCluster_tracker.py
+index b7af690..cd0197a 100644
+--- a/torch_points3d/metrics/Urb3DCD_deepCluster_tracker.py
++++ b/torch_points3d/metrics/Urb3DCD_deepCluster_tracker.py
+@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
+ from matplotlib import cm
+ from plyfile import PlyData, PlyElement
+ 
+-from torch_points3d.metrics.Urb3DCD_tracker import Urb3DCDTracker
++from torch_points3d.metrics.urb3DCD_tracker import Urb3DCDTracker
+ from torch_points3d.datasets.change_detection import IGNORE_LABEL
+ 
+ 

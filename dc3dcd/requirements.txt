@@ -1,0 +1,35 @@
+# On top of the base image (torch 1.8.1, torchvision 0.9.1, Python 3.8) and the graph
+# libraries in the Dockerfile. Versions follow the authors' requirements.txt.
+numpy==1.19.5
+scipy==1.6.1
+scikit-learn==1.0
+scikit-image==0.16.2
+pandas==1.1.5
+numba==0.50.1
+h5py==3.4.0
+matplotlib==3.4.3
+plyfile==0.7.4
+laspy==2.0.3
+# open3d==0.12.0 is installed in the Dockerfile with --no-deps (its unpinned notebook deps no longer resolve)
+hydra-core==1.0.7
+omegaconf==2.0.6
+tqdm==4.62.3
+wandb==0.8.36
+tensorboard==2.6.0
+torchnet==0.0.4
+gdown==3.13.1
+pytorch-metric-learning==0.9.99
+networkx==2.6.3
+python-louvain==0.15
+# Not in the authors' requirements.txt but imported on the DC3DCD path:
+faiss-gpu==1.7.2  # k-means on the GPU (torch_points3d/clustering_dc.py)
+seaborn==0.11.2  # confusion matrix plot (torch_points3d/metrics/confusion_matrix.py)
+# Pinned because their newest versions no longer work with this 2021 stack:
+markupsafe==2.0.1  # jinja2 2.11 in the base image needs soft_unicode (removed in 2.1)
+werkzeug==2.0.3  # newest needs markupsafe>=2.1.1
+protobuf==3.20.3  # tensorboard 2.6 protos fail on protobuf 4+
+googledrivedownloader==0.4  # imported by torch_geometric 1.7.2 datasets, not in its install list
+ipywidgets==7.6.5  # open3d 0.12 imports it at start-up (open3d itself: see the Dockerfile)
+notebook==6.4.12  # keeps ipywidgets' notebook dependency on Python 3.8
+jupyter-client==7.4.9
+pyzmq==24.0.1

@@ -6,3 +6,4 @@ __pycache__/
 packaging/icons/
 .DS_Store
 benchmark_results.csv
+dc3dcd/work/

@@ -105,3 +105,14 @@ It writes a table to the terminal and benchmark_results.csv. The app shows the
 same numbers ("Compared to the true change") after Detect changes.
 
 Tests: python -m pytest tests (needs: pip install pytest)
+
+Change types with DC3DCD (dc3dcd/, work in progress, not part of the app yet):
+The methods above say that something changed and by how much, not what kind of change it is
+(scour, debris, sediment, a moved block). DC3DCD (de Gélis et al. 2023) learns that without
+hand labels: a Siamese KPConv network groups the changed points into clusters by itself, a
+person names the clusters once, and new scan pairs then get those names automatically. The
+authors' code runs in its own Docker image (PyTorch 1.8, CUDA 11.1, needs an NVIDIA GPU),
+apart from the app and its .venv; the two only share the folders dc3dcd/work/data and
+dc3dcd/work/runs. Real training needs a bigger GPU than a laptop's, e.g. a university cluster.
+Setup, what gets downloaded (about 10 GB), the Urb3DCD dataset from their paper and the plan:
+see dc3dcd/README.md.

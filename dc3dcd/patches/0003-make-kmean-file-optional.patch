@@ -1,0 +1,18 @@
+diff --git a/torch_points3d/datasets/change_detection/Urb3DCD_deepCluster.py b/torch_points3d/datasets/change_detection/Urb3DCD_deepCluster.py
+index c645cc3..0930ffc 100644
+--- a/torch_points3d/datasets/change_detection/Urb3DCD_deepCluster.py
++++ b/torch_points3d/datasets/change_detection/Urb3DCD_deepCluster.py
+@@ -70,7 +70,12 @@ class Urb3DCDPairCylinder_DC(Urb3DSimulCylinder):
+         if not self.reload_preproc or not exist_file:
+             for idx in range(len(self.filesPC0)):
+                 pc0, pc1, label = self.clouds_loader(idx, nameInPly=self.nameInPly)
+-                kmean_plab = self.clouds_loader_kmean(idx)
++                # The k-means file comes from HandCrafedFeaturesExtraction and is only read back as
++                # pseudo-labels when deepclustering.pre_train_kmean > 0, so it may be missing.
++                if osp.isfile(self.filesPC1[idx][:-4] + "Kmean.ply"):
++                    kmean_plab = self.clouds_loader_kmean(idx)
++                else:
++                    kmean_plab = torch.zeros(label.shape[0], dtype=torch.long)
+                 pc0 = Data(pos=pc0)
+                 pc1 = Data(pos=pc1, y=label, x = kmean_plab)
+                 if comp_normal:

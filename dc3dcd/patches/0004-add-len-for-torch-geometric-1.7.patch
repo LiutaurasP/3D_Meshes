@@ -1,0 +1,30 @@
+diff --git a/torch_points3d/datasets/change_detection/AHNPairCylinder.py b/torch_points3d/datasets/change_detection/AHNPairCylinder.py
+index ca24dfc..60fc8a4 100644
+--- a/torch_points3d/datasets/change_detection/AHNPairCylinder.py
++++ b/torch_points3d/datasets/change_detection/AHNPairCylinder.py
+@@ -267,6 +267,10 @@ class AHNSphere(AHN):
+         else:
+             return self.grid_regular_centers.shape[0]
+ 
++    def len(self):
++        # torch_geometric 1.7 counts with len() (e.g. for dataset.num_features), not __len__
++        return self.__len__()
++
+     def get(self, idx):
+         if self._sample_per_epoch > 0:
+             if self.fix_cyl:
+diff --git a/torch_points3d/datasets/change_detection/Urb3DSimulPairCylinder.py b/torch_points3d/datasets/change_detection/Urb3DSimulPairCylinder.py
+index 77fd46a..c8002ce 100644
+--- a/torch_points3d/datasets/change_detection/Urb3DSimulPairCylinder.py
++++ b/torch_points3d/datasets/change_detection/Urb3DSimulPairCylinder.py
+@@ -268,6 +268,10 @@ class Urb3DSimulSphere(Urb3DSimul):
+         else:
+             return self.grid_regular_centers.shape[0]
+ 
++    def len(self):
++        # torch_geometric 1.7 counts with len() (e.g. for dataset.num_features), not __len__
++        return self.__len__()
++
+     def get(self, idx, dc = False):
+         if self._sample_per_epoch > 0:
+             if self.fix_cyl:

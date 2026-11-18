@@ -1,0 +1,52 @@
+diff --git a/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc.py b/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc.py
+index e4c50ec..60165fc 100644
+--- a/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc.py
++++ b/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc.py
+@@ -2,7 +2,7 @@ from typing import Any
+ import logging
+ from omegaconf.dictconfig import DictConfig
+ from omegaconf.listconfig import ListConfig
+-from torch.nn import Sequential, Dropout, Linear
++from torch.nn import Sequential, Dropout, Linear, LeakyReLU
+ import torch.nn.functional as F
+ from torch import nn
+ from plyfile import PlyData, PlyElement
+diff --git a/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc_dualT.py b/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc_dualT.py
+index 2602339..5fa954a 100644
+--- a/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc_dualT.py
++++ b/torch_points3d/models/change_detection/siamencfusionskipkpconv_dc_dualT.py
+@@ -2,7 +2,7 @@ from typing import Any
+ import logging
+ from omegaconf.dictconfig import DictConfig
+ from omegaconf.listconfig import ListConfig
+-from torch.nn import Sequential, Dropout, Linear
++from torch.nn import Sequential, Dropout, Linear, LeakyReLU
+ import torch.nn.functional as F
+ from torch import nn
+ from plyfile import PlyData, PlyElement
+diff --git a/torch_points3d/models/change_detection/siamesekpconv_dc.py b/torch_points3d/models/change_detection/siamesekpconv_dc.py
+index 8ceeb91..10b2952 100644
+--- a/torch_points3d/models/change_detection/siamesekpconv_dc.py
++++ b/torch_points3d/models/change_detection/siamesekpconv_dc.py
+@@ -2,7 +2,7 @@ from typing import Any
+ import logging
+ from omegaconf.dictconfig import DictConfig
+ from omegaconf.listconfig import ListConfig
+-from torch.nn import Sequential, Dropout, Linear
++from torch.nn import Sequential, Dropout, Linear, LeakyReLU
+ import torch.nn.functional as F
+ from torch import nn
+ from plyfile import PlyData, PlyElement
+diff --git a/torch_points3d/models/change_detection/siamesekpconv_dc_dualT.py b/torch_points3d/models/change_detection/siamesekpconv_dc_dualT.py
+index 51e92f5..1ddfecd 100644
+--- a/torch_points3d/models/change_detection/siamesekpconv_dc_dualT.py
++++ b/torch_points3d/models/change_detection/siamesekpconv_dc_dualT.py
+@@ -2,7 +2,7 @@ from typing import Any
+ import logging
+ from omegaconf.dictconfig import DictConfig
+ from omegaconf.listconfig import ListConfig
+-from torch.nn import Sequential, Dropout, Linear
++from torch.nn import Sequential, Dropout, Linear, LeakyReLU
+ import torch.nn.functional as F
+ from torch import nn
+ from plyfile import PlyData, PlyElement
