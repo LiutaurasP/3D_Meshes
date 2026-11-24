@@ -255,3 +255,48 @@ def test_hull_growth_and_dent_follow_the_surface_normal():
     moved = np.median(points_b[close(points_b), 1]) - np.median(points_a[close(points_a), 1])
     assert 0.05 < moved * normal[0, 1] < 0.11
     assert mask_b[close(points_b)].all()
+
+
+def test_partial_overlap_is_not_a_structural_change():
+    from large_scans import to_cloud
+
+    x, z = np.meshgrid(np.arange(61) * 0.05, np.arange(41) * 0.05)
+    a = np.column_stack([x.ravel(), np.zeros(x.size), z.ravel()])
+    b = a.copy()
+    b[:, 0] += 1.0
+    result = detect_changes(to_cloud(a), to_cloud(b), threshold=0.05)
+
+    assert result.not_covered_a[a[:, 0] < 0.7].all()
+    assert result.not_covered_b[b[:, 0] > 3.3].all()
+    assert not result.not_covered_a[a[:, 0] >= 1.0].any()
+    assert not result.not_covered_b[b[:, 0] <= 3.0].any()
+    assert result.n_changed == 0
+    assert result.areas == []
+
+
+def test_coverage_keeps_large_normal_displacement():
+    from scipy.spatial import cKDTree
+    from change_detection import signed_surface_distance
+
+    target = np.array([[0., 0., 0.]])
+    normals = np.array([[0., 1., 0.]])
+    query = np.array([[1., 0., 0.], [0., 1., 0.]])
+    distances, uncovered = signed_surface_distance(
+        query, target, normals, cKDTree(target), 0.05, return_coverage=True)
+    assert uncovered.tolist() == [True, False]
+    assert distances[1] == pytest.approx(1.0)
+
+
+def test_coverage_keeps_interior_gaps():
+    from scipy.spatial import cKDTree
+    from change_detection import signed_surface_distance
+
+    # Two observed patches surround an interior gap. A missing surface here
+    # might be a removed part, not the edge of the survey.
+    target = np.array([[-1., 0., 0.], [1., 0., 0.]])
+    normals = np.array([[0., 1., 0.], [0., 1., 0.]])
+    query = np.array([[0., 0., 0.], [2., 0., 0.]])
+    distances, uncovered = signed_surface_distance(
+        query, target, normals, cKDTree(target), 0.05, return_coverage=True)
+    assert uncovered.tolist() == [False, True]
+    assert abs(distances[0]) == pytest.approx(1.0)
