@@ -49,8 +49,9 @@ class ChangeWorker(QThread):
     done = Signal(object)  # ChangeResult
 
     def __init__(self, cloud_a, aligned_b, threshold, min_area_points, overview=False, find_moves=True,
-                 detail=False):
+                 detail=False, from_below=False):
         super().__init__()
+        self.from_below = from_below  # a hull scanned from below: normals point out of the hull
         self.detail = detail  # every point of a huge scan: the smallest area is set from the density
         self.cloud_a = cloud_a
         self.aligned_b = aligned_b
@@ -75,13 +76,20 @@ class ChangeWorker(QThread):
 
             spacing = estimate_spacing(np.asarray(self.cloud_a.points))
             min_points = int(max(min_points, MIN_AREA_M2 / max(spacing, 1e-4) ** 2))
-        result = detect_changes(self.cloud_a, self.aligned_b, threshold=threshold, min_area_points=min_points)
-        measure_areas(result, self.cloud_a.points, self.aligned_b.points)  # volumes and confidence
+        viewpoint = None  # the default: in front of and above the scene
+        if self.from_below:
+            from change_detection import default_viewpoint
+
+            viewpoint = default_viewpoint(np.asarray(self.cloud_a.points), from_below=True)
+        result = detect_changes(self.cloud_a, self.aligned_b, threshold=threshold, min_area_points=min_points,
+                                viewpoint=viewpoint)
+        measure_areas(result, self.cloud_a.points, self.aligned_b.points, viewpoint)  # volumes and confidence
         if self.find_moves:
             try:
                 from displaced import find_moves
 
-                result.moves = find_moves(result, np.asarray(self.cloud_a.points), np.asarray(self.aligned_b.points))
+                result.moves = find_moves(result, np.asarray(self.cloud_a.points), np.asarray(self.aligned_b.points),
+                                          viewpoint)
             except ImportError:
                 result.moves = []
         self.done.emit(result)

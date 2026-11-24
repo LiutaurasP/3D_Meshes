@@ -153,7 +153,10 @@ def build_menus(window):
     link_combobox(colours, window, side.color_mode, COLOR_MODES)
     camera = view.addMenu("Camera")
     for preset in CAMERA_PRESETS:
-        camera.addAction(action(window, f"{preset} View", lambda _=False, p=preset: window.scene.look_from(p)))
+        entry = action(window, f"{preset} View", lambda _=False, p=preset: window.scene.look_from(p))
+        camera.addAction(entry)
+        if preset == "Top":
+            window.top_view_action = entry  # called Bottom View for a hull scanned from below
     view.addAction(action(window, "Reset View", lambda: window.scene.look_from("Iso"), "R"))
     window.views_menu = view.addMenu("Saved Views")
     window.update_views_menu()

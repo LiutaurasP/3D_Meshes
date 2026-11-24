@@ -26,6 +26,7 @@ class Scene:
     scanner = (0.0, 0.0, 0.0)  # position of the sonar (on the boat or underwater drone)
     track_axis = 0  # direction the boat sails in (0 = x, 1 = y)
     icp_method = "point-to-point"  # alignment method that works best for this scene
+    scanned_from_below = False  # True for a hull scanned by a drone under it: out is down and sideways, not up
 
     def build_world(self, rng):
         """Create everything that is the same in both scans."""

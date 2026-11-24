@@ -34,6 +34,7 @@ class Inspections:
     notes: list = field(default_factory=list)  # things the user should know about the import
     large: object = None  # large_scans.LargePair when the scans stay on disk (overview + full detail)
     truth_changes: list = field(default_factory=list)  # true changes as boxes (examples written to disk)
+    from_below: bool = False  # a hull scanned from below: out is down and sideways, the camera starts under it
 
 
 def misalign(cloud, rotation_deg, translation):
@@ -80,6 +81,7 @@ def build_inspections(data_settings, on_progress=None, should_stop=None):
         change=pair.change,
         clouds={"Scan A": pair.a, "Scan B": moved_b},
         truth={"Scan A": pair.changed_a, "Scan B": pair.changed_b},
+        from_below=pair.from_below,
     )
 
 

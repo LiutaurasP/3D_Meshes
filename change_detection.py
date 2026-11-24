@@ -108,6 +108,10 @@ def surface_normals(points, spacing, viewpoint):
     """Normals of the surface at every point, pointing towards the viewpoint side."""
     cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
     cloud.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=6 * spacing, max_nn=20))
+    if callable(viewpoint):  # a different viewpoint for every point (see keel_line_viewpoint)
+        normals = np.asarray(cloud.normals)
+        away = np.einsum("ij,ij->i", normals, viewpoint(points) - points) < 0
+        return np.where(away[:, None], -normals, normals)
     cloud.orient_normals_towards_camera_location(viewpoint)
     return np.asarray(cloud.normals)
 
@@ -147,16 +151,48 @@ def auto_threshold(distances, factor=3.5, minimum=0.02):
     return float(max(factor * sigma, minimum))
 
 
-def default_viewpoint(points):
+def default_viewpoint(points, from_below=False):
     """A point in front of and above the scene, used to orient normals.
 
     In the example scenes the water side is +y and up is +z, so normals of
     walls point to the water and normals of the seabed point up.
+
+    from_below: for a ship's hull scanned by a drone under it (scenes with
+    scanned_from_below). No single point sees all of a hull from outside, so
+    this gives a function instead, see keel_line_viewpoint.
     """
+    if from_below:
+        return keel_line_viewpoint(points)
     low, high = points.min(axis=0), points.max(axis=0)
     center = (low + high) / 2
     reach = np.linalg.norm(high - low)
     return center + np.array([0.0, 1.0, 1.0]) * reach
+
+
+def keel_line_viewpoint(points):
+    """Viewpoints for a hull scanned from below: a function that gives, for any position,
+    a viewpoint straight out from the keel line.
+
+    The keel line is the long axis inside the hull: along the longest horizontal side of
+    the scan, in the middle of its width, at half its depth. It stops half a width short
+    of both ends, so at the bow and stern "out" fans around the end. Outward is then
+    down under the bottom and sideways on the sides, also where the sides are vertical
+    (where one point above or below the ship would be on the wrong side of the plating).
+    """
+    low, high = points.min(axis=0), points.max(axis=0)
+    center = (low + high) / 2
+    long_axis = int(np.argmax((high - low)[:2]))
+    half = max((high - low)[long_axis] / 2 - (high - low)[1 - long_axis] / 2, 0.0)
+    reach = np.linalg.norm(high - low)
+
+    def viewpoint(position):
+        position = np.asarray(position, dtype=float)
+        on_line = np.broadcast_to(center, position.shape).copy()
+        on_line[..., long_axis] = np.clip(position[..., long_axis], center[long_axis] - half, center[long_axis] + half)
+        out = position - on_line
+        return position + out / np.maximum(np.linalg.norm(out, axis=-1, keepdims=True), 1e-9) * reach
+
+    return viewpoint
 
 
 def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoint=None):
@@ -165,7 +201,10 @@ def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoi
     b = np.asarray(cloud_b.points)
     tree_a, tree_b = cKDTree(a), cKDTree(b)
     spacing = max(estimate_spacing(a, tree=tree_a), estimate_spacing(b, tree=tree_b))
-    viewpoint = default_viewpoint(a) if viewpoint is None else np.asarray(viewpoint)
+    if viewpoint is None:
+        viewpoint = default_viewpoint(a)
+    elif not callable(viewpoint):
+        viewpoint = np.asarray(viewpoint)
 
     normals_a = surface_normals(a, spacing, viewpoint)
     normals_b = surface_normals(b, spacing, viewpoint)
