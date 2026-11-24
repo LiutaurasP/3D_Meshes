@@ -84,6 +84,14 @@ class ChangeResult:
     areas: list = field(default_factory=list)
     noise: float = None  # noise of the unchanged surface (metres, 1 sigma), see volumes.py
     lod: float = None  # level of detection (95 %), see volumes.py
+    not_covered_a: np.ndarray = None  # points of A without comparable coverage in B
+    not_covered_b: np.ndarray = None  # points of B without comparable coverage in A
+
+    def __post_init__(self):
+        if self.not_covered_a is None:
+            self.not_covered_a = np.zeros_like(self.changed_a, dtype=bool)
+        if self.not_covered_b is None:
+            self.not_covered_b = np.zeros_like(self.changed_b, dtype=bool)
 
     @property
     def n_changed(self):
@@ -116,7 +124,7 @@ def surface_normals(points, spacing, viewpoint):
     return np.asarray(cloud.normals)
 
 
-def signed_surface_distance(query, target, target_normals, tree, spacing):
+def signed_surface_distance(query, target, target_normals, tree, spacing, return_coverage=False):
     """Distance from each query point to the target surface, measured along the target normals."""
     nearest, index = tree.query(query, workers=-1)  # all CPU cores
     offset = query - target[index]
@@ -125,7 +133,21 @@ def signed_surface_distance(query, target, target_normals, tree, spacing):
     # No target surface nearby: use the plain distance (sign from the normal side)
     far = nearest > 4 * spacing
     sign = np.where(along_normal >= 0, 1.0, -1.0)
-    return np.where(far, sign * nearest, along_normal)
+    distance = np.where(far, sign * nearest, along_normal)
+
+    # A tangential gap alone is not enough: new objects and broken parts can
+    # also have no nearby surface, even inside the surveyed region. Only
+    # mark a gap as uncovered if its tangential projection also extends
+    # beyond the target scan's spatial bounds. Interior gaps stay comparable.
+    lateral = np.sqrt(np.maximum(nearest ** 2 - along_normal ** 2, 0.0))
+    candidates = far & (lateral > 4 * spacing) & (lateral > 2 * np.abs(along_normal))
+    not_covered = np.zeros(len(query), dtype=bool)
+    if candidates.any():
+        projected = query[candidates] - along_normal[candidates, None] * target_normals[index[candidates]]
+        low, high = target.min(axis=0), target.max(axis=0)
+        outside = np.maximum(np.maximum(low - projected, projected - high), 0.0)
+        not_covered[candidates] = np.linalg.norm(outside, axis=1) > 4 * spacing
+    return (distance, not_covered) if return_coverage else distance
 
 
 def auto_threshold(distances, factor=3.5, minimum=0.02):
@@ -138,6 +160,8 @@ def auto_threshold(distances, factor=3.5, minimum=0.02):
     The threshold is factor x the remaining noise.
     """
     values = np.asarray(distances)
+    if not len(values):
+        return float(minimum)
     if len(values) > 200_000:  # a random sample is plenty to estimate the noise
         values = np.random.default_rng(0).choice(values, 200_000, replace=False)
     sigma = 0.0
@@ -210,15 +234,16 @@ def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoi
     normals_b = surface_normals(b, spacing, viewpoint)
 
     # B against A's surface: + means B sticks out in front of A (added)
-    distance_b = signed_surface_distance(b, a, normals_a, tree_a, spacing)
+    distance_b, not_covered_b = signed_surface_distance(b, a, normals_a, tree_a, spacing, return_coverage=True)
     # A against B's surface: A in front of B means that material is gone, so flip the sign
-    distance_a = -signed_surface_distance(a, b, normals_b, tree_b, spacing)
+    distance_a, not_covered_a = signed_surface_distance(a, b, normals_b, tree_b, spacing, return_coverage=True)
+    distance_a = -distance_a
 
     if threshold is None:
-        threshold = auto_threshold(np.concatenate([distance_a, distance_b]))
+        threshold = auto_threshold(np.concatenate([distance_a[~not_covered_a], distance_b[~not_covered_b]]))
 
-    changed_a = np.abs(distance_a) > threshold
-    changed_b = np.abs(distance_b) > threshold
+    changed_a = (np.abs(distance_a) > threshold) & ~not_covered_a
+    changed_b = (np.abs(distance_b) > threshold) & ~not_covered_b
 
     areas = group_into_areas(a, b, changed_a, changed_b, distance_a, distance_b, spacing, min_area_points)
 
@@ -229,7 +254,8 @@ def detect_changes(cloud_a, cloud_b, threshold=None, min_area_points=15, viewpoi
         changed_a[area.index_a] = True
         changed_b[area.index_b] = True
 
-    return ChangeResult(distance_a, distance_b, changed_a, changed_b, threshold, spacing, areas)
+    return ChangeResult(distance_a, distance_b, changed_a, changed_b, threshold, spacing, areas,
+                        not_covered_a=not_covered_a, not_covered_b=not_covered_b)
 
 
 def group_into_areas(a, b, changed_a, changed_b, distance_a, distance_b, spacing, min_points):

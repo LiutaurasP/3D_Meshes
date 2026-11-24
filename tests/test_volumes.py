@@ -89,3 +89,39 @@ def test_height_difference_map_sees_the_box():
     assert np.nanmax(grid) > 0.8
     assert abs(np.nanmedian(grid)) < 0.05
     assert extent[0] < -9.5 and extent[1] > 9.5
+
+
+def test_uncovered_points_excluded_from_noise_and_volume(monkeypatch):
+    from change_detection import ChangeArea, ChangeResult
+    import volumes
+
+    points = np.column_stack([np.arange(6, dtype=float), np.zeros(6), np.zeros(6)])
+    distances = np.array([-.01, .01, -.01, .01, 10., 20.])
+    uncovered = np.array([False, False, False, False, True, True])
+    changed = np.array([True, False, False, False, False, False])
+    area = ChangeArea(np.array([0]), np.array([0]), np.zeros(3), np.ones(3), .1, 2)
+    result = ChangeResult(distances, distances, changed, changed, .05, .05, [area],
+                          not_covered_a=uncovered, not_covered_b=uncovered)
+    observed = []
+
+    def measure(area, a, b, spacing, lod, viewpoint):
+        observed.append((a.points.copy(), b.points.copy()))
+        return None
+
+    monkeypatch.setattr(volumes, "measure_area", measure)
+    measure_areas(result, points, points)
+    expected = noise_level(np.tile(distances[~uncovered & ~changed], 2))
+    assert result.noise == expected
+    assert len(observed) == 1
+    assert np.array_equal(observed[0][0], points[~uncovered])
+    assert np.array_equal(observed[0][1], points[~uncovered])
+
+
+def test_no_comparable_unchanged_surface_has_no_noise_estimate():
+    from change_detection import ChangeResult
+
+    points = np.zeros((3, 3))
+    result = ChangeResult(np.ones(3), np.ones(3), np.zeros(3, bool), np.zeros(3, bool), .05, .05,
+                          not_covered_a=np.ones(3, bool), not_covered_b=np.ones(3, bool))
+    measure_areas(result, points, points)
+    assert result.noise is None and result.lod is None

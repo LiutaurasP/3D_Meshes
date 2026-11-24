@@ -63,3 +63,20 @@ def test_every_comparison_of_a_series_keeps_its_changes_and_tags(tmp_path):
     kept = found[(1, 2)].areas[0]
     assert (kept.tag, kept.status, kept.comment) == ("Scour", "Checked", "diver in May")
     assert kept.index_a.tolist() == [1, 2] and len(points) == 3
+
+
+def test_coverage_masks_survive_saving_and_loading():
+    from change_detection import ChangeResult
+
+    mask_a = np.array([True, False, False])
+    mask_b = np.array([False, True, False])
+    result = ChangeResult(np.zeros(3), np.zeros(3), np.zeros(3, bool), np.zeros(3, bool), .1, .05,
+                          not_covered_a=mask_a, not_covered_b=mask_b)
+    summary, arrays = project.changes_to_files(result)
+    restored = project.changes_from_files(summary, arrays)
+    assert np.array_equal(restored.not_covered_a, mask_a)
+    assert np.array_equal(restored.not_covered_b, mask_b)
+    # Older saved projects do not have coverage arrays.
+    del arrays["not_covered_a"], arrays["not_covered_b"]
+    restored = project.changes_from_files(summary, arrays)
+    assert not restored.not_covered_a.any() and not restored.not_covered_b.any()

@@ -58,6 +58,8 @@ def changes_to_files(result):
         "distance_b": result.distance_b.astype(np.float32),
         "changed_a": result.changed_a,
         "changed_b": result.changed_b,
+        "not_covered_a": result.not_covered_a,
+        "not_covered_b": result.not_covered_b,
     }
     areas = []
     for i, area in enumerate(result.areas):
@@ -92,6 +94,7 @@ def changes_from_files(summary, arrays):
         arrays["distance_a"].astype(float), arrays["distance_b"].astype(float),
         arrays["changed_a"].astype(bool), arrays["changed_b"].astype(bool),
         summary["threshold"], summary["spacing"], areas, summary.get("noise"), summary.get("lod"),
+        not_covered_a=arrays.get("not_covered_a"), not_covered_b=arrays.get("not_covered_b"),
     )
     from displaced import Move
 

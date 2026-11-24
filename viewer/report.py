@@ -66,6 +66,8 @@ def collect(window):
             "areas": len(result.areas),
             "changed": int(result.n_changed),
             "share": float(result.share_changed),
+            "not_covered": {a: float(result.not_covered_a.sum()) / max(len(result.not_covered_a), 1),
+                            b: float(result.not_covered_b.sum()) / max(len(result.not_covered_b), 1)},
             "lod": result.lod,
             "added": sum(a.volume_added or 0 for a in result.areas if a.tag != "False alarm"),
             "removed": sum(a.volume_removed or 0 for a in result.areas if a.tag != "False alarm"),
@@ -482,6 +484,9 @@ def write_pdf(path, info, overview, close_ups, height_map=None, series_charts=No
         rows.append(("Threshold", f"{detection['threshold'] * 100:.1f} cm" + (" (automatic)" if detection["auto"] else "")))
         rows.append(("Result", f"{detection['areas']} changed area{'s' if detection['areas'] != 1 else ''}, "
                                f"{detection['changed']:,} changed points ({detection['share']:.1%})"))
+        if "not_covered" in detection:
+            coverage = "; ".join(f"{share:.1%} of {name}" for name, share in detection["not_covered"].items())
+            rows.append(("Not covered", coverage + " (excluded from changes and volume measurements)"))
         if detection.get("lod") is not None:
             from volumes import format_volume
 

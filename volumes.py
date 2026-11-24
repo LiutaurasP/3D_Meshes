@@ -165,11 +165,20 @@ def measure_areas(result, points_a, points_b, viewpoint=None, max_areas=500):
     a = np.asarray(points_a)
     b = np.asarray(points_b)
     viewpoint = default_viewpoint(a) if viewpoint is None else viewpoint
-    sigma = noise_level(np.concatenate([result.distance_a[~result.changed_a], result.distance_b[~result.changed_b]]))
+    # Only observed, unchanged surfaces can tell us about measurement noise.
+    covered_a = ~result.not_covered_a
+    covered_b = ~result.not_covered_b
+    distances = np.concatenate([result.distance_a[covered_a & ~result.changed_a],
+                                result.distance_b[covered_b & ~result.changed_b]])
+    if not len(distances):
+        # No stable comparable surface: do not claim a noise level or volume confidence.
+        result.noise = result.lod = None
+        return result
+    sigma = noise_level(distances)
     lod = level_of_detection(sigma)
     result.noise = sigma
     result.lod = lod
-    sorted_a, sorted_b = SortedPoints(a), SortedPoints(b)
+    sorted_a, sorted_b = SortedPoints(a[covered_a]), SortedPoints(b[covered_b])
     for index, area in enumerate(result.areas):
         area.confidence = confidence(area.peak, lod)
         area.lod = lod

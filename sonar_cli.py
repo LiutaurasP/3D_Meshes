@@ -115,9 +115,10 @@ def compare(series, older, newer, args, log=print):
     seconds = time.time() - start
     added = sum(x.volume_added or 0 for x in result.areas)
     removed = sum(x.volume_removed or 0 for x in result.areas)
+    lod_text = f"{result.lod * 100:.1f} cm" if result.lod is not None else "unavailable"
     log(f"  {inspections.title}: aligned in {len(steps) - 1} rounds (RMSE {steps[-1].inlier_rmse * 100:.1f} cm), "
         f"{len(result.areas)} changed areas, +{added:.2f} m³ / -{removed:.2f} m³, "
-        f"level of detection {result.lod * 100:.1f} cm ({seconds:.1f} s)")
+        f"level of detection {lod_text} ({seconds:.1f} s)")
     for move in result.moves:
         log(f"    area {move.removed + 1}: {describe(move)} ({move.confidence})")
     return SimpleNamespace(inspections=inspections, steps=steps, matrix=matrix, aligned=aligned, result=result,
@@ -277,7 +278,7 @@ def main(argv=None):
             print(f"    wrote {path}")
         rows.append({"older": series.names[older], "newer": series.names[newer], "areas": len(run.result.areas),
                      "added_m3": round(run.added, 3), "removed_m3": round(run.removed, 3),
-                     "level_of_detection_m": round(run.result.lod, 4),
+                     "level_of_detection_m": round(run.result.lod, 4) if run.result.lod is not None else None,
                      "alignment_rmse_m": round(run.steps[-1].inlier_rmse, 4)})
     if args.command == "series":
         path = folder / "series_summary.csv"
