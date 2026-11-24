@@ -1099,18 +1099,38 @@ class SceneView:
         self._update_legend()
         self.plotter.render()
 
+
     def _update_legend(self):
         if self.legend_actor is not None:
             self.plotter.remove_legend(render=False)
             self.legend_actor = None
+
         entries = list(getattr(self, "legend_entries", None) or [])
-        if self.series_view is None and any(mask.any() for mask in self.masks["not_covered"].values()):
+
+        has_uncovered = self.series_view is None and any(
+            mask.any() for mask in self.masks["not_covered"].values()
+        )
+
+        if has_uncovered:
             entries.append(("Not covered", NOT_COVERED_GREY))
+
         if not entries:
             return
-        self.legend_actor = self.plotter.add_legend([[label, tuple(color[:3])] for label, color in entries],
-                                                    bcolor=style.rgb(style.CARD), border=False, loc="lower right",
-                                                    size=(0.22, 0.04 * len(entries) + 0.02), face="circle")
+
+        width = 0.34 if has_uncovered else 0.22
+        height = 0.04 * len(entries) + 0.02
+
+        self.legend_actor = self.plotter.add_legend(
+            [[label, tuple(color[:3])] for label, color in entries],
+            bcolor=style.rgb(style.CARD),
+            border=False,
+            loc="lower right",
+            size=(width, height),
+            face="circle"
+        )
+
+        self.legend_actor.SetPosition(1.0 - width - 0.03, 0.05)
+        self.legend_actor.SetPosition2(width, height)
 
     def capture(self, *args, **kwargs):
         """plotter.screenshot without the line in the corner (it is for the person at the screen, not for
