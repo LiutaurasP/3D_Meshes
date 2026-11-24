@@ -26,7 +26,8 @@ CHANGE_COLORMAP = "coolwarm"  # blue = material removed, white = unchanged, red 
 CHANGE_LABEL = "Change (m): - removed / + added"
 WHEN_LABEL = "First changed in"
 UNCHANGED_GREY = (0.42, 0.44, 0.48)
-HIGHLIGHTS = ("truth", "changes")
+NOT_COVERED_GREY = (0.58, 0.58, 0.58)
+HIGHLIGHTS = ("truth", "changes", "not_covered")
 SPHERES_UP_TO = 1_500_000  # total points; above this, points are drawn as plain squares
 
 
@@ -44,6 +45,7 @@ class SceneView:
     and moving together with the cloud:
       "truth"   where the real change is (known for the example scenes)
       "changes" what change detection found
+      "not_covered" points without comparable coverage in the other scan
     """
 
     def __init__(self, parent, view_settings):
@@ -169,10 +171,16 @@ class SceneView:
                     data, scalars=DEPTH_LABEL, cmap=DEPTH_COLORMAP, clim=depth_range,
                     show_scalar_bar=index == 0, scalar_bar_args={"title": DEPTH_LABEL, **bar}, **style)
             elif mode == "Change":
-                data[CHANGE_LABEL] = self._shown(name, self.change_values[name])
+                values = np.asarray(self._shown(name, self.change_values[name]), dtype=float)
+                uncovered = self._shown(name, self.masks["not_covered"].get(name))
+                if uncovered is not None and uncovered.any():
+                    values = values.copy()
+                    values[uncovered] = np.nan
+                data[CHANGE_LABEL] = values
                 limit = self.change_limit
                 actor = self.plotter.add_points(
                     data, scalars=CHANGE_LABEL, cmap=CHANGE_COLORMAP, clim=[-limit, limit],
+                    nan_color=NOT_COVERED_GREY,
                     show_scalar_bar=index == 0, scalar_bar_args={"title": CHANGE_LABEL, **bar}, **style)
             elif mode == "When changed" and name in self.when_values:
                 data[WHEN_LABEL] = self._shown(name, self.when_values[name]) + 1
@@ -355,9 +363,13 @@ class SceneView:
                 actor.SetVisibility(shown and self._highlight_shown(kind))
 
     def _highlight_color(self, kind):
+        if kind == "not_covered":
+            return NOT_COVERED_GREY
         return self.settings.color_truth if kind == "truth" else self.settings.color_changes
 
     def _highlight_shown(self, kind):
+        if kind == "not_covered":
+            return True
         return self.settings.show_truth if kind == "truth" else self.settings.show_changes
 
     def _highlight_point_size(self):
@@ -385,24 +397,32 @@ class SceneView:
 
     # Change detection results
 
-    def set_changes(self, changed, values, limit):
-        """Show detected changes. changed / values: dicts name -> bool / signed metres per point."""
+    def set_changes(self, changed, values, limit, not_covered=None):
+        """Show detected changes and missing coverage, with arrays keyed by cloud name."""
         self.masks["changes"] = dict(changed)
+        self.masks["not_covered"] = dict(not_covered or {})
         self.change_values = dict(values)
         self.change_limit = max(float(limit), 1e-3)
         if self.settings.color_mode == "Change":
             self._rebuild()  # the clouds themselves get new colours
         else:
-            self._rebuild_highlights("changes")  # only the highlight layer is new (fast for big scans)
+            self._rebuild_highlights("changes")
+            self._rebuild_highlights("not_covered")
+            self._update_legend()
+            self.plotter.render()
 
     def clear_changes(self):
         self.masks["changes"] = {}
+        self.masks["not_covered"] = {}
         self.change_values = {}
         self.clear_areas()
         if self.settings.color_mode == "Change":
             self._rebuild()
         else:
             self._rebuild_highlights("changes")
+            self._rebuild_highlights("not_covered")
+            self._update_legend()
+            self.plotter.render()
 
     def _rebuild_highlights(self, kind):
         """Recreate one highlight layer without touching the (possibly huge) clouds."""
@@ -1083,7 +1103,9 @@ class SceneView:
         if self.legend_actor is not None:
             self.plotter.remove_legend(render=False)
             self.legend_actor = None
-        entries = getattr(self, "legend_entries", None)
+        entries = list(getattr(self, "legend_entries", None) or [])
+        if self.series_view is None and any(mask.any() for mask in self.masks["not_covered"].values()):
+            entries.append(("Not covered", NOT_COVERED_GREY))
         if not entries:
             return
         self.legend_actor = self.plotter.add_legend([[label, tuple(color[:3])] for label, color in entries],

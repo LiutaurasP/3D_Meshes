@@ -1402,6 +1402,7 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             dict(zip(names, (result.changed_a, result.changed_b))),
             dict(zip(names, (result.distance_a, result.distance_b))),
             limit,
+            not_covered=dict(zip(names, (result.not_covered_a, result.not_covered_b))),
         )
         self._draw_areas(result)
 
@@ -1412,6 +1413,10 @@ class MainWindow(LargeScanMixin, SeriesMixin, QMainWindow):
             summary = "<b>No changes found</b>"
         summary += f"<br>Threshold {result.threshold * 100:.1f} cm"
         summary += " (auto)" if self.settings.data.auto_threshold else ""
+        uncovered_a = result.not_covered_a.sum() / max(len(result.not_covered_a), 1)
+        uncovered_b = result.not_covered_b.sum() / max(len(result.not_covered_b), 1)
+        summary += (f"<br>Not covered (grey): {names[0]} {uncovered_a:.1%}, "
+                    f"{names[1]} {uncovered_b:.1%}")
         if result.lod is not None:
             from volumes import format_volume
 

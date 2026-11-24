@@ -317,11 +317,32 @@ def after_detection():
     check("change colours are used", "Change (m): - removed / + added" in window.scene.plotter.scalar_bars.keys())
     window.sidebar.color_mode.setCurrentText("Per scan")
 
+    # Exercise the missing-coverage display even if this example has full coverage.
+    from viewer.scene import NOT_COVERED_GREY
+
+    scene = window.scene
+    masks = {"Scan A": result.not_covered_a.copy(), "Scan B": result.not_covered_b.copy()}
+    masks["Scan B"][np.flatnonzero(~result.changed_b)[0]] = True
+    scene.set_changes({"Scan A": result.changed_a, "Scan B": result.changed_b},
+                      {"Scan A": result.distance_a, "Scan B": result.distance_b},
+                      scene.change_limit, not_covered=masks)
+    grey = scene.highlight_actors["not_covered"]["Scan B"]
+    check("uncovered points are grey", grey.GetVisibility() and np.allclose(grey.prop.color.float_rgb, NOT_COVERED_GREY, atol=1/255))
+    scene.set_visible("Scan B", False)
+    check("uncovered points follow scan visibility", not grey.GetVisibility())
+    scene.set_visible("Scan B", True)
+    window.sidebar.color_mode.setCurrentText("Change")
+    check("uncovered points remain marked in Change mode", bool(scene.highlight_actors["not_covered"]))
+    window.sidebar.color_mode.setCurrentText("Per scan")
+    window._show_change_result(result)
+    check("coverage percentages are shown", "Not covered (grey)" in window.sidebar.change_info.text())
+
     steps = window.align_steps
     window.sidebar.reset_align_button.click()
     actor = window.scene.actors["Scan B"]  # look it up again, clearing the changes rebuilds the actors
     check("reset puts B back", np.allclose(actor.user_matrix, np.eye(4)) and window.align_steps is None)
     check("moving B clears the detected changes", window.change_result is None and not window.scene.area_actors)
+    check("moving B clears coverage highlights", not window.scene.highlight_actors["not_covered"])
 
     # True change highlight follows B when it moves
     window.sidebar.truth.setChecked(True)
